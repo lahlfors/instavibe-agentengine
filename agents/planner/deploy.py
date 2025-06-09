@@ -30,17 +30,6 @@ app = AdkApp(
     # tools_config=?, # Optional: if PlannerAgent or its underlying agent needs specific tool configs
 )
 
-# agent_engines.create is used to deploy the agent to Vertex AI Agent Engines.
-# It expects an ADK agent module or a specific ADK agent instance.
-# Following the orchestrate example, we pass the module.
-deployed_agent = agent_engines.create(
-    app=planner_adk_agent_module, # Pass the module
-    display_name=display_name,
-    description=description,
-    requirements_path="agents/planner/requirements.txt", # Ensure this path is correct
-    # reserved_tools=?, # Optional: if specific tools should be reserved
-)
-
 # To be consistent with orchestrate/deploy.py that has:
 # remote_agent = agent_engines.create(agent, requirements="./requirements.txt")
 # We should ensure the path to requirements.txt is relative to the deploy.py script's execution,
@@ -70,7 +59,7 @@ deployed_agent = agent_engines.create(
 # Overwrite with the refined version:
 from agents.planner import agent as planner_adk_agent_module
 from agents.planner.planner_agent import PlannerAgent
-from vertexai import ReasoningEngine as VertexAIReasoningEngine
+from vertexai import reasoning_engines as VertexAIReasoningEngine
 from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC
 from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
 from google.cloud.aiplatform_v1.types import ReasoningEngineSpecPackageSpec

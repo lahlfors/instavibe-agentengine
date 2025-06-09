@@ -5,11 +5,20 @@ def deploy_planner_agent(project_id: str, region: str):
     """Deploys the Planner Agent."""
     print("Deploying Planner Agent...")
     try:
+        print("Installing Planner Agent dependencies...")
         subprocess.run(
-            ["python", "agents/planner/deploy.py", "--project_id", project_id, "--region", region],
+            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/planner",
+        )
+        subprocess.run(
+            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd="agents/planner",
         )
         print("Planner Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
@@ -22,11 +31,20 @@ def deploy_social_agent(project_id: str, region: str):
     """Deploys the Social Agent."""
     print("Deploying Social Agent...")
     try:
+        print("Installing Social Agent dependencies...")
         subprocess.run(
-            ["python", "agents/social/deploy.py", "--project_id", project_id, "--region", region],
+            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/social",
+        )
+        subprocess.run(
+            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd="agents/social",
         )
         print("Social Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
@@ -39,11 +57,20 @@ def deploy_orchestrate_agent(project_id: str, region: str):
     """Deploys the Orchestrate Agent."""
     print("Deploying Orchestrate Agent...")
     try:
+        print("Installing Orchestrate Agent dependencies...")
         subprocess.run(
-            ["python", "agents/orchestrate/deploy.py", "--project_id", project_id, "--region", region],
+            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/orchestrate",
+        )
+        subprocess.run(
+            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd="agents/orchestrate",
         )
         print("Orchestrate Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
@@ -109,10 +136,20 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     """Deploys the Platform MCP Client Agent to Vertex AI Agent Engine."""
     print("Deploying Platform MCP Client Agent to Vertex AI Agent Engine...")
     try:
+        print("Installing Platform MCP Client Agent dependencies...")
+        subprocess.run(
+            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd="agents/platform_mcp_client",
+        )
         subprocess.run(
             [
+                "env",
+                "PYTHONPATH=../..",
                 "python",
-                "agents/platform_mcp_client/deploy.py",
+                "deploy.py", # Now relative to cwd
                 "--project_id",
                 project_id,
                 "--location",
@@ -121,6 +158,7 @@ def deploy_platform_mcp_client(project_id: str, region: str):
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/platform_mcp_client",
         )
         print(f"Platform MCP Client Agent deployed successfully to Project: {project_id}, Region: {region}.")
     except subprocess.CalledProcessError as e:
@@ -203,6 +241,21 @@ def main():
     )
 
     args = parser.parse_args()
+
+    print("Installing root dependencies...")
+    try:
+        subprocess.run(
+            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print("Root dependencies installed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error installing root dependencies: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
 
     if not args.skip_agents:
         deploy_planner_agent(args.project_id, args.region)

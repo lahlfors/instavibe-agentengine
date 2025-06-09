@@ -7,7 +7,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from common.task_manager import AgentWithTaskManager
-from planner import agent
+from . import agent
 
 class PlannerAgent(AgentWithTaskManager):
   """An agent to help user planning a night out with its desire location."""

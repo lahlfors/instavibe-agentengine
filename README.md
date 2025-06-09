@@ -118,6 +118,25 @@ For each service:
     *   Directory for `gcloud builds submit`: `tools/instavibe/`
     *   Dockerfile Location: `tools/instavibe/Dockerfile`
 
+## Running Unit Tests
+
+This project includes unit tests for the central deployment script (`deploy_all.py`). These tests verify the script's logic, such as command-line argument parsing and conditional dispatch to deployment functions, without performing actual deployments (as external calls are mocked).
+
+### Prerequisites
+- Python 3.x (the same version used for `deploy_all.py`)
+
+### Executing Tests
+To run the unit tests, navigate to the root directory of the repository and execute one of the following commands:
+
+```bash
+python -m unittest test_deploy_all.py
+```
+Or, since the test script `test_deploy_all.py` includes the standard `if __name__ == '__main__': unittest.main()` guard, you can also run it directly:
+```bash
+python test_deploy_all.py
+```
+The tests will run, and you should see output indicating the number of tests run and their status (e.g., "OK" if all pass, or details of failures).
+
 ## Original Agent Deployment Note
 
 The Planner, Social, Orchestrate, and now Platform MCP Client agents are designed for deployment to Google Cloud Vertex AI Agent Engine. Each of these agents includes a `deploy.py` script in its respective directory (`agents/<agent_name>/deploy.py`) to facilitate this deployment.

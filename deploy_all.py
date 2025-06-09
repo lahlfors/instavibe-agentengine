@@ -105,55 +105,26 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
         print(f"Stderr: {e.stderr}")
         raise
 
-def deploy_platform_mcp_client(project_id: str, region: str, image_name: str = "platform-mcp-client"):
-    """Builds and deploys the Platform MCP Client to Cloud Run."""
-    print("Deploying Platform MCP Client...")
+def deploy_platform_mcp_client(project_id: str, region: str):
+    """Deploys the Platform MCP Client Agent to Vertex AI Agent Engine."""
+    print("Deploying Platform MCP Client Agent to Vertex AI Agent Engine...")
     try:
-        # Build Docker image using Google Cloud Build
-        print(f"Building Platform MCP Client Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
         subprocess.run(
             [
-                "gcloud",
-                "builds",
-                "submit",
-                "--tag",
-                f"gcr.io/{project_id}/{image_name}",
-                ".",
-                "--project",
+                "python",
+                "agents/platform_mcp_client/deploy.py",
+                "--project_id",
                 project_id,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/platform_mcp_client/", # Run this command in the agents/platform_mcp_client/ directory
-        )
-        print(f"Platform MCP Client Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
-
-        # Deploy to Cloud Run
-        print(f"Deploying Platform MCP Client {image_name} to Cloud Run in {region}...")
-        subprocess.run(
-            [
-                "gcloud",
-                "run",
-                "deploy",
-                image_name,
-                "--image",
-                f"gcr.io/{project_id}/{image_name}",
-                "--platform",
-                "managed",
-                "--region",
+                "--location",
                 region,
-                "--project",
-                project_id,
-                 "--allow-unauthenticated", # Assuming public access for now
             ],
             check=True,
             capture_output=True,
             text=True,
         )
-        print(f"Platform MCP Client {image_name} deployed successfully to Cloud Run in {region}.")
+        print(f"Platform MCP Client Agent deployed successfully to Project: {project_id}, Region: {region}.")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying Platform MCP Client: {e}")
+        print(f"Error deploying Platform MCP Client Agent: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
         raise

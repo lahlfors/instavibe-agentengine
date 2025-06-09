@@ -21,7 +21,7 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 from instavibe import create_event,create_post
 load_dotenv()
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
-APP_PORT = os.environ.get("APP_PORT",8080)
+PORT = os.environ.get("PORT", "8080")
 
 
 event_tool = FunctionTool(create_event)
@@ -99,7 +99,7 @@ starlette_app = Starlette(
 if __name__ == "__main__":
   print("Launching MCP Server exposing ADK tools...")
   try:
-    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=APP_PORT))
+    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=int(PORT)))
   except KeyboardInterrupt:
     print("\nMCP Server stopped by user.")
   except Exception as e:

@@ -22,7 +22,7 @@ INSTANCE_ID = "instavibe-graph-instance" # Replace if different
 DATABASE_ID = "graphdb" # Replace if different
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
-APP_PORT = os.environ.get("APP_PORT","8080")
+PORT = os.environ.get("PORT","8080")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
 GOOGLE_MAPS_MAP_KEY = os.environ.get('GOOGLE_MAPS_MAP_ID')
 
@@ -801,4 +801,4 @@ if __name__ == '__main__':
         print("\n--- Starting Flask Development Server ---")
         # Use debug=True only in development! It reloads code and provides better error pages.
         # Use host='0.0.0.0' to make it accessible on your network (e.g., from a VM)
-        app.run(debug=True, host=APP_HOST, port=APP_PORT) # Changed port to avoid conflicts
+        app.run(debug=True, host=APP_HOST, port=int(PORT)) # Changed port to avoid conflicts

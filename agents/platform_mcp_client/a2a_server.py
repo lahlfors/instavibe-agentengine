@@ -12,8 +12,8 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-host=os.environ.get("A2A_HOST", "localhost")
-port=int(os.environ.get("A2A_PORT",10002))
+host=os.environ.get("HOST", "0.0.0.0") # Changed "A2A_HOST" to "HOST" and default to "0.0.0.0"
+port=int(os.environ.get("PORT", 10002)) # Changed "A2A_PORT" to "PORT"
 PUBLIC_URL=os.environ.get("PUBLIC_URL")
 
 def main():

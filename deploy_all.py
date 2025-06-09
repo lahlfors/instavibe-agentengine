@@ -1,0 +1,253 @@
+import subprocess
+import argparse
+
+def deploy_planner_agent(project_id: str, region: str):
+    """Deploys the Planner Agent."""
+    print("Deploying Planner Agent...")
+    try:
+        subprocess.run(
+            ["python", "agents/planner/deploy.py", "--project_id", project_id, "--region", region],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print("Planner Agent deployed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying Planner Agent: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
+def deploy_social_agent(project_id: str, region: str):
+    """Deploys the Social Agent."""
+    print("Deploying Social Agent...")
+    try:
+        subprocess.run(
+            ["python", "agents/social/deploy.py", "--project_id", project_id, "--region", region],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print("Social Agent deployed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying Social Agent: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
+def deploy_orchestrate_agent(project_id: str, region: str):
+    """Deploys the Orchestrate Agent."""
+    print("Deploying Orchestrate Agent...")
+    try:
+        subprocess.run(
+            ["python", "agents/orchestrate/deploy.py", "--project_id", project_id, "--region", region],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print("Orchestrate Agent deployed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying Orchestrate Agent: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
+def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instavibe-app"):
+    """Builds and deploys the Instavibe App to Cloud Run."""
+    print("Deploying Instavibe App...")
+    try:
+        # Build Docker image
+        subprocess.run(
+            ["docker", "build", "-t", f"gcr.io/{project_id}/{image_name}", "instavibe/"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} built successfully.")
+
+        # Push Docker image to GCR
+        subprocess.run(
+            ["docker", "push", f"gcr.io/{project_id}/{image_name}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} pushed successfully.")
+
+        # Deploy to Cloud Run
+        subprocess.run(
+            [
+                "gcloud",
+                "run",
+                "deploy",
+                image_name,
+                "--image",
+                f"gcr.io/{project_id}/{image_name}",
+                "--platform",
+                "managed",
+                "--region",
+                region,
+                "--project",
+                project_id,
+                "--allow-unauthenticated", # Assuming public access for now
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Instavibe App {image_name} deployed successfully to Cloud Run in {region}.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying Instavibe App: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
+def deploy_platform_mcp_client(project_id: str, region: str, image_name: str = "platform-mcp-client"):
+    """Builds and deploys the Platform MCP Client to Cloud Run."""
+    print("Deploying Platform MCP Client...")
+    try:
+        # Build Docker image
+        subprocess.run(
+            ["docker", "build", "-t", f"gcr.io/{project_id}/{image_name}", "agents/platform_mcp_client/"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Platform MCP Client Docker image gcr.io/{project_id}/{image_name} built successfully.")
+
+        # Push Docker image to GCR
+        subprocess.run(
+            ["docker", "push", f"gcr.io/{project_id}/{image_name}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Platform MCP Client Docker image gcr.io/{project_id}/{image_name} pushed successfully.")
+
+        # Deploy to Cloud Run
+        subprocess.run(
+            [
+                "gcloud",
+                "run",
+                "deploy",
+                image_name,
+                "--image",
+                f"gcr.io/{project_id}/{image_name}",
+                "--platform",
+                "managed",
+                "--region",
+                region,
+                "--project",
+                project_id,
+                 "--allow-unauthenticated", # Assuming public access for now
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Platform MCP Client {image_name} deployed successfully to Cloud Run in {region}.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying Platform MCP Client: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
+def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-tool-server"):
+    """Builds and deploys the MCP Tool Server to Cloud Run."""
+    print("Deploying MCP Tool Server...")
+    try:
+        # Build Docker image
+        subprocess.run(
+            ["docker", "build", "-t", f"gcr.io/{project_id}/{image_name}", "tools/instavibe/"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} built successfully.")
+
+        # Push Docker image to GCR
+        subprocess.run(
+            ["docker", "push", f"gcr.io/{project_id}/{image_name}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} pushed successfully.")
+
+        # Deploy to Cloud Run
+        subprocess.run(
+            [
+                "gcloud",
+                "run",
+                "deploy",
+                image_name,
+                "--image",
+                f"gcr.io/{project_id}/{image_name}",
+                "--platform",
+                "managed",
+                "--region",
+                region,
+                "--project",
+                project_id,
+                "--allow-unauthenticated", # Assuming public access for now
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"MCP Tool Server {image_name} deployed successfully to Cloud Run in {region}.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying MCP Tool Server: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        raise
+
+def main():
+    """
+    Main function to deploy all components of the instavibe app.
+    """
+    parser = argparse.ArgumentParser(description="Deploy all components of the instavibe app.")
+    parser.add_argument("--project_id", required=True, help="Google Cloud project ID.")
+    parser.add_argument("--region", required=True, help="Google Cloud region for deployment.")
+    parser.add_argument(
+        "--skip_agents", action="store_true", help="Skip deploying the agents."
+    )
+    parser.add_argument(
+        "--skip_app", action="store_true", help="Skip deploying the Instavibe app."
+    )
+    parser.add_argument(
+        "--skip_platform_mcp_client", action="store_true", help="Skip deploying the Platform MCP Client."
+    )
+    parser.add_argument(
+        "--skip_mcp_tool_server", action="store_true", help="Skip deploying the MCP Tool Server."
+    )
+
+    args = parser.parse_args()
+
+    if not args.skip_agents:
+        deploy_planner_agent(args.project_id, args.region)
+        deploy_social_agent(args.project_id, args.region)
+        deploy_orchestrate_agent(args.project_id, args.region)
+    else:
+        print("Skipping agent deployments.")
+
+    if not args.skip_app:
+        deploy_instavibe_app(args.project_id, args.region)
+    else:
+        print("Skipping Instavibe app deployment.")
+
+    if not args.skip_platform_mcp_client:
+        deploy_platform_mcp_client(args.project_id, args.region)
+    else:
+        print("Skipping Platform MCP Client deployment.")
+
+    if not args.skip_mcp_tool_server:
+        deploy_mcp_tool_server(args.project_id, args.region)
+    else:
+        print("Skipping MCP Tool Server deployment.")
+
+    print("All selected components deployed.")
+
+
+if __name__ == "__main__":
+    main()

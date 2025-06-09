@@ -5,9 +5,11 @@ def deploy_planner_agent(project_id: str, region: str):
     """Deploys the Planner Agent."""
     print("Deploying Planner Agent...")
     try:
+        print("Uninstalling existing Planner Agent dependencies...")
+        subprocess.run(["python", "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
         print("Installing Planner Agent dependencies...")
         subprocess.run(
-            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            ["python", "-m", "pip", "install", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,

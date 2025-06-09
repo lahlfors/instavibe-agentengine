@@ -1,27 +1,52 @@
 import subprocess
 import argparse
+import sys
+
+# Pre-install root dependencies to ensure imports work
+try:
+    print("Pre-installing root dependencies for import purposes...")
+    # Temporarily disable capture_output to see pip's full output
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        check=True,  # Still check for errors
+        text=True,   # Decode stdout/stderr as text
+        capture_output=False # Print directly to console
+    )
+    print("Root dependencies pre-installed successfully (based on exit code).")
+except subprocess.CalledProcessError as e:
+    print(f"ERROR: Critical error pre-installing root dependencies: {e}")
+    if e.stdout: # Access stdout via result object if needed, but with capture_output=False, it's on console
+        print(f"Stdout: {e.stdout}")
+    if e.stderr:
+        print(f"Stderr: {e.stderr}")
+    # It's critical, so perhaps exit or raise
+    raise # Re-raise the exception to halt execution if pre-installation fails critically
+
+print("Python sys.path before problematic import:")
+print(sys.path)
+
+from google.cloud import aiplatform
+from agents.planner.deploy import deploy_planner_main_func
+from agents.social.deploy import deploy_social_main_func
+from agents.orchestrate.deploy import deploy_orchestrate_main_func
+from agents.platform_mcp_client.deploy import deploy_platform_mcp_client_main_func
 
 def deploy_planner_agent(project_id: str, region: str):
     """Deploys the Planner Agent."""
     print("Deploying Planner Agent...")
     try:
         print("Uninstalling existing Planner Agent dependencies...")
-        subprocess.run(["python", "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
+        # Uninstall doesn't need --break-system-packages
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
         print("Installing Planner Agent dependencies...")
         subprocess.run(
-            ["python", "-m", "pip", "install", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
             cwd="agents/planner",
         )
-        subprocess.run(
-            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/planner",
-        )
+        deploy_planner_main_func(project_id, region, base_dir=".")
         print("Planner Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying Planner Agent: {e}")
@@ -35,19 +60,13 @@ def deploy_social_agent(project_id: str, region: str):
     try:
         print("Installing Social Agent dependencies...")
         subprocess.run(
-            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
             cwd="agents/social",
         )
-        subprocess.run(
-            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/social",
-        )
+        deploy_social_main_func(project_id, region, base_dir=".")
         print("Social Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying Social Agent: {e}")
@@ -61,19 +80,13 @@ def deploy_orchestrate_agent(project_id: str, region: str):
     try:
         print("Installing Orchestrate Agent dependencies...")
         subprocess.run(
-            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
             cwd="agents/orchestrate",
         )
-        subprocess.run(
-            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/orchestrate",
-        )
+        deploy_orchestrate_main_func(project_id, region, base_dir=".")
         print("Orchestrate Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying Orchestrate Agent: {e}")
@@ -140,28 +153,13 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     try:
         print("Installing Platform MCP Client Agent dependencies...")
         subprocess.run(
-            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
             cwd="agents/platform_mcp_client",
         )
-        subprocess.run(
-            [
-                "env",
-                "PYTHONPATH=../..",
-                "python",
-                "deploy.py", # Now relative to cwd
-                "--project_id",
-                project_id,
-                "--location",
-                region,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/platform_mcp_client",
-        )
+        deploy_platform_mcp_client_main_func(project_id, region, base_dir=".")
         print(f"Platform MCP Client Agent deployed successfully to Project: {project_id}, Region: {region}.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying Platform MCP Client Agent: {e}")
@@ -244,15 +242,17 @@ def main():
 
     args = parser.parse_args()
 
-    print("Installing root dependencies...")
+    aiplatform.init(project=args.project_id, location=args.region)
+
+    print("Ensuring root dependencies are installed (main check)...")
     try:
         subprocess.run(
-            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
             capture_output=True,
             text=True,
         )
-        print("Root dependencies installed successfully.")
+        print("Root dependencies verified/installed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error installing root dependencies: {e}")
         print(f"Stdout: {e.stdout}")

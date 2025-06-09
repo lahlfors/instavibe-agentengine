@@ -1,4 +1,4 @@
-from orchestrate.host_agent import HostAgent
+from .host_agent import HostAgent
 import asyncio
 import os # Import os to read environment variables
 from dotenv import load_dotenv

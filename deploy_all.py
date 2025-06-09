@@ -56,25 +56,28 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
     """Builds and deploys the Instavibe App to Cloud Run."""
     print("Deploying Instavibe App...")
     try:
-        # Build Docker image
+        # Build Docker image using Google Cloud Build
+        print(f"Building Instavibe App Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["docker", "build", "-t", f"gcr.io/{project_id}/{image_name}", "instavibe/"],
+            [
+                "gcloud",
+                "builds",
+                "submit",
+                "--tag",
+                f"gcr.io/{project_id}/{image_name}",
+                ".",
+                "--project",
+                project_id,
+            ],
             check=True,
             capture_output=True,
             text=True,
+            cwd="instavibe/", # Run this command in the instavibe/ directory
         )
-        print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} built successfully.")
-
-        # Push Docker image to GCR
-        subprocess.run(
-            ["docker", "push", f"gcr.io/{project_id}/{image_name}"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} pushed successfully.")
+        print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
+        print(f"Deploying Instavibe App {image_name} to Cloud Run in {region}...")
         subprocess.run(
             [
                 "gcloud",
@@ -106,25 +109,28 @@ def deploy_platform_mcp_client(project_id: str, region: str, image_name: str = "
     """Builds and deploys the Platform MCP Client to Cloud Run."""
     print("Deploying Platform MCP Client...")
     try:
-        # Build Docker image
+        # Build Docker image using Google Cloud Build
+        print(f"Building Platform MCP Client Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["docker", "build", "-t", f"gcr.io/{project_id}/{image_name}", "agents/platform_mcp_client/"],
+            [
+                "gcloud",
+                "builds",
+                "submit",
+                "--tag",
+                f"gcr.io/{project_id}/{image_name}",
+                ".",
+                "--project",
+                project_id,
+            ],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/platform_mcp_client/", # Run this command in the agents/platform_mcp_client/ directory
         )
-        print(f"Platform MCP Client Docker image gcr.io/{project_id}/{image_name} built successfully.")
-
-        # Push Docker image to GCR
-        subprocess.run(
-            ["docker", "push", f"gcr.io/{project_id}/{image_name}"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        print(f"Platform MCP Client Docker image gcr.io/{project_id}/{image_name} pushed successfully.")
+        print(f"Platform MCP Client Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
+        print(f"Deploying Platform MCP Client {image_name} to Cloud Run in {region}...")
         subprocess.run(
             [
                 "gcloud",
@@ -156,25 +162,28 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
     """Builds and deploys the MCP Tool Server to Cloud Run."""
     print("Deploying MCP Tool Server...")
     try:
-        # Build Docker image
+        # Build Docker image using Google Cloud Build
+        print(f"Building MCP Tool Server Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["docker", "build", "-t", f"gcr.io/{project_id}/{image_name}", "tools/instavibe/"],
+            [
+                "gcloud",
+                "builds",
+                "submit",
+                "--tag",
+                f"gcr.io/{project_id}/{image_name}",
+                ".",
+                "--project",
+                project_id,
+            ],
             check=True,
             capture_output=True,
             text=True,
+            cwd="tools/instavibe/", # Run this command in the tools/instavibe/ directory
         )
-        print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} built successfully.")
-
-        # Push Docker image to GCR
-        subprocess.run(
-            ["docker", "push", f"gcr.io/{project_id}/{image_name}"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} pushed successfully.")
+        print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
+        print(f"Deploying MCP Tool Server {image_name} to Cloud Run in {region}...")
         subprocess.run(
             [
                 "gcloud",

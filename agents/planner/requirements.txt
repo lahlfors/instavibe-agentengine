@@ -1,4 +1,4 @@
-google-cloud-aiplatform[adk,agent_engines]>=1.90.0
+google-cloud-aiplatform[adk,agent_engines]==1.95.1
 google-adk==0.4.0
 python-dateutil==2.9.0.post0
 ../a2a_common-0.1.0-py3-none-any.whl

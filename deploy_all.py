@@ -6,10 +6,11 @@ def deploy_planner_agent(project_id: str, region: str):
     print("Deploying Planner Agent...")
     try:
         subprocess.run(
-            ["python", "agents/planner/deploy.py", "--project_id", project_id, "--region", region],
+            ["python", "deploy.py", "--project_id", project_id, "--region", region],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/planner",
         )
         print("Planner Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
@@ -23,10 +24,11 @@ def deploy_social_agent(project_id: str, region: str):
     print("Deploying Social Agent...")
     try:
         subprocess.run(
-            ["python", "agents/social/deploy.py", "--project_id", project_id, "--region", region],
+            ["python", "deploy.py", "--project_id", project_id, "--region", region],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/social",
         )
         print("Social Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
@@ -40,10 +42,11 @@ def deploy_orchestrate_agent(project_id: str, region: str):
     print("Deploying Orchestrate Agent...")
     try:
         subprocess.run(
-            ["python", "agents/orchestrate/deploy.py", "--project_id", project_id, "--region", region],
+            ["python", "deploy.py", "--project_id", project_id, "--region", region],
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/orchestrate",
         )
         print("Orchestrate Agent deployed successfully.")
     except subprocess.CalledProcessError as e:
@@ -112,7 +115,7 @@ def deploy_platform_mcp_client(project_id: str, region: str):
         subprocess.run(
             [
                 "python",
-                "agents/platform_mcp_client/deploy.py",
+                "deploy.py", # Now relative to cwd
                 "--project_id",
                 project_id,
                 "--location",
@@ -121,6 +124,7 @@ def deploy_platform_mcp_client(project_id: str, region: str):
             check=True,
             capture_output=True,
             text=True,
+            cwd="agents/platform_mcp_client",
         )
         print(f"Platform MCP Client Agent deployed successfully to Project: {project_id}, Region: {region}.")
     except subprocess.CalledProcessError as e:

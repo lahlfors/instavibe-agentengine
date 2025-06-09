@@ -19,32 +19,35 @@ log = logging.getLogger(__name__)
 # --- Global variables ---
 # Define them first, initialize as None
 root_agent: LlmAgent | None = None
-exit_stack: AsyncExitStack | None = None
+mcp_toolset_instance: MCPToolset | None = None # Changed from exit_stack
 
 
-async def get_tools_async():
-  """Gets tools from the File System MCP Server."""
+async def get_tools_async() -> MCPToolset: # Return MCPToolset instance
+  """Initializes and returns the MCPToolset."""
   print("Attempting to connect to MCP Filesystem server...")
-  tools, exit_stack = await MCPToolset.from_server(
+  # Instantiate MCPToolset directly
+  mcp_toolset = MCPToolset(
       connection_params=SseServerParams(url=MCP_SERVER_URL, headers={})
   )
-  log.info("MCP Toolset created successfully.")
-
-  return tools, exit_stack
+  # Assuming MCPToolset connects on first use or has an explicit connect method if needed.
+  # If it has an async init/connect method, it should be awaited here.
+  # For now, we assume direct instantiation is sufficient based on the documentation.
+  log.info("MCPToolset instance created.")
+  return mcp_toolset
  
 
-async def get_agent_async():
+async def get_agent_async() -> tuple[LlmAgent | None, MCPToolset | None]:
   """
   Asynchronously creates the MCP Toolset and the LlmAgent.
 
   Returns:
-      tuple: (LlmAgent instance, AsyncExitStack instance for cleanup)
+      tuple: (LlmAgent instance, MCPToolset instance for cleanup)
   """
-  tools, exit_stack = await get_tools_async()
+  mcp_toolset = await get_tools_async()
 
-  root_agent = LlmAgent(
+  current_root_agent = LlmAgent(
       model='gemini-2.0-flash', # Adjust model name if needed based on availability
-      name='social_agent',
+      name='platform_mcp_client_agent', # Corrected agent name
       instruction="""
         You are a friendly and efficient assistant for the Instavibe social app.
         Your primary goal is to help users create posts and register for events using the available tools.
@@ -67,21 +70,23 @@ async def get_agent_async():
         - Use only the provided tools. Do not try to perform actions outside of their scope.
 
       """,
-        tools=tools,
+        tools=[mcp_toolset], # Pass the MCPToolset instance as a list
   )
   print("LlmAgent created.")
 
-  # Return both the agent and the exit_stack needed for cleanup
-  return root_agent, exit_stack
+  # Return both the agent and the mcp_toolset needed for cleanup
+  return current_root_agent, mcp_toolset
 
 
 async def initialize():
-   """Initializes the global root_agent and exit_stack."""
-   global root_agent, exit_stack
+   """Initializes the global root_agent and mcp_toolset_instance."""
+   global root_agent, mcp_toolset_instance # Updated global variable name
    if root_agent is None:
        log.info("Initializing agent...")
-       root_agent, exit_stack = await get_agent_async()
-       if root_agent:
+       agent_instance, toolset_instance = await get_agent_async()
+       if agent_instance:
+           root_agent = agent_instance
+           mcp_toolset_instance = toolset_instance # Store the toolset instance
            log.info("Agent initialized successfully.")
        else:
            log.error("Agent initialization failed.")
@@ -90,14 +95,18 @@ async def initialize():
        log.info("Agent already initialized.")
 
 def _cleanup_sync():
-    """Synchronous wrapper to attempt async cleanup."""
-    if exit_stack:
+    """Synchronous wrapper to attempt async cleanup of MCPToolset."""
+    global mcp_toolset_instance # Ensure we're referencing the global
+    if mcp_toolset_instance:
         log.info("Attempting to close MCP connection via atexit...")
         try:
-            asyncio.run(exit_stack.aclose())
+            # MCPToolset.close() is an async method
+            asyncio.run(mcp_toolset_instance.close())
             log.info("MCP connection closed via atexit.")
         except Exception as e:
-            log.error(f"Error during atexit cleanup: {e}", exc_info=True)
+            log.error(f"Error during atexit MCP toolset cleanup: {e}", exc_info=True)
+        finally:
+            mcp_toolset_instance = None # Clear the global instance
 
 
 nest_asyncio.apply()

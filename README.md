@@ -5,6 +5,7 @@ This repository contains the necessary scripts and configurations to deploy the 
 ## Central Deployment Script (`deploy_all.py`)
 
 A central Python script `deploy_all.py` is provided in the root directory to orchestrate the deployment of all components.
+For containerized services (Instavibe App, Platform MCP Client, MCP Tool Server), the script utilizes **Google Cloud Build** to build the container images, which are then deployed to Google Cloud Run.
 
 ### Prerequisites
 
@@ -12,10 +13,12 @@ Before running the central deployment script, ensure you have the following:
 
 1.  **Google Cloud SDK (`gcloud`)**: Installed and authenticated. You can find installation instructions [here](https://cloud.google.com/sdk/docs/install).
     *   Ensure you have logged in (`gcloud auth login`) and set your project (`gcloud config set project [YOUR_PROJECT_ID]`).
+    *   The Cloud Build API must be enabled in your GCP project. You can enable it by visiting the Google Cloud Console or by running `gcloud services enable cloudbuild.googleapis.com`.
 2.  **Python 3**: Installed on your system.
-3.  **Docker**: Installed and running on your system, if you are deploying the Dockerized services. The script will use `docker` commands to build and push images. (Alternatively, Google Cloud Build can be used as described in the manual section, which doesn't require local Docker for the build step).
-4.  **Project ID**: Your Google Cloud Project ID.
-5.  **Region**: The Google Cloud region where you want to deploy the services (e.g., `us-central1`).
+3.  **Project ID**: Your Google Cloud Project ID.
+4.  **Region**: The Google Cloud region where you want to deploy the services (e.g., `us-central1`).
+
+*Note on Docker: While Docker was previously required for local image builds, `deploy_all.py` now uses Google Cloud Build, which builds your images in the cloud. Therefore, a local Docker installation is generally not required to run the script. However, Docker might still be useful for local development and testing.*
 
 ### Usage
 
@@ -67,17 +70,18 @@ These agents are designed for deployment to Google Cloud Vertex AI Agent Engine.
 
 ### Dockerized Services (Instavibe App, Platform MCP Client, MCP Tool Server)
 
-These services are deployed as Docker containers to Google Cloud Run.
+These services are deployed as Docker containers to Google Cloud Run using Google Cloud Build.
 
 **General Steps:**
 
 For each service:
 
-1.  **Build the Docker image using Google Cloud Build:**
+1.  **Build and push the Docker image using Google Cloud Build:**
+    Navigate to the service's directory (e.g., `cd instavibe/`) and run:
     ```bash
-    gcloud builds submit --tag gcr.io/[PROJECT_ID]/[SERVICE_NAME] [SERVICE_DIRECTORY]
+    gcloud builds submit --tag gcr.io/[PROJECT_ID]/[SERVICE_NAME] . --project [PROJECT_ID]
     ```
-    Replace `[PROJECT_ID]` with your Google Cloud Project ID, `[SERVICE_NAME]` with the specific service name (e.g., `instavibe-app`), and `[SERVICE_DIRECTORY]` with the path to the directory containing the Dockerfile.
+    Replace `[PROJECT_ID]` with your Google Cloud Project ID and `[SERVICE_NAME]` with the specific service name (e.g., `instavibe-app`). The `.` indicates that the build context (including the Dockerfile) is the current directory.
 
 2.  **Deploy the image to Cloud Run:**
     ```bash
@@ -94,17 +98,17 @@ For each service:
 
 1.  **Instavibe App:**
     *   Service Name: `instavibe-app` (or your preferred name)
-    *   Service Directory (contains Dockerfile): `instavibe/`
+    *   Directory for `gcloud builds submit`: `instavibe/`
     *   Dockerfile Location: `instavibe/Dockerfile`
 
 2.  **Platform MCP Client:**
     *   Service Name: `platform-mcp-client` (or your preferred name)
-    *   Service Directory (contains Dockerfile): `agents/platform_mcp_client/`
+    *   Directory for `gcloud builds submit`: `agents/platform_mcp_client/`
     *   Dockerfile Location: `agents/platform_mcp_client/Dockerfile`
 
 3.  **MCP Tool Server:**
     *   Service Name: `mcp-tool-server` (or your preferred name)
-    *   Service Directory (contains Dockerfile): `tools/instavibe/`
+    *   Directory for `gcloud builds submit`: `tools/instavibe/`
     *   Dockerfile Location: `tools/instavibe/Dockerfile`
 
 ## Original Agent Deployment Note

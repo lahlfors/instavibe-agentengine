@@ -14,7 +14,7 @@ def deploy_planner_agent(project_id: str, region: str):
             cwd="agents/planner",
         )
         subprocess.run(
-            ["python", "deploy.py", "--project_id", project_id, "--region", region],
+            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
             check=True,
             capture_output=True,
             text=True,
@@ -40,7 +40,7 @@ def deploy_social_agent(project_id: str, region: str):
             cwd="agents/social",
         )
         subprocess.run(
-            ["python", "deploy.py", "--project_id", project_id, "--region", region],
+            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
             check=True,
             capture_output=True,
             text=True,
@@ -66,7 +66,7 @@ def deploy_orchestrate_agent(project_id: str, region: str):
             cwd="agents/orchestrate",
         )
         subprocess.run(
-            ["python", "deploy.py", "--project_id", project_id, "--region", region],
+            ["env", "PYTHONPATH=../..", "python", "deploy.py", "--project_id", project_id, "--region", region],
             check=True,
             capture_output=True,
             text=True,
@@ -146,6 +146,8 @@ def deploy_platform_mcp_client(project_id: str, region: str):
         )
         subprocess.run(
             [
+                "env",
+                "PYTHONPATH=../..",
                 "python",
                 "deploy.py", # Now relative to cwd
                 "--project_id",

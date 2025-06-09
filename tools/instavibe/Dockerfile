@@ -19,4 +19,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["python", "mcp_server.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "2", "--threads", "4", "--worker-class", "gthread", "mcp_server:app"]

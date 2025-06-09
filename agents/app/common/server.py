@@ -1,0 +1,130 @@
+# agents/app/common/server.py
+import os
+import asyncio
+import logging
+from http.server import BaseHTTPRequestHandler, HTTPServer # Using http.server for simplicity
+from urllib.parse import urlparse, parse_qs
+import json
+
+from .types import AgentCard # Relative import
+from .task_manager import AgentTaskManager # Relative import
+
+logger = logging.getLogger(__name__)
+
+class A2AServer:
+    def __init__(self, agent_card: AgentCard, task_manager: AgentTaskManager, host: str = "localhost", port: int = 8080):
+        self.agent_card = agent_card
+        self.task_manager = task_manager
+
+        # Cloud Run compatibility:
+        # Prioritize PORT environment variable from Cloud Run, then A2A_PORT, then constructor arg, then default.
+        # Host should be 0.0.0.0 for Cloud Run to accept external requests.
+        _port_str = os.environ.get("PORT", os.environ.get("A2A_PORT", str(port)))
+        try:
+            self.port = int(_port_str)
+        except ValueError:
+            logger.warning(f"Invalid port value '{_port_str}', defaulting to {port}.")
+            self.port = port
+
+        # For Cloud Run, host must be '0.0.0.0' to be accessible.
+        # If A2A_HOST is explicitly set, use it, otherwise default to '0.0.0.0' if PORT is set (Cloud Run env),
+        # else use constructor host.
+        _host_env = os.environ.get("A2A_HOST")
+        if os.environ.get("PORT") and not _host_env: # Likely Cloud Run
+            self.host = "0.0.0.0"
+        else:
+            self.host = _host_env if _host_env else host
+
+        logger.info(f"A2AServer configured for host {self.host} and port {self.port}")
+        self.server = None # Will be initialized in start()
+
+    def start(self):
+        if self.server:
+            logger.warning("Server already started.")
+            return
+
+        # Simple HTTP server for demonstration
+        # A real implementation would use Flask, FastAPI, or similar with ADK integrations
+        class RequestHandler(BaseHTTPRequestHandler):
+            # Reference to outer class members
+            _agent_card = self.agent_card
+            _task_manager = self.task_manager
+
+            def do_GET(self):
+                if self.path == '/agent-card':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    # A real AgentCard would have a to_dict() method or similar
+                    card_dict = {
+                        "name": self._agent_card.name,
+                        "description": self._agent_card.description,
+                        "url": self._agent_card.url,
+                        "version": self._agent_card.version,
+                        # Add other fields as necessary
+                    }
+                    self.wfile.write(json.dumps(card_dict).encode('utf-8'))
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"Not Found")
+
+            async def _handle_task_async(self, post_data_dict):
+                # This is where ADK's task processing logic would integrate
+                return await self._task_manager.handle_request(post_data_dict)
+
+            def do_POST(self):
+                if self.path == '/handle-task': # Example endpoint
+                    content_length = int(self.headers['Content-Length'])
+                    post_data = self.rfile.read(content_length)
+                    try:
+                        post_data_dict = json.loads(post_data.decode('utf-8'))
+                        logger.info(f"Received task data: {post_data_dict}")
+
+                        # For simplicity, running async within sync handler
+                        # A proper async framework (FastAPI, Quart) would handle this better
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        result = loop.run_until_complete(self._handle_task_async(post_data_dict))
+                        loop.close()
+
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps(result).encode('utf-8'))
+                    except json.JSONDecodeError:
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": "Invalid JSON"}).encode('utf-8'))
+                    except Exception as e:
+                        logger.error(f"Error handling task: {e}", exc_info=True)
+                        self.send_response(500)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": "Internal server error"}).encode('utf-8'))
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"Not Found")
+
+        try:
+            self.server = HTTPServer((self.host, self.port), RequestHandler)
+            logger.info(f"A2AServer starting on http://{self.host}:{self.port}")
+            self.server.serve_forever()
+        except Exception as e:
+            logger.error(f"Could not start A2AServer: {e}", exc_info=True)
+            self.server = None # Ensure server is None if start failed
+        finally:
+            if self.server:
+                self.server.server_close()
+                logger.info("A2AServer stopped.")
+                self.server = None
+
+    def stop(self):
+        if self.server:
+            logger.info("A2AServer stopping...")
+            self.server.shutdown() # Graceful shutdown
+        else:
+            logger.info("A2AServer not running or already stopped.")
+print("DEBUG: common.server loaded with Cloud Run compatibility") # Debug print

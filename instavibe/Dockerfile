@@ -7,7 +7,7 @@ WORKDIR /app
 # --- Dependency Installation ---
 # Copy only the requirements file first to leverage Docker cache
 COPY requirements.txt /app/requirements.txt 
-RUN pip install --no-cache-dir -r requirements.txt d
+RUN pip install --no-cache-dir -r requirements.txt
 
 
 # --- Application Code ---
@@ -22,4 +22,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["python","app.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "2", "--threads", "4", "--worker-class", "gthread", "app:app"]

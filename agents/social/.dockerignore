@@ -2,10 +2,14 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.venv
-.env
+.Python
 env/
+.env
+.venv/
 venv/
-.git
-.gitignore
-README.md
+local_settings.py
+.pytest_cache/
+.coverage
+*.log
+# Agent-specific files to ignore if any (e.g., local test data)
+*.evalset.json # Example, for planner_eval.evalset.json

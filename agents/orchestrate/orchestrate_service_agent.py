@@ -3,22 +3,35 @@ from google.adk.runners import Runner
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
-from typing import Any, Dict, List # Added List for type hint
+from typing import Any, Dict, List
 
-# Assuming agent.py (which defines root_agent) is in the same directory 'orchestrate'
-# So, from .agent import root_agent as orchestrate_llm_agent should work.
-from .agent import root_agent as orchestrate_llm_agent
+# Import HostAgent to create the underlying LlmAgent
+from agents.orchestrate.host_agent import HostAgent
+import logging # For logging addresses
+
+log = logging.getLogger(__name__)
 
 class OrchestrateServiceAgent:
     """
     A wrapper class for the Orchestrate LlmAgent to provide a queryable interface
-    compatible with the ADK deployment expectations.
+    compatible with the ADK deployment expectations. It now accepts remote agent
+    addresses at construction to configure the underlying HostAgent.
     """
-    SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"] # Added type hint
+    SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"]
 
-    def __init__(self):
-        self._agent: BaseAgent = orchestrate_llm_agent
-        self._user_id: str = "orchestrate_service_user" # Added type hint
+    def __init__(self, remote_agent_addresses_str: str):
+        self._user_id: str = "orchestrate_service_user"
+
+        # Parse the remote_agent_addresses_str into a list
+        parsed_addresses: List[str] = [
+            addr.strip() for addr in remote_agent_addresses_str.split(',') if addr.strip()
+        ]
+        log.info(f"OrchestrateServiceAgent received remote_agent_addresses: {parsed_addresses}")
+
+        # Instantiate HostAgent and create the underlying LlmAgent
+        # Assuming HostAgent does not require a task_callback for basic agent creation
+        host_agent_logic = HostAgent(remote_agent_addresses=parsed_addresses, task_callback=None)
+        self._agent: BaseAgent = host_agent_logic.create_agent()
 
         self._runner = Runner(
             app_name=self._agent.name,
@@ -31,7 +44,7 @@ class OrchestrateServiceAgent:
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
 
-    async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Added type hint for kwargs
+    async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         """
         Handles the user's request by running the underlying Orchestrate LlmAgent.
         """

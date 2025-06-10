@@ -50,7 +50,9 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
               "or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.")
         raise
 
-    agent_instance_to_pickle = OrchestrateServiceAgent()
+    remote_agent_addresses_str = os.getenv("REMOTE_AGENT_ADDRESSES", "")
+    print(f"Orchestrate Agent will be initialized with REMOTE_AGENT_ADDRESSES: '{remote_agent_addresses_str}'")
+    agent_instance_to_pickle = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
 
     pickled_agent_filename = f"orchestrate_agent_pickle_{uuid.uuid4()}.pkl"
     gcs_pickle_path = os.path.join(bucket_prefix, 'reasoning_engine_packages', pickled_agent_filename)
@@ -197,12 +199,6 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     requirements_gcs_uri = f"gs://{bucket_name}/{gcs_requirements_path}"
     print(f"Uploaded modified requirements to {requirements_gcs_uri}")
 
-    remote_agent_addresses_str = os.getenv("REMOTE_AGENT_ADDRESSES", "")
-    print(f"Propagating REMOTE_AGENT_ADDRESSES to Reasoning Engine: '{remote_agent_addresses_str}'")
-    engine_env_vars = {
-       "REMOTE_AGENT_ADDRESSES": remote_agent_addresses_str
-    }
-
     current_package_spec = ReasoningEngineSpec.PackageSpec(
         pickle_object_gcs_uri=pickle_object_gcs_uri,
         requirements_gcs_uri=requirements_gcs_uri,
@@ -211,8 +207,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     )
 
     reasoning_engine_spec = ReasoningEngineSpec(
-        package_spec=current_package_spec,
-        env=engine_env_vars
+        package_spec=current_package_spec
     )
 
     gapic_reasoning_engine_config = ReasoningEngineGAPIC(

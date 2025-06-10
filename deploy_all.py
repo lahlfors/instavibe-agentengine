@@ -2,7 +2,7 @@ import subprocess
 import argparse
 import sys
 from google.cloud import aiplatform as vertexai # Standard alias
-from google.cloud.aiplatform_v1.services import reasoning_engine_service_client as ReasoningEngineServiceClientModule
+from google.cloud.aiplatform_v1.services import reasoning_engine_service
 
 # Pre-install root dependencies to ensure imports work
 try:
@@ -36,7 +36,7 @@ from agents.orchestrate.deploy import deploy_orchestrate_main_func
 from agents.platform_mcp_client.deploy import deploy_platform_mcp_client_main_func
 
 # Helper Functions
-def check_reasoning_engine_exists(gapic_client: ReasoningEngineServiceClientModule.ReasoningEngineServiceClient, parent_path: str, display_name: str) -> bool:
+def check_reasoning_engine_exists(gapic_client: reasoning_engine_service.ReasoningEngineServiceClient, parent_path: str, display_name: str) -> bool:
     try:
         engines = gapic_client.list_reasoning_engines(parent=parent_path)
         for engine in engines:
@@ -92,7 +92,7 @@ def deploy_planner_agent(project_id: str, region: str):
     # Initialize GAPIC client for checking
     client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+        gapic_client_for_check = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
     except Exception as e:
         print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
         return
@@ -132,7 +132,7 @@ def deploy_social_agent(project_id: str, region: str):
     # Initialize GAPIC client for checking
     client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+        gapic_client_for_check = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
     except Exception as e:
         print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
         return
@@ -168,7 +168,7 @@ def deploy_orchestrate_agent(project_id: str, region: str):
     # Initialize GAPIC client for checking
     client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+        gapic_client_for_check = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
     except Exception as e:
         print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
         return
@@ -263,7 +263,7 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     # Initialize GAPIC client for checking
     client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+        gapic_client_for_check = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
     except Exception as e:
         print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
         return

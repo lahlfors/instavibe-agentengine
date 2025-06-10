@@ -8,3 +8,6 @@ python-dotenv
 # This might need adjustment depending on how Vertex AI handles packaging.
 # For local development, this works if PYTHONPATH is set correctly or if using editable installs.
 ../app
+google-adk==1.0.0
+deprecated==1.2.18
+nest_asyncio==1.6.0

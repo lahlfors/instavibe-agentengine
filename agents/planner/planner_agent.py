@@ -3,7 +3,7 @@ from google.adk.agents import LoopAgent
 from google.adk.tools.tool_context import ToolContext
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.runners import Runner
+from google.adk.runners import Runner, RunnerError
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from common.task_manager import AgentTaskManager
@@ -31,3 +31,13 @@ class PlannerAgent(AgentTaskManager):
   def _build_agent(self) -> LoopAgent:
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
+
+  async def handle_request(self, query: str, **kwargs) -> Dict[str, Any]:
+    """Handles the user's request for planning."""
+    # TODO(b/336700618): Implement the actual logic for handling the request.
+    return await self._runner.run_pipeline(
+        app_name=self._agent.name,
+        session_id=self._user_id,
+        inputs={"text_content": query},
+        stream=False,
+    )

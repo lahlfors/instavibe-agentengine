@@ -32,7 +32,7 @@ class PlannerAgent(AgentTaskManager):
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
 
-  async def query(self, query: str, **kwargs) -> Dict[str, Any]:
+  async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for planning."""
     # TODO(b/336700618): Implement the actual logic for handling the request.
     return await self._runner.run_pipeline(

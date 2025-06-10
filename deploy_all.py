@@ -2,6 +2,7 @@ import subprocess
 import argparse
 import sys
 from google.cloud import aiplatform as vertexai # Standard alias
+from google.cloud.aiplatform_v1.services import reasoning_engine_service_client as ReasoningEngineServiceClientModule
 
 # Pre-install root dependencies to ensure imports work
 try:
@@ -27,16 +28,84 @@ print("Python sys.path before problematic import:")
 print(sys.path)
 
 from google.cloud import aiplatform
+# Removed duplicate import of reasoning_engine_service_client
+# from google.cloud.aiplatform_v1.types import ReasoningEngine # Not strictly needed by the provided functions
 from agents.planner.deploy import deploy_planner_main_func
 from agents.social.deploy import deploy_social_main_func
 from agents.orchestrate.deploy import deploy_orchestrate_main_func
 from agents.platform_mcp_client.deploy import deploy_platform_mcp_client_main_func
 
+# Helper Functions
+def check_reasoning_engine_exists(gapic_client: ReasoningEngineServiceClientModule.ReasoningEngineServiceClient, parent_path: str, display_name: str) -> bool:
+    try:
+        engines = gapic_client.list_reasoning_engines(parent=parent_path)
+        for engine in engines:
+            if engine.display_name == display_name:
+                print(f"Reasoning Engine '{display_name}' already exists.")
+                return True
+        print(f"Reasoning Engine '{display_name}' not found.")
+        return False
+    except Exception as e:
+        print(f"Error checking for Reasoning Engine '{display_name}': {e}. Assuming it does not exist.")
+        return False
+
+def check_cloud_run_service_exists(service_name: str, project_id: str, region: str) -> bool:
+    try:
+        result = subprocess.run(
+            [
+                "gcloud",
+                "run",
+                "services",
+                "describe",
+                service_name,
+                "--project",
+                project_id,
+                "--region",
+                region,
+                "--format", # Suppress verbose output, just care about existence
+                "value(service.name)"
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip(): # If stdout is not empty, service exists
+            print(f"Cloud Run service '{service_name}' already exists in project '{project_id}' region '{region}'.")
+            return True
+        else: # Should not happen if check=True and service exists, but as a fallback
+            print(f"Cloud Run service '{service_name}' not found (stdout was empty).")
+            return False
+    except subprocess.CalledProcessError as e:
+        # Non-zero exit code usually means service not found or other gcloud error
+        print(f"Cloud Run service '{service_name}' not found or error describing: {e.stderr}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error checking for Cloud Run service '{service_name}': {e}. Assuming it does not exist.")
+        return False
+
+# Deployment Functions
 def deploy_planner_agent(project_id: str, region: str):
     """Deploys the Planner Agent."""
-    print("Deploying Planner Agent...")
+    agent_display_name = "Planner Agent"
+    print(f"Starting deployment process for {agent_display_name} in project {project_id} region {region}...")
+
+    # Initialize GAPIC client for checking
+    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        print("Uninstalling existing Planner Agent dependencies...")
+        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+    except Exception as e:
+        print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
+        return
+
+    parent_path = f"projects/{project_id}/locations/{region}"
+    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+        return  # Exit the function if agent already exists
+
+    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    # The original print("Deploying Planner Agent...") is now covered by the more specific print above.
+    try:
+        print(f"Uninstalling existing {agent_display_name} dependencies...")
         # Uninstall doesn't need --break-system-packages
         subprocess.run([sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
         print("Installing Planner Agent dependencies...")
@@ -57,9 +126,25 @@ def deploy_planner_agent(project_id: str, region: str):
 
 def deploy_social_agent(project_id: str, region: str):
     """Deploys the Social Agent."""
-    print("Deploying Social Agent...")
+    agent_display_name = "Social Agent"
+    print(f"Starting deployment process for {agent_display_name} in project {project_id} region {region}...")
+
+    # Initialize GAPIC client for checking
+    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        print("Installing Social Agent dependencies...")
+        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+    except Exception as e:
+        print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
+        return
+
+    parent_path = f"projects/{project_id}/locations/{region}"
+    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+        return
+
+    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    try:
+        print(f"Installing {agent_display_name} dependencies...")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
@@ -68,18 +153,34 @@ def deploy_social_agent(project_id: str, region: str):
             cwd="agents/social",
         )
         deploy_social_main_func(project_id, region, base_dir=".")
-        print("Social Agent deployed successfully.")
+        print(f"{agent_display_name} deployed successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying Social Agent: {e}")
+        print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
         raise
 
 def deploy_orchestrate_agent(project_id: str, region: str):
     """Deploys the Orchestrate Agent."""
-    print("Deploying Orchestrate Agent...")
+    agent_display_name = "Orchestrate Agent"
+    print(f"Starting deployment process for {agent_display_name} in project {project_id} region {region}...")
+
+    # Initialize GAPIC client for checking
+    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        print("Installing Orchestrate Agent dependencies...")
+        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+    except Exception as e:
+        print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
+        return
+
+    parent_path = f"projects/{project_id}/locations/{region}"
+    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+        return
+
+    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    try:
+        print(f"Installing {agent_display_name} dependencies...")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
@@ -88,16 +189,22 @@ def deploy_orchestrate_agent(project_id: str, region: str):
             cwd="agents/orchestrate",
         )
         deploy_orchestrate_main_func(project_id, region, base_dir=".")
-        print("Orchestrate Agent deployed successfully.")
+        print(f"{agent_display_name} deployed successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying Orchestrate Agent: {e}")
+        print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
         raise
 
 def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instavibe-app"):
     """Builds and deploys the Instavibe App to Cloud Run."""
-    print("Deploying Instavibe App...")
+    print(f"Starting deployment process for Cloud Run service '{image_name}' in project {project_id} region {region}...")
+
+    if check_cloud_run_service_exists(service_name=image_name, project_id=project_id, region=region):
+        print(f"Skipping deployment of Cloud Run service '{image_name}' as it already exists.")
+        return  # Exit the function if service already exists
+
+    print(f"Proceeding with deployment of Cloud Run service '{image_name}'.")
     try:
         # Build Docker image using Google Cloud Build
         print(f"Building Instavibe App Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
@@ -150,9 +257,25 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
 
 def deploy_platform_mcp_client(project_id: str, region: str):
     """Deploys the Platform MCP Client Agent to Vertex AI Agent Engine."""
-    print("Deploying Platform MCP Client Agent to Vertex AI Agent Engine...")
+    agent_display_name = "Platform MCP Client Agent"
+    print(f"Starting deployment process for {agent_display_name} in project {project_id} region {region}...")
+
+    # Initialize GAPIC client for checking
+    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
     try:
-        print("Installing Platform MCP Client Agent dependencies...")
+        gapic_client_for_check = ReasoningEngineServiceClientModule.ReasoningEngineServiceClient(client_options=client_options)
+    except Exception as e:
+        print(f"ERROR: Failed to create GAPIC client for pre-check: {e}. Skipping deployment of {agent_display_name}.")
+        return
+
+    parent_path = f"projects/{project_id}/locations/{region}"
+    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+        return
+
+    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    try:
+        print(f"Installing {agent_display_name} dependencies...")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             check=True,
@@ -161,16 +284,22 @@ def deploy_platform_mcp_client(project_id: str, region: str):
             cwd="agents/platform_mcp_client",
         )
         deploy_platform_mcp_client_main_func(project_id, region, base_dir=".")
-        print(f"Platform MCP Client Agent deployed successfully to Project: {project_id}, Region: {region}.")
+        print(f"{agent_display_name} deployed successfully to Project: {project_id}, Region: {region}.")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying Platform MCP Client Agent: {e}")
+        print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
         raise
 
 def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-tool-server"):
     """Builds and deploys the MCP Tool Server to Cloud Run."""
-    print("Deploying MCP Tool Server...")
+    print(f"Starting deployment process for Cloud Run service '{image_name}' in project {project_id} region {region}...")
+
+    if check_cloud_run_service_exists(service_name=image_name, project_id=project_id, region=region):
+        print(f"Skipping deployment of Cloud Run service '{image_name}' as it already exists.")
+        return  # Exit the function if service already exists
+
+    print(f"Proceeding with deployment of Cloud Run service '{image_name}'.")
     try:
         # Build Docker image using Google Cloud Build
         print(f"Building MCP Tool Server Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")

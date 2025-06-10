@@ -13,7 +13,7 @@ from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
 from google.cloud import storage
 import google.auth
 
-from agents.social import agent as social_adk_agent_module
+from agents.social.social_agent import SocialAgent
 
 def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     """
@@ -46,8 +46,8 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
               "or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.")
         raise
 
-    # Assuming social_adk_agent_module (agents/social/agent.py) has a 'root_agent'
-    agent_instance_to_pickle = social_adk_agent_module.root_agent
+    # Instantiate SocialAgent directly
+    agent_instance_to_pickle = SocialAgent()
     if agent_instance_to_pickle is None: # Add check
         raise ValueError("Error: The root_agent in social.agent module is None. Ensure it's initialized or correctly referenced.")
 

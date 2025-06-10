@@ -7,7 +7,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from common.task_manager import AgentWithTaskManager
-from social import agent
+from . import agent
 
 class SocialAgent(AgentWithTaskManager):
   """An agent that handles social profile analysis."""

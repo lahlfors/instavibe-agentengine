@@ -15,12 +15,12 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.tool_context import ToolContext
-from remote.remote_agent_connection import (
+from agents.app.remote.remote_agent_connection import (
     RemoteAgentConnections,
     TaskUpdateCallback
 )
-from common.client import A2ACardResolver
-from common.types import (
+from agents.app.common.client import A2ACardResolver
+from agents.app.common.types import (
     AgentCard,
     Message,
     TaskState,

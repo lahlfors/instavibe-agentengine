@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 class CheckCondition(BaseAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         #log.info(f"Checking status: {ctx.session.state.get("summary_status", "fail")}")
-        log.info(f"Summary: {ctx.session.state.get("summary")}")
+        log.info(f"Summary: {ctx.session.state.get('summary')}")
 
         status = ctx.session.state.get("summary_status", "fail").strip()
         is_done = (status == "completed")
@@ -95,7 +95,7 @@ def modify_output_after_agent(callback_context: CallbackContext) -> Optional[typ
     current_state = callback_context.state.to_dict()
     current_user_content = callback_context.user_content
     print(f"[Callback] Exiting agent: {agent_name} (Inv: {invocation_id})")
-    print(f"[Callback] Current summary_status: {current_state.get("summary_status")}")
+    print(f"[Callback] Current summary_status: {current_state.get('summary_status')}")
     print(f"[Callback] Current Content: {current_user_content}")
 
     status = current_state.get("summary_status").strip()

@@ -1,6 +1,7 @@
 import subprocess
 import argparse
 import sys
+from google.cloud import aiplatform as vertexai # Standard alias
 
 # Pre-install root dependencies to ensure imports work
 try:
@@ -239,10 +240,28 @@ def main():
     parser.add_argument(
         "--skip_mcp_tool_server", action="store_true", help="Skip deploying the MCP Tool Server."
     )
+    parser.add_argument(
+        "--staging_bucket",
+        type=str,
+        required=True,
+        help="GCS URI for the Vertex AI staging bucket (e.g., gs://your-bucket-name).",
+    )
 
     args = parser.parse_args()
 
-    aiplatform.init(project=args.project_id, location=args.region)
+    print(f"Initializing Vertex AI with project: {args.project_id}, region: {args.region}, staging bucket: {args.staging_bucket}")
+    try:
+        vertexai.init(
+            project=args.project_id,
+            location=args.region,
+            staging_bucket=args.staging_bucket
+        )
+        print("Vertex AI initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing Vertex AI: {e}")
+        # Depending on the desired behavior, you might want to raise the exception or exit.
+        # For now, just print and continue to see if other parts fail.
+        # Consider exiting if init is critical for all subsequent steps.
 
     print("Ensuring root dependencies are installed (main check)...")
     try:

@@ -6,10 +6,10 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from common.task_manager import AgentWithTaskManager
+from common.task_manager import AgentTaskManager
 from . import agent
 
-class PlannerAgent(AgentWithTaskManager):
+class PlannerAgent(AgentTaskManager):
   """An agent to help user planning a night out with its desire location."""
 
   SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]

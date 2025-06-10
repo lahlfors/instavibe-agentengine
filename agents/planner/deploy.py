@@ -1,44 +1,149 @@
 import os
-import os
+import uuid
+from urllib.parse import urlparse
+import cloudpickle
+import tarfile
+import tempfile
+import shutil # For shutil.copy and shutil.copytree
+
 from google.cloud import aiplatform as vertexai # Standard alias
-from vertexai import reasoning_engines as VertexAIReasoningEngine # Specific import for ReasoningEngine
+from google.cloud.aiplatform_v1.services import reasoning_engine_service
 from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC
 from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
-# ReasoningEngineSpecPackageSpec is expected to be an attribute of ReasoningEngineSpec
+from google.cloud import storage
+import google.auth # For google.auth.exceptions
 
-# AdkApp and PlannerAgent are for local execution or if PlannerAgent has specific ADK interop.
 from agents.planner.planner_agent import PlannerAgent
-from vertexai.preview.reasoning_engines import AdkApp
-
 
 def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     """
-    Deploys the Planner Agent as a Vertex AI Reasoning Engine.
-
-    Args:
-        project_id: The Google Cloud project ID.
-        region: The Google Cloud region for deployment.
-        base_dir: The base directory of the repository, used to find requirements.txt.
+    Deploys the Planner Agent as a Vertex AI Reasoning Engine using GAPIC client,
+    packaging the agent's source code and local wheel dependency.
     """
-    # aiplatform.init should be called by the caller (e.g., deploy_all.py)
-    # vertexai.init(project=project_id, location=region)
-
     display_name = "Planner Agent"
     description = """This agent helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions."""
 
-    # Construct the path to requirements.txt relative to the base_dir
-    requirements_file_path = os.path.join(base_dir, "agents/planner/requirements.txt")
-    requirements_list = []
-    if os.path.exists(requirements_file_path):
-        with open(requirements_file_path, "r") as f:
-            requirements_list = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-    else:
-        print(f"Warning: Requirements file not found at {requirements_file_path}. Proceeding with empty requirements for deployment.")
+    staging_bucket_uri = vertexai.initializer.global_config.staging_bucket
+    if not staging_bucket_uri:
+        raise ValueError("Vertex AI staging bucket is not set. Please configure it via aiplatform.init(staging_bucket='gs://your-bucket').")
 
-    # Use ReasoningEngineSpec.PackageSpec
+    parsed_uri = urlparse(staging_bucket_uri)
+    bucket_name = parsed_uri.netloc
+    bucket_prefix = parsed_uri.path.lstrip('/')
+    if bucket_prefix and not bucket_prefix.endswith('/'):
+        bucket_prefix += '/'
+
+    try:
+        storage_client = storage.Client(project=project_id)
+        bucket = storage_client.bucket(bucket_name)
+    except google.auth.exceptions.DefaultCredentialsError as e:
+        print(f"ERROR: Google Cloud Default Credentials not found. {e}")
+        print("Please ensure you have authenticated via `gcloud auth application-default login` "
+              "or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.")
+        raise
+
+    planner_agent_instance = PlannerAgent()
+
+    pickled_agent_filename = f"planner_agent_pickle_{uuid.uuid4()}.pkl"
+    gcs_pickle_path = os.path.join(bucket_prefix, 'reasoning_engine_packages', pickled_agent_filename)
+    blob_pickle = bucket.blob(gcs_pickle_path)
+    with blob_pickle.open("wb") as f:
+        cloudpickle.dump(planner_agent_instance, f)
+    pickle_object_gcs_uri = f"gs://{bucket_name}/{gcs_pickle_path}"
+    print(f"Uploaded pickled agent to {pickle_object_gcs_uri}")
+
+    # --- Handle dependencies (wheel and agent source code) ---
+    local_wheel_filename = "a2a_common-0.1.0-py3-none-any.whl"
+    local_wheel_path = os.path.join(base_dir, "agents", local_wheel_filename)
+    if not os.path.exists(local_wheel_path):
+        raise FileNotFoundError(f"Local wheel {local_wheel_path} not found. Expected in 'agents' directory relative to base_dir.")
+
+    agents_dir_source_path = os.path.join(base_dir, "agents")
+    if not os.path.isdir(agents_dir_source_path):
+        raise FileNotFoundError(f"Source 'agents' directory {agents_dir_source_path} not found.")
+
+    dependency_files_gcs_uri = None
+    with tempfile.TemporaryDirectory() as temp_dir_for_tar:
+        # Copy the wheel into the temp directory root
+        copied_wheel_path = os.path.join(temp_dir_for_tar, local_wheel_filename)
+        shutil.copy(local_wheel_path, copied_wheel_path)
+
+        # Copy the 'agents' directory into the temp directory, maintaining its structure
+        temp_agents_dir_dest_path = os.path.join(temp_dir_for_tar, "agents")
+        print(f"Copying source 'agents' directory from {agents_dir_source_path} to {temp_agents_dir_dest_path} for tarball...")
+        shutil.copytree(agents_dir_source_path, temp_agents_dir_dest_path, dirs_exist_ok=True)
+
+        tarball_local_filename = f"dependencies_pkg_src_{uuid.uuid4()}.tar.gz"
+        tarball_local_path = os.path.join(tempfile.gettempdir(), tarball_local_filename)
+
+        print(f"Creating tarball {tarball_local_path} containing {local_wheel_filename} and agents/ directory...")
+        with tarfile.open(tarball_local_path, "w:gz") as tar:
+            # Add the wheel to the root of the tarball
+            tar.add(copied_wheel_path, arcname=local_wheel_filename)
+            # Add the 'agents' directory (containing all agent code) to the root of the tarball
+            tar.add(temp_agents_dir_dest_path, arcname="agents")
+
+        gcs_tarball_path = os.path.join(bucket_prefix, 'reasoning_engine_dependencies', tarball_local_filename)
+        blob_tarball = bucket.blob(gcs_tarball_path)
+        print(f"Uploading {tarball_local_path} to gs://{bucket_name}/{gcs_tarball_path}...")
+        blob_tarball.upload_from_filename(tarball_local_path)
+        dependency_files_gcs_uri = f"gs://{bucket_name}/{gcs_tarball_path}"
+        print(f"Uploaded dependency tarball to {dependency_files_gcs_uri}")
+
+        os.remove(tarball_local_path)
+    # --- End handle dependencies ---
+
+    original_requirements_file_path = os.path.join(base_dir, "agents/planner/requirements.txt")
+    if not os.path.exists(original_requirements_file_path):
+        raise FileNotFoundError(f"Original requirements file {original_requirements_file_path} not found.")
+
+    with open(original_requirements_file_path, "r") as f:
+        original_requirements_lines = f.readlines()
+
+    modified_requirements_lines = []
+    found_gcs_package = False
+    replaced_local_wheel_in_reqs = False
+
+    for line in original_requirements_lines:
+        stripped_line = line.strip()
+        if local_wheel_filename in stripped_line:
+            modified_requirements_lines.append(f"{local_wheel_filename}\n")
+            print(f"Modified requirements: Replaced '{stripped_line}' with '{local_wheel_filename}'.")
+            replaced_local_wheel_in_reqs = True
+        else:
+            modified_requirements_lines.append(line)
+
+        if "google-cloud-storage" in stripped_line:
+            found_gcs_package = True
+
+    if not replaced_local_wheel_in_reqs:
+        print(f"Warning: Local wheel reference for '{local_wheel_filename}' not found to replace in {original_requirements_file_path}. Appending filename directly.")
+        modified_requirements_lines.append(f"{local_wheel_filename}\n")
+
+    if not found_gcs_package:
+        print("Adding 'google-cloud-storage' to requirements for GCS URI handling.")
+        modified_requirements_lines.append("google-cloud-storage\n")
+
+    modified_requirements_content = "".join(modified_requirements_lines)
+
+    print("---- BEGIN Modified requirements.txt content ----")
+    print(modified_requirements_content)
+    print("---- END Modified requirements.txt content ----")
+
+    gcs_requirements_filename = f"planner_requirements_modified_{uuid.uuid4()}.txt"
+    gcs_requirements_path = os.path.join(bucket_prefix, 'reasoning_engine_packages', gcs_requirements_filename)
+
+    blob_reqs = bucket.blob(gcs_requirements_path)
+    print(f"Uploading modified requirements to gs://{bucket_name}/{gcs_requirements_path}...")
+    blob_reqs.upload_from_string(modified_requirements_content)
+    requirements_gcs_uri = f"gs://{bucket_name}/{gcs_requirements_path}"
+    print(f"Uploaded modified requirements to {requirements_gcs_uri}")
+
     current_package_spec = ReasoningEngineSpec.PackageSpec(
-        python_module_name="agents.planner.agent",  # Module containing the ADK agent
-        requirements=requirements_list
+        pickle_object_gcs_uri=pickle_object_gcs_uri,
+        requirements_gcs_uri=requirements_gcs_uri,
+        dependency_files_gcs_uri=dependency_files_gcs_uri,
+        python_version="3.12"
     )
 
     reasoning_engine_spec = ReasoningEngineSpec(
@@ -49,48 +154,38 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         display_name=display_name,
         description=description,
         spec=reasoning_engine_spec
-        # operation_metadata will be populated by the SDK
     )
 
-    print(f"Deploying Planner Agent as Reasoning Engine to project {project_id} in {region}...")
-    # VertexAIReasoningEngine.create uses the project and location from aiplatform.init()
-    deployed_agent_resource = VertexAIReasoningEngine.create(reasoning_engine=gapic_reasoning_engine_config)
+    print(f"Initializing GAPIC ReasoningEngineServiceClient with endpoint: {region}-aiplatform.googleapis.com")
+    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
+    gapic_client = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
 
-    print(f"Planner Agent (Reasoning Engine) deployed successfully: {deployed_agent_resource.name}")
-    print(f"Deployed Reasoning Engine Name: {deployed_agent_resource.name}")
-    print(f"Resource ID: {deployed_agent_resource.resource_id}")
-    # You could return deployed_agent_resource.name or other identifiers if needed by the caller.
+    parent_path = f"projects/{project_id}/locations/{region}"
+
+    print(f"Creating Reasoning Engine using GAPIC client with parent: {parent_path}...")
+    operation = gapic_client.create_reasoning_engine(
+        parent=parent_path,
+        reasoning_engine=gapic_reasoning_engine_config
+    )
+
+    print(f"Reasoning Engine creation operation started: {operation.operation.name}")
+    print("Waiting for operation to complete...")
+    deployed_agent_resource = operation.result()
+
+    print(f"Planner Agent (Reasoning Engine) deployed successfully via GAPIC client: {deployed_agent_resource.name}")
     return deployed_agent_resource
 
 
 if __name__ == "__main__":
-    # This block is for local execution or testing of the AdkApp.
-    # It's not directly used by deploy_all.py for cloud deployment.
     print("Running Planner Agent locally using AdkApp...")
-
-    # For local execution, AdkApp typically needs an instance of the agent.
-    # PlannerAgent itself is a ReasoningEngine.
-    planner_reasoning_engine_instance = PlannerAgent()
-
-    app = AdkApp(
-        agent=planner_reasoning_engine_instance,
-        enable_tracing=True,
-    )
-
-    # To run this locally (example):
-    # 1. Ensure you have necessary environment variables or gcloud auth.
-    # 2. (Optional) If you need to simulate project_id/region for local logic that might use them:
-    #    mock_project_id = "your-local-project"
-    #    mock_region = "your-local-region"
-    #    vertexai.init(project=mock_project_id, location=mock_region) # For local context if needed by agent
-
-    # The AdkApp doesn't deploy to Vertex AI; it serves locally.
-    # To test the cloud deployment function directly (requires auth and project/region):
-    # deploy_planner_main_func(project_id="your-gcp-project", region="us-central1", base_dir=".")
-
-    # If you want to run the ADK app server:
-    # app.serve() # This would typically be `adk serve` or `python -m adk serve` from CLI
-    print("AdkApp configured. To run locally, use 'adk run' or 'adk serve' pointing to this file or the agent.")
-    print("Or, if you have a main() in PlannerAgent for local execution, call that.")
-    # Example: If PlannerAgent had a main method for local interaction:
-    # planner_reasoning_engine_instance.main()
+    # This section is for local testing. AdkApp import is removed as it's not used for deployment.
+    # To run locally, ensure 'from vertexai.preview.reasoning_engines import AdkApp' is active
+    # and AdkApp instantiation code is uncommented.
+    # planner_reasoning_engine_instance = PlannerAgent()
+    # from vertexai.preview.reasoning_engines import AdkApp
+    # app = AdkApp(
+    #     agent=planner_reasoning_engine_instance,
+    #     enable_tracing=True,
+    # )
+    print("AdkApp local execution setup commented out for GAPIC deployment focus.")
+    print("To run locally, ensure AdkApp related imports and code are active.")

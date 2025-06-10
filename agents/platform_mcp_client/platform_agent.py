@@ -31,3 +31,12 @@ class PlatformAgent(AgentWithTaskManager):
   def _build_agent(self) -> LlmAgent:
     """Builds the LLM agent for the Processing the social post and event request."""
     return agent.root_agent
+
+  async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
+    """Handles the user's request by running the agent pipeline."""
+    return await self._runner.run_pipeline(
+        app_name=self._agent.name,
+        session_id=self._user_id,
+        inputs={"text_content": query},
+        stream=False,
+    )

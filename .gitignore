@@ -10,3 +10,8 @@ venv_*/
 */venv/
 */venv_*/
 venv_312/
+
+# Environment variables / Secrets
+/.env
+
+# Application-specific .env files

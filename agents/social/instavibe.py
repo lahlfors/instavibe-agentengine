@@ -10,14 +10,16 @@ from google.cloud import spanner
 from google.cloud.spanner_v1 import param_types
 from google.api_core import exceptions
 
-load_dotenv()
+# Load environment variables from the root .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
 # --- Spanner Configuration ---
-INSTANCE_ID = os.environ.get("SPANNER_INSTANCE_ID", "instavibe-graph-instance")
-DATABASE_ID = os.environ.get("SPANNER_DATABASE_ID", "graphdb")
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID", "instavibe-graph-instance")
+DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID", "graphdb")
+PROJECT_ID = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
 if not PROJECT_ID:
-    print("Warning: GOOGLE_CLOUD_PROJECT environment variable not set.")
+    print("Warning: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set.")
 
 # --- Spanner Client Initialization ---
 db_instance = None
@@ -36,10 +38,10 @@ try:
             print("Spanner database connection check successful.")
             db_instance = database
     else:
-        print("Skipping Spanner client initialization due to missing GOOGLE_CLOUD_PROJECT.")
+        print("Skipping Spanner client initialization due to missing COMMON_GOOGLE_CLOUD_PROJECT.")
 
 except exceptions.NotFound:
-    print(f"Error: Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'.")
+    print(f"Error: Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'.") # INSTANCE_ID and PROJECT_ID here will use the new values
     db_instance = None
 except Exception as e:
     print(f"An unexpected error occurred during Spanner initialization: {e}")

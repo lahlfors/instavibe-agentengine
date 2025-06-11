@@ -1,5 +1,13 @@
+import os
+from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.tools import google_search
+
+# Load environment variables from the root .env file.
+# This is important so that any underlying ADK or Google library calls
+# (e.g., for API keys for google_search, or project/location for Vertex AI)
+# can pick up the correct configuration.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 root_agent = Agent(
     name="location_search_agent",

@@ -2,6 +2,34 @@
 
 This repository contains the necessary scripts and configurations to deploy the Instavibe application and its associated agents and services.
 
+## Initial Environment Setup
+
+Before deploying any components, you need to configure your environment. This project uses a central `.env` file in the project root to manage all necessary configurations, such as your Google Cloud Project ID, region, Spanner instance details, API keys, etc.
+
+1.  **Create the `.env` file:**
+    *   In the root directory of the project, make a copy of the example environment file:
+        ```bash
+        cp .env.example .env
+        ```
+2.  **Populate `.env`:**
+    *   Open the newly created `.env` file with a text editor.
+    *   Fill in the values for each variable. Pay close attention to key variables like `COMMON_GOOGLE_CLOUD_PROJECT`, `COMMON_GOOGLE_CLOUD_LOCATION`, `COMMON_VERTEX_STAGING_BUCKET`, Spanner IDs, and any necessary API keys or secrets as outlined in `.env.example`.
+    *   For detailed guidance on how to obtain or define each of these values, please refer to the [Environment Variable Setup Guide](./ENVIRONMENT_SETUP_GUIDE.md).
+    *   **Important:** Do not commit the `.env` file to version control. It should be listed in your `.gitignore` file.
+
+3.  **Source Environment Variables and Configure `gcloud`:**
+    *   A script `set_env.sh` is provided to source the variables from your `.env` file into your current shell session and configure the `gcloud` CLI to use your specified project.
+    *   Run this script by sourcing it:
+        ```bash
+        source ./set_env.sh
+        ```
+    *   This script will:
+        *   Load variables from your `.env` file, making them available in your shell.
+        *   Check your `gcloud` authentication status.
+        *   Set your active `gcloud` project to the `COMMON_GOOGLE_CLOUD_PROJECT` defined in your `.env` file.
+
+With these steps completed, your environment is ready for deploying the application components.
+
 ## Central Deployment Script (`deploy_all.py`)
 
 A central Python script `deploy_all.py` is provided in the root directory to orchestrate the deployment of all components.
@@ -17,12 +45,10 @@ The script deploys:
 
 Before running the central deployment script, ensure you have the following:
 
-1.  **Google Cloud SDK (`gcloud`)**: Installed and authenticated. You can find installation instructions [here](https://cloud.google.com/sdk/docs/install).
-    *   Ensure you have logged in (`gcloud auth login`) and set your project (`gcloud config set project [YOUR_PROJECT_ID]`).
-    *   The Cloud Build API (`cloudbuild.googleapis.com`) and Vertex AI API (`aiplatform.googleapis.com`) must be enabled in your GCP project. You can enable them by visiting the Google Cloud Console or by running `gcloud services enable cloudbuild.googleapis.com aiplatform.googleapis.com`.
-2.  **Python 3**: Installed on your system.
-3.  **Project ID**: Your Google Cloud Project ID.
-4.  **Region**: The Google Cloud region where you want to deploy the services (e.g., `us-central1`).
+1.  **Completed Initial Environment Setup**: You must have created and populated the `.env` file and sourced it using `source ./set_env.sh` as described in the "Initial Environment Setup" section. This step loads necessary configurations like project ID, region, and staging bucket into your environment.
+2.  **Google Cloud SDK (`gcloud`)**: Installed. Ensure you have authenticated at least once via `gcloud auth login`. The `set_env.sh` script handles setting the active project.
+3.  **Enabled APIs**: The Cloud Build API (`cloudbuild.googleapis.com`) and Vertex AI API (`aiplatform.googleapis.com`) must be enabled in your GCP project. You can enable them by visiting the Google Cloud Console or by running `gcloud services enable cloudbuild.googleapis.com aiplatform.googleapis.com`.
+4.  **Python 3**: Installed on your system.
 
 *Note on Docker: While Docker was previously required for local image builds for some services, `deploy_all.py` now uses Google Cloud Build for containerized services, which builds your images in the cloud. Therefore, a local Docker installation is generally not required to run the script. However, Docker might still be useful for local development and testing of containerized components.*
 
@@ -31,8 +57,9 @@ Before running the central deployment script, ensure you have the following:
 Navigate to the root directory of this repository and run the script as follows:
 
 ```bash
-python deploy_all.py --project_id [YOUR_PROJECT_ID] --region [YOUR_REGION]
+python deploy_all.py
 ```
+The script utilizes configurations (like Project ID, Region, Staging Bucket) defined in your root `.env` file, which should have been sourced via `set_env.sh`.
 
 **Optional Flags:**
 
@@ -48,13 +75,15 @@ You can skip deploying certain parts of the application using the following flag
 To deploy only the Instavibe App and the MCP Tool Server:
 
 ```bash
-python deploy_all.py --project_id my-gcp-project --region us-central1 --skip_agents --skip_platform_mcp_client
+# Example: To deploy only the Instavibe App and the MCP Tool Server:
+python deploy_all.py --skip_agents
 ```
-(Note: in the example above, `--skip_platform_mcp_client` is redundant if `--skip_agents` is already specified, but shown for clarity).
 
 ## Manual Deployment
 
 If you prefer to deploy components individually, follow the instructions below.
+
+When deploying manually, it's crucial to first complete the "Initial Environment Setup" and source the `set_env.sh` script. This ensures that necessary environment variables (like `COMMON_GOOGLE_CLOUD_PROJECT`, `COMMON_GOOGLE_CLOUD_LOCATION`) are loaded into your shell and are available for the individual deployment scripts and `gcloud` commands.
 
 ### Agents (Planner, Social, Orchestrate, Platform MCP Client)
 
@@ -62,22 +91,26 @@ These agents are designed for deployment to Google Cloud Vertex AI Agent Engine.
 
 1.  **Planner Agent:**
     *   Navigate to the agent's directory: `cd agents/planner`
-    *   Run the deployment script: `python deploy.py --project_id [YOUR_PROJECT_ID] --region [YOUR_REGION]`
+    *   Run the deployment script: `python deploy.py`
+    *   This script uses configurations from your sourced `.env` file.
     *   Requirements: `agents/planner/requirements.txt`
 
 2.  **Social Agent:**
     *   Navigate to the agent's directory: `cd agents/social`
-    *   Run the deployment script: `python deploy.py --project_id [YOUR_PROJECT_ID] --region [YOUR_REGION]`
+    *   Run the deployment script: `python deploy.py`
+    *   This script uses configurations from your sourced `.env` file.
     *   Requirements: `agents/social/requirements.txt`
 
 3.  **Orchestrate Agent:**
     *   Navigate to the agent's directory: `cd agents/orchestrate`
-    *   Run the deployment script: `python deploy.py --project_id [YOUR_PROJECT_ID] --region [YOUR_REGION]`
+    *   Run the deployment script: `python deploy.py`
+    *   This script uses configurations from your sourced `.env` file.
     *   Requirements: `agents/orchestrate/requirements.txt`
 
 4.  **Platform MCP Client Agent:**
     *   Navigate to the agent's directory: `cd agents/platform_mcp_client`
-    *   Run the deployment script: `python deploy.py --project_id [YOUR_PROJECT_ID] --location [YOUR_REGION]`
+    *   Run the deployment script: `python deploy.py`
+    *   This script uses configurations from your sourced `.env` file.
     *   Requirements: `agents/platform_mcp_client/requirements.txt`
 
 ### Dockerized Services (Instavibe App, MCP Tool Server)
@@ -91,20 +124,23 @@ For each service:
 1.  **Build and push the Docker image using Google Cloud Build:**
     Navigate to the service's directory (e.g., `cd instavibe/`) and run:
     ```bash
-    gcloud builds submit --tag gcr.io/[PROJECT_ID]/[SERVICE_NAME] . --project [PROJECT_ID]
+    gcloud builds submit --tag gcr.io/$COMMON_GOOGLE_CLOUD_PROJECT/[SERVICE_NAME] . --project $COMMON_GOOGLE_CLOUD_PROJECT
     ```
-    Replace `[PROJECT_ID]` with your Google Cloud Project ID and `[SERVICE_NAME]` with the specific service name (e.g., `instavibe-app`). The `.` indicates that the build context (including the Dockerfile) is the current directory.
+    (Ensure `COMMON_GOOGLE_CLOUD_PROJECT` is set in your shell by sourcing `set_env.sh`.)
+    Replace `[SERVICE_NAME]` with the specific service name (e.g., `instavibe-app`). The `.` indicates that the build context (including the Dockerfile) is the current directory.
 
 2.  **Deploy the image to Cloud Run:**
     ```bash
     gcloud run deploy [SERVICE_NAME] \
-      --image gcr.io/[PROJECT_ID]/[SERVICE_NAME] \
+      --image gcr.io/$COMMON_GOOGLE_CLOUD_PROJECT/[SERVICE_NAME] \
       --platform managed \
-      --region [REGION] \
-      --project [PROJECT_ID] \
+      --region $COMMON_GOOGLE_CLOUD_LOCATION \
+      --project $COMMON_GOOGLE_CLOUD_PROJECT \
       --allow-unauthenticated
     ```
-    Replace `[PROJECT_ID]`, `[SERVICE_NAME]`, and `[REGION]` accordingly. The `--allow-unauthenticated` flag makes the service publicly accessible; adjust as needed for your security requirements.
+    (Ensure `COMMON_GOOGLE_CLOUD_PROJECT` and `COMMON_GOOGLE_CLOUD_LOCATION` are set in your shell by sourcing `set_env.sh`.)
+    Replace `[SERVICE_NAME]` accordingly. The `--allow-unauthenticated` flag makes the service publicly accessible; adjust as needed for your security requirements.
+    Key environment variables required by the application (as defined in `.env.example`) must be available to the Cloud Run service. The `deploy_all.py` script handles this by passing them during deployment. If deploying manually, you will need to ensure these are set, for example, using the `--set-env-vars` flag with `gcloud run deploy` (e.g., `--set-env-vars "KEY1=VALUE1,KEY2=VALUE2"`) or by configuring them in the Cloud Console.
 
 **Service-Specific Information:**
 
@@ -136,9 +172,3 @@ Or, since the test script `test_deploy_all.py` includes the standard `if __name_
 python test_deploy_all.py
 ```
 The tests will run, and you should see output indicating the number of tests run and their status (e.g., "OK" if all pass, or details of failures).
-
-## Original Agent Deployment Note
-
-The Planner, Social, Orchestrate, and now Platform MCP Client agents are designed for deployment to Google Cloud Vertex AI Agent Engine. Each of these agents includes a `deploy.py` script in its respective directory (`agents/<agent_name>/deploy.py`) to facilitate this deployment.
-
-For other components, such as Instavibe and the MCP Tool Server, refer to their specific Dockerfiles and configurations for deployment details (typically for Cloud Run using Google Cloud Build).

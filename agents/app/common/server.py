@@ -1,5 +1,6 @@
 # agents/app/common/server.py
 import os
+from dotenv import load_dotenv
 import asyncio
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer # Using http.server for simplicity
@@ -16,26 +17,29 @@ class A2AServer:
         self.agent_card = agent_card
         self.task_manager = task_manager
 
+        # Load .env file from the root project directory
+        load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"))
+
         # Cloud Run compatibility:
-        # Prioritize PORT environment variable from Cloud Run, then A2A_PORT, then constructor arg, then default.
-        # Host should be 0.0.0.0 for Cloud Run to accept external requests.
-        _port_str = os.environ.get("PORT", os.environ.get("A2A_PORT", str(port)))
-        try:
-            self.port = int(_port_str)
-        except ValueError:
-            logger.warning(f"Invalid port value '{_port_str}', defaulting to {port}.")
-            self.port = port
-
-        # For Cloud Run, host must be '0.0.0.0' to be accessible.
-        # If A2A_HOST is explicitly set, use it, otherwise default to '0.0.0.0' if PORT is set (Cloud Run env),
-        # else use constructor host.
-        _host_env = os.environ.get("A2A_HOST")
-        if os.environ.get("PORT") and not _host_env: # Likely Cloud Run
+        # PORT environment variable is set by Cloud Run.
+        # Agent-specific A2A_HOST/A2A_PORT should be resolved by the caller and passed in via host/port args.
+        _cloud_run_port_str = os.environ.get("PORT")
+        if _cloud_run_port_str:
+            try:
+                self.port = int(_cloud_run_port_str)
+                logger.info(f"Using Cloud Run PORT: {self.port}")
+            except ValueError:
+                logger.warning(f"Invalid Cloud Run PORT value '{_cloud_run_port_str}', falling back to constructor port {port}.")
+                self.port = port
+            # For Cloud Run, host must be '0.0.0.0' to be accessible from outside the container.
             self.host = "0.0.0.0"
+            logger.info(f"Using Cloud Run host: {self.host}")
         else:
-            self.host = _host_env if _host_env else host
+            # Not running in Cloud Run (or PORT not set), use provided host/port arguments.
+            self.port = port
+            self.host = host
 
-        logger.info(f"A2AServer configured for host {self.host} and port {self.port}")
+        logger.info(f"A2AServer configured for host '{self.host}' and port {self.port}")
         self.server = None # Will be initialized in start()
 
     def start(self):

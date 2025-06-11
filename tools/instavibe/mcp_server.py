@@ -19,9 +19,15 @@ from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 from instavibe import create_event,create_post
-load_dotenv()
-APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
-APP_PORT = os.environ.get("APP_PORT",8080)
+
+# Load environment variables from the root .env file
+# This ensures that any underlying libraries (ADK, Google Cloud clients)
+# or imported tool functions (from instavibe.py) can access necessary
+# configurations like project IDs, API keys, or specific base URLs.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+APP_HOST = os.environ.get("APP_HOST", "0.0.0.0") # Remains unprefixed as per current understanding
+APP_PORT = int(os.environ.get("APP_PORT", 8080)) # Remains unprefixed, ensure port is int
 
 
 event_tool = FunctionTool(create_event)
@@ -99,7 +105,9 @@ starlette_app = Starlette(
 if __name__ == "__main__":
   print("Launching MCP Server exposing ADK tools...")
   try:
-    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=APP_PORT))
+    # Ensure APP_PORT is an integer for uvicorn
+    uvicorn_port = APP_PORT if isinstance(APP_PORT, int) else int(str(APP_PORT))
+    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port))
   except KeyboardInterrupt:
     print("\nMCP Server stopped by user.")
   except Exception as e:

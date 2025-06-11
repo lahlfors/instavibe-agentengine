@@ -13,47 +13,73 @@ from ally_routes import ally_bp
 
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a_default_secret_key_for_dev") 
+# Load environment variables from root .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+app.secret_key = os.environ.get("INSTAVIBE_FLASK_SECRET_KEY", "a_default_secret_key_for_dev")
 app.register_blueprint(ally_bp)
 
-load_dotenv()
 # --- Spanner Configuration ---
-INSTANCE_ID = "instavibe-graph-instance" # Replace if different
-DATABASE_ID = "graphdb" # Replace if different
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
-APP_PORT = os.environ.get("APP_PORT","8080")
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
-GOOGLE_MAPS_MAP_KEY = os.environ.get('GOOGLE_MAPS_MAP_ID')
+INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
+if not INSTANCE_ID:
+    raise ValueError("CRITICAL: COMMON_SPANNER_INSTANCE_ID environment variable not set. Application cannot start.")
+DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID")
+if not DATABASE_ID:
+    raise ValueError("CRITICAL: COMMON_SPANNER_DATABASE_ID environment variable not set. Application cannot start.")
+PROJECT_ID = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+APP_HOST = os.environ.get("INSTAVIBE_APP_HOST", "0.0.0.0")
+APP_PORT = os.environ.get("INSTAVIBE_APP_PORT","8080")
+GOOGLE_MAPS_API_KEY = os.environ.get("INSTAVIBE_GOOGLE_MAPS_API_KEY")
+GOOGLE_MAPS_MAP_ID = os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID') # Corrected variable name GOOGLE_MAPS_MAP_KEY to GOOGLE_MAPS_MAP_ID
 
+if not GOOGLE_MAPS_API_KEY:
+    print("INFO: The INSTAVIBE_GOOGLE_MAPS_API_KEY environment variable is not set. Mapping features relying on this key may be limited or non-functional.")
+
+if not GOOGLE_MAPS_MAP_ID:
+    print("INFO: The INSTAVIBE_GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
 
 if not PROJECT_ID:
-    raise ValueError("GOOGLE_CLOUD_PROJECT environment variable not set.")
+    # This check is critical for Spanner client initialization.
+    raise ValueError("CRITICAL: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
 
 # --- Spanner Client Initialization ---
+# PROJECT_ID is now sourced from COMMON_GOOGLE_CLOUD_PROJECT, critical check above handles it.
+
 db = None
 try:
+    print(f"Attempting to initialize Spanner client with Project ID: {PROJECT_ID}") # Add this log
     spanner_client = spanner.Client(project=PROJECT_ID)
-    instance = spanner_client.instance(INSTANCE_ID)
-    database = instance.database(DATABASE_ID)
+    instance = spanner_client.instance(INSTANCE_ID) # Ensure INSTANCE_ID is defined
+    database = instance.database(DATABASE_ID)       # Ensure DATABASE_ID is defined
     print(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
 
-    # Ensure database exists - crucial check
-    if not database.exists():
-         print(f"Error: Database '{database.name}' does not exist in instance '{instance.name}'.")
-         print("Please create the database and the required tables/schema.")
-         # You might want to exit or handle this more gracefully depending on deployment
-         # For now, we'll let it fail later if db is None
-    else:
-        print("Database connection check successful (database exists).")
-        db = database # Assign database object if it exists
+    if not instance.exists():
+        print(f"CRITICAL Error: Spanner instance '{INSTANCE_ID}' does not exist in project '{PROJECT_ID}'.")
+        raise RuntimeError(f"Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'. Application cannot start.")
 
-except exceptions.NotFound:
-    print(f"Error: Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'.")
-    # Handle error appropriately - exit, default behavior, etc.
-except Exception as e:
-    print(f"An unexpected error occurred during Spanner initialization: {e}")
-    # Handle error
+    if not database.exists():
+        print(f"CRITICAL Error: Database '{DATABASE_ID}' does not exist in instance '{INSTANCE_ID}'.")
+        # Optionally, you could mention creating the database here if that's part of your SOPs
+        raise RuntimeError(f"Spanner database '{DATABASE_ID}' not found in instance '{INSTANCE_ID}'. Application cannot start.")
+    else:
+        print("Spanner Database connection check successful (database exists).")
+        db = database
+
+except exceptions.NotFound as e: # Catch specific Spanner NotFound
+    print(f"CRITICAL Spanner Error (NotFound): {e}. This usually means instance or database details are incorrect or they don't exist.")
+    raise RuntimeError(f"Spanner resource not found: {e}. Application cannot start.") from e
+except exceptions.GoogleAPICallError as e: # Catch broader API call errors
+    print(f"CRITICAL Spanner API Call Error: {e}. This could be permissions, network, or configuration issues.")
+    raise RuntimeError(f"Spanner API call failed: {e}. Application cannot start.") from e
+except Exception as e: # Catch any other unexpected errors during initialization
+    print(f"CRITICAL Unexpected error during Spanner initialization: {e}")
+    traceback.print_exc() # Print full traceback for unexpected errors
+    raise RuntimeError(f"Unexpected error during Spanner initialization: {e}. Application cannot start.") from e
+
+# Final check after try-except block
+if db is None:
+    print("CRITICAL: Spanner database object 'db' is None after initialization attempts. This should not happen if exceptions are raised correctly.")
+    raise RuntimeError("Spanner database connection could not be established. 'db' is None. Application cannot start.")
 
 def run_query(sql, params=None, param_types=None, expected_fields=None): # Add expected_fields
     """
@@ -498,7 +524,7 @@ def home():
         posts=all_posts,
         all_events_attendance=all_events_attendance, # Pass events to template
         google_maps_api_key=GOOGLE_MAPS_API_KEY, # For potential future use on home page
-        google_maps_map_id=GOOGLE_MAPS_MAP_KEY # Pass it to the template
+        google_maps_map_id=GOOGLE_MAPS_MAP_ID # Pass it to the template, ensuring consistency with the variable name used at definition
     )
 
 
@@ -540,7 +566,7 @@ def event_detail_page(event_id):
         abort(503) # Service Unavailable
 
     if not GOOGLE_MAPS_API_KEY:
-        flash("Google Maps API Key is not configured. Map functionality will be disabled.", "warning")
+        flash("INSTAVIBE_GOOGLE_MAPS_API_KEY is not configured. Map functionality will be disabled.", "warning")
 
     event_data = None
     try:
@@ -801,4 +827,4 @@ if __name__ == '__main__':
         print("\n--- Starting Flask Development Server ---")
         # Use debug=True only in development! It reloads code and provides better error pages.
         # Use host='0.0.0.0' to make it accessible on your network (e.g., from a VM)
-        app.run(debug=True, host=APP_HOST, port=APP_PORT) # Changed port to avoid conflicts
+        app.run(debug=True, host=APP_HOST, port=int(APP_PORT)) # Ensure APP_PORT is int, and uses updated INSTAVIBE_APP_HOST/PORT

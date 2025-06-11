@@ -12,8 +12,15 @@ from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineG
 from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
 from google.cloud import storage
 import google.auth # For google.auth.exceptions
+from dotenv import load_dotenv # For loading .env file
 
 from agents.planner.planner_agent import PlannerAgent
+
+# Load environment variables from the root .env file
+# This ensures that any implicit environment variable reads by underlying
+# libraries (e.g., Google Cloud clients if project_id isn't explicit everywhere)
+# are configured from the root .env.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     """

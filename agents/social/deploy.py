@@ -12,8 +12,15 @@ from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineG
 from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
 from google.cloud import storage
 import google.auth
+from dotenv import load_dotenv # For loading .env file
 
-from agents.social import agent as social_adk_agent_module
+from agents.social.social_agent import SocialAgent
+
+# Load environment variables from the root .env file
+# This ensures that any implicit environment variable reads by underlying
+# libraries (e.g., Google Cloud clients if project_id isn't explicit everywhere)
+# or by the SocialAgent instantiation itself are configured from the root .env.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     """
@@ -46,8 +53,8 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
               "or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.")
         raise
 
-    # Assuming social_adk_agent_module (agents/social/agent.py) has a 'root_agent'
-    agent_instance_to_pickle = social_adk_agent_module.root_agent
+    # Instantiate SocialAgent directly
+    agent_instance_to_pickle = SocialAgent()
     if agent_instance_to_pickle is None: # Add check
         raise ValueError("Error: The root_agent in social.agent module is None. Ensure it's initialized or correctly referenced.")
 

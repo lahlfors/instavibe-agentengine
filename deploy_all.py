@@ -356,15 +356,14 @@ def main():
     load_dotenv() # Load .env file from project root
 
     project_id = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
-    # Using AGENTS_ORCHESTRATE_GOOGLE_CLOUD_LOCATION as the common region for all deployments in this script.
-    # Consider adding a specific COMMON_DEPLOY_REGION to .env if preferred.
-    region = os.environ.get("AGENTS_ORCHESTRATE_GOOGLE_CLOUD_LOCATION")
+    # Using COMMON_GOOGLE_CLOUD_LOCATION as the common region for all deployments in this script.
+    region = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
     staging_bucket_uri = os.environ.get("COMMON_VERTEX_STAGING_BUCKET")
 
     if not project_id:
         raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT not set in .env file")
     if not region:
-        raise ValueError("AGENTS_ORCHESTRATE_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set in .env file")
+        raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set in .env file")
     if not staging_bucket_uri:
         raise ValueError("COMMON_VERTEX_STAGING_BUCKET not set in .env file")
 
@@ -455,7 +454,7 @@ def main():
             f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
             f"TOOLS_INSTAVIBE_BASE_URL={os.environ.get('TOOLS_INSTAVIBE_BASE_URL', '')}",
             f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', '')}",
-            f"TOOLS_GOOGLE_CLOUD_LOCATION={os.environ.get('TOOLS_GOOGLE_CLOUD_LOCATION', '')}",
+            f"TOOLS_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}",
             f"TOOLS_GOOGLE_API_KEY={os.environ.get('TOOLS_GOOGLE_API_KEY', '')}",
             # Add other TOOLS_ prefixed vars if the mcp_server uses them (e.g., APP_HOST, APP_PORT if they were prefixed)
         ]

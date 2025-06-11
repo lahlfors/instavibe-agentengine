@@ -11,5 +11,7 @@ venv_*/
 */venv_*/
 venv_312/
 
+# Environment variables / Secrets
+/.env
+
 # Application-specific .env files
-instavibe/.env

@@ -393,7 +393,7 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
         print(f"Stderr: {e.stderr}")
         raise
 
-def main():
+def main(argv=None):
     """
     Main function to deploy all components of the instavibe app.
     """
@@ -427,7 +427,7 @@ def main():
     )
     # Removed --staging_bucket argument
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     print(f"Initializing Vertex AI with project: {project_id}, region: {region}, staging bucket: {staging_bucket_uri}")
     try:

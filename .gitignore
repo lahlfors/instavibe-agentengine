@@ -10,3 +10,6 @@ venv_*/
 */venv/
 */venv_*/
 venv_312/
+
+# Application-specific .env files
+instavibe/.env

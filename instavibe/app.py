@@ -30,6 +30,11 @@ APP_PORT = os.environ.get("APP_PORT","8080")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
 GOOGLE_MAPS_MAP_KEY = os.environ.get('GOOGLE_MAPS_MAP_ID')
 
+if not GOOGLE_MAPS_API_KEY:
+    print("INFO: The GOOGLE_MAPS_API_KEY environment variable is not set. Mapping features relying on this key may be limited or non-functional.")
+
+if not GOOGLE_MAPS_MAP_ID:
+    print("INFO: The GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
 
 if not PROJECT_ID:
     # This check is from the original code, the new one is added below as per instructions

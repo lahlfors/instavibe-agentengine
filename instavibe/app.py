@@ -28,7 +28,12 @@ if not DATABASE_ID:
     raise ValueError("CRITICAL: COMMON_SPANNER_DATABASE_ID environment variable not set. Application cannot start.")
 PROJECT_ID = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 APP_HOST = os.environ.get("INSTAVIBE_APP_HOST", "0.0.0.0")
-APP_PORT = os.environ.get("INSTAVIBE_APP_PORT","8080")
+
+# For Cloud Run, PORT is provided by the environment. Use it if available.
+# INSTAVIBE_APP_PORT can be a fallback for local dev or other environments.
+APP_PORT = os.environ.get("PORT") # Cloud Run's standard PORT variable
+if APP_PORT is None:
+    APP_PORT = os.environ.get("INSTAVIBE_APP_PORT", "8080") # Fallback to INSTAVIBE_APP_PORT, then 8080
 GOOGLE_MAPS_API_KEY = os.environ.get("INSTAVIBE_GOOGLE_MAPS_API_KEY")
 GOOGLE_MAPS_MAP_ID = os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID') # Corrected variable name GOOGLE_MAPS_MAP_KEY to GOOGLE_MAPS_MAP_ID
 

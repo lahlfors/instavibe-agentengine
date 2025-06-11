@@ -17,15 +17,25 @@ class TestDeployAllScript(unittest.TestCase):
         mock_gapic_client_constructor.return_value # mock_gapic_instance
         mock_check_exists.return_value = False
 
-        mock_pip_uninstall_planner_success = subprocess.CompletedProcess(
+        mock_gcloud_config_result = subprocess.CompletedProcess(
+            args=('gcloud', 'config', 'get', 'project'),
+            returncode=0,
+            stdout='test-project',
+            stderr=''
+        )
+        mock_pip_uninstall_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"],
             returncode=0, stdout='', stderr=''
         )
-        mock_pip_install_planner_success = subprocess.CompletedProcess(
+        mock_pip_install_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
             returncode=0, stdout='', stderr=''
         )
-        mock_run.side_effect = [mock_pip_uninstall_planner_success, mock_pip_install_planner_success]
+        # This assumes deploy_planner_agent makes three subprocess.run calls in this order:
+        # 1. gcloud config get project (NOTE: current deploy_all.py does NOT do this for this function)
+        # 2. pip uninstall
+        # 3. pip install
+        mock_run.side_effect = [mock_gcloud_config_result, mock_pip_uninstall_success, mock_pip_install_success]
 
         deploy_all.deploy_planner_agent('test-project', 'us-central1')
 

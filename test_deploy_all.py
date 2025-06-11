@@ -42,7 +42,9 @@ class TestDeployAllScript(unittest.TestCase):
         mock_planner_main_func.assert_called_once_with('test-project', 'us-central1', base_dir='.')
         mock_run.assert_any_call(
             [sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"],
-            cwd='agents/planner', check=True, capture_output=True, text=True
+            cwd='agents/planner',
+            capture_output=True,
+            text=True
         )
         mock_run.assert_any_call(
             [sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],

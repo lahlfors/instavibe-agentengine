@@ -243,6 +243,8 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
                 "--project",
                 project_id,
                 "--allow-unauthenticated", # Assuming public access for now
+                "--set-env-vars",
+                f"GOOGLE_CLOUD_PROJECT={project_id},SPANNER_INSTANCE_ID=instavibe-graph-instance,SPANNER_DATABASE_ID=graphdb",
             ],
             check=True,
             capture_output=True,

@@ -18,8 +18,12 @@ app.register_blueprint(ally_bp)
 
 load_dotenv()
 # --- Spanner Configuration ---
-INSTANCE_ID = "instavibe-graph-instance" # Replace if different
-DATABASE_ID = "graphdb" # Replace if different
+INSTANCE_ID = os.environ.get("SPANNER_INSTANCE_ID")
+if not INSTANCE_ID:
+    raise ValueError("CRITICAL: SPANNER_INSTANCE_ID environment variable not set. Application cannot start.")
+DATABASE_ID = os.environ.get("SPANNER_DATABASE_ID")
+if not DATABASE_ID:
+    raise ValueError("CRITICAL: SPANNER_DATABASE_ID environment variable not set. Application cannot start.")
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
 APP_PORT = os.environ.get("APP_PORT","8080")
@@ -28,32 +32,50 @@ GOOGLE_MAPS_MAP_KEY = os.environ.get('GOOGLE_MAPS_MAP_ID')
 
 
 if not PROJECT_ID:
+    # This check is from the original code, the new one is added below as per instructions
+    # but this one is fine and well-placed.
     raise ValueError("GOOGLE_CLOUD_PROJECT environment variable not set.")
 
 # --- Spanner Client Initialization ---
+# Requirement 1: Add a check for PROJECT_ID (even if slightly redundant with above)
+if not PROJECT_ID:
+    raise ValueError("CRITICAL: GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
+
 db = None
 try:
+    print(f"Attempting to initialize Spanner client with Project ID: {PROJECT_ID}") # Add this log
     spanner_client = spanner.Client(project=PROJECT_ID)
-    instance = spanner_client.instance(INSTANCE_ID)
-    database = instance.database(DATABASE_ID)
+    instance = spanner_client.instance(INSTANCE_ID) # Ensure INSTANCE_ID is defined
+    database = instance.database(DATABASE_ID)       # Ensure DATABASE_ID is defined
     print(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
 
-    # Ensure database exists - crucial check
-    if not database.exists():
-         print(f"Error: Database '{database.name}' does not exist in instance '{instance.name}'.")
-         print("Please create the database and the required tables/schema.")
-         # You might want to exit or handle this more gracefully depending on deployment
-         # For now, we'll let it fail later if db is None
-    else:
-        print("Database connection check successful (database exists).")
-        db = database # Assign database object if it exists
+    if not instance.exists():
+        print(f"CRITICAL Error: Spanner instance '{INSTANCE_ID}' does not exist in project '{PROJECT_ID}'.")
+        raise RuntimeError(f"Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'. Application cannot start.")
 
-except exceptions.NotFound:
-    print(f"Error: Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'.")
-    # Handle error appropriately - exit, default behavior, etc.
-except Exception as e:
-    print(f"An unexpected error occurred during Spanner initialization: {e}")
-    # Handle error
+    if not database.exists():
+        print(f"CRITICAL Error: Database '{DATABASE_ID}' does not exist in instance '{INSTANCE_ID}'.")
+        # Optionally, you could mention creating the database here if that's part of your SOPs
+        raise RuntimeError(f"Spanner database '{DATABASE_ID}' not found in instance '{INSTANCE_ID}'. Application cannot start.")
+    else:
+        print("Spanner Database connection check successful (database exists).")
+        db = database
+
+except exceptions.NotFound as e: # Catch specific Spanner NotFound
+    print(f"CRITICAL Spanner Error (NotFound): {e}. This usually means instance or database details are incorrect or they don't exist.")
+    raise RuntimeError(f"Spanner resource not found: {e}. Application cannot start.") from e
+except exceptions.GoogleAPICallError as e: # Catch broader API call errors
+    print(f"CRITICAL Spanner API Call Error: {e}. This could be permissions, network, or configuration issues.")
+    raise RuntimeError(f"Spanner API call failed: {e}. Application cannot start.") from e
+except Exception as e: # Catch any other unexpected errors during initialization
+    print(f"CRITICAL Unexpected error during Spanner initialization: {e}")
+    traceback.print_exc() # Print full traceback for unexpected errors
+    raise RuntimeError(f"Unexpected error during Spanner initialization: {e}. Application cannot start.") from e
+
+# Final check after try-except block
+if db is None:
+    print("CRITICAL: Spanner database object 'db' is None after initialization attempts. This should not happen if exceptions are raised correctly.")
+    raise RuntimeError("Spanner database connection could not be established. 'db' is None. Application cannot start.")
 
 def run_query(sql, params=None, param_types=None, expected_fields=None): # Add expected_fields
     """

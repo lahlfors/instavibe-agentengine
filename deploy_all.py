@@ -5,6 +5,7 @@ import os # Added
 from dotenv import load_dotenv # Added
 from google.cloud import aiplatform as vertexai # Standard alias
 from google.cloud.aiplatform_v1.services import reasoning_engine_service
+from google.api_core import exceptions as api_exceptions
 
 # Pre-install root dependencies to ensure imports work
 try:
@@ -32,6 +33,9 @@ print(sys.path)
 from google.cloud import aiplatform
 # Removed duplicate import of reasoning_engine_service_client
 # from google.cloud.aiplatform_v1.types import ReasoningEngine # Not strictly needed by the provided functions
+
+class ApiDisabledError(Exception): pass
+
 from agents.planner.deploy import deploy_planner_main_func
 from agents.social.deploy import deploy_social_main_func
 from agents.orchestrate.deploy import deploy_orchestrate_main_func
@@ -47,8 +51,20 @@ def check_reasoning_engine_exists(gapic_client: reasoning_engine_service.Reasoni
                 return True
         print(f"Reasoning Engine '{display_name}' not found.")
         return False
+    except api_exceptions.Forbidden as e:
+        error_message = str(e).lower()
+        if ("api has not been used" in error_message or
+            "service is disabled" in error_message or
+            "enable it by visiting" in error_message or
+            'reason: "service_disabled"' in error_message):
+            print(f"ERROR: Vertex AI API is disabled for project {parent_path.split('/')[1]}. "
+                  f"Please enable it by visiting the URL mentioned in the error below. Full error: {e}")
+            raise ApiDisabledError(f"Vertex AI API disabled for {parent_path.split('/')[1]}")
+        else:
+            print(f"Warning: Received a Forbidden error while checking for Reasoning Engine '{display_name}', but not the typical API disabled message: {e}. Assuming it does not exist.")
+            return False
     except Exception as e:
-        print(f"Error checking for Reasoning Engine '{display_name}': {e}. Assuming it does not exist.")
+        print(f"Warning: Error checking for Reasoning Engine '{display_name}': {e}. Assuming it does not exist.")
         return False
 
 def check_cloud_run_service_exists(service_name: str, project_id: str, region: str) -> bool:
@@ -100,11 +116,18 @@ def deploy_planner_agent(project_id: str, region: str):
         return
 
     parent_path = f"projects/{project_id}/locations/{region}"
-    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
-        print(f"Skipping deployment of {agent_display_name} as it already exists.")
-        return  # Exit the function if agent already exists
+    try:
+        if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+            print(f"Skipping deployment of {agent_display_name} as it already exists.")
+            return  # Exit the function if agent already exists
+        print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    except ApiDisabledError:
+        print(f"Halting deployment of {agent_display_name} due to Vertex AI API being disabled.")
+        return
+    except Exception as e: # Catch any other unexpected error from the check
+        print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
+        return
 
-    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
     # The original print("Deploying Planner Agent...") is now covered by the more specific print above.
     try:
         print(f"Uninstalling existing {agent_display_name} dependencies...")
@@ -140,11 +163,18 @@ def deploy_social_agent(project_id: str, region: str):
         return
 
     parent_path = f"projects/{project_id}/locations/{region}"
-    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
-        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+    try:
+        if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+            print(f"Skipping deployment of {agent_display_name} as it already exists.")
+            return
+        print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    except ApiDisabledError:
+        print(f"Halting deployment of {agent_display_name} due to Vertex AI API being disabled.")
+        return
+    except Exception as e: # Catch any other unexpected error from the check
+        print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
-    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
     try:
         print(f"Installing {agent_display_name} dependencies...")
         subprocess.run(
@@ -176,11 +206,18 @@ def deploy_orchestrate_agent(project_id: str, region: str):
         return
 
     parent_path = f"projects/{project_id}/locations/{region}"
-    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
-        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+    try:
+        if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+            print(f"Skipping deployment of {agent_display_name} as it already exists.")
+            return
+        print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    except ApiDisabledError:
+        print(f"Halting deployment of {agent_display_name} due to Vertex AI API being disabled.")
+        return
+    except Exception as e: # Catch any other unexpected error from the check
+        print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
-    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
     try:
         print(f"Installing {agent_display_name} dependencies...")
         subprocess.run(
@@ -271,11 +308,18 @@ def deploy_platform_mcp_client(project_id: str, region: str):
         return
 
     parent_path = f"projects/{project_id}/locations/{region}"
-    if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
-        print(f"Skipping deployment of {agent_display_name} as it already exists.")
+    try:
+        if check_reasoning_engine_exists(gapic_client_for_check, parent_path, agent_display_name):
+            print(f"Skipping deployment of {agent_display_name} as it already exists.")
+            return
+        print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
+    except ApiDisabledError:
+        print(f"Halting deployment of {agent_display_name} due to Vertex AI API being disabled.")
+        return
+    except Exception as e: # Catch any other unexpected error from the check
+        print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
-    print(f"Proceeding with deployment of {agent_display_name} as it does not exist or an error occurred during check.")
     try:
         print(f"Installing {agent_display_name} dependencies...")
         subprocess.run(

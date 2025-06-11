@@ -10,6 +10,9 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_deploy_planner_agent(self, mock_run):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
         deploy_all.deploy_planner_agent('test-project', 'us-central1')
         expected_command = [
             'python',
@@ -27,6 +30,9 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_deploy_social_agent(self, mock_run):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
         deploy_all.deploy_social_agent('test-project', 'us-central1')
         expected_command = [
             'python',
@@ -44,6 +50,9 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_deploy_orchestrate_agent(self, mock_run):
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
         deploy_all.deploy_orchestrate_agent('test-project', 'us-central1')
         expected_command = [
             'python',
@@ -61,6 +70,9 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_deploy_platform_mcp_client_agent(self, mock_run): # Test name kept for clarity on what it tests
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        mock_run.return_value.returncode = 0
         deploy_all.deploy_platform_mcp_client('test-project', 'us-central1')
         expected_command = [
             'python',

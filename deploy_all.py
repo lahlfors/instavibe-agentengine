@@ -1,6 +1,8 @@
 import subprocess
 import argparse
 import sys
+import os # Added
+from dotenv import load_dotenv # Added
 from google.cloud import aiplatform as vertexai # Standard alias
 from google.cloud.aiplatform_v1.services import reasoning_engine_service
 
@@ -196,7 +198,7 @@ def deploy_orchestrate_agent(project_id: str, region: str):
         print(f"Stderr: {e.stderr}")
         raise
 
-def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instavibe-app"):
+def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instavibe-app", env_vars_string: str | None = None):
     """Builds and deploys the Instavibe App to Cloud Run."""
     print(f"Starting deployment process for Cloud Run service '{image_name}' in project {project_id} region {region}...")
 
@@ -227,25 +229,23 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
         print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
-        print(f"Deploying Instavibe App {image_name} to Cloud Run in {region}...")
+        deploy_command = [
+            "gcloud", "run", "deploy", image_name,
+            "--image", f"gcr.io/{project_id}/{image_name}",
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--allow-unauthenticated", # Assuming public access for now
+        ]
+        if env_vars_string:
+            deploy_command.extend(["--set-env-vars", env_vars_string])
+        # If no env_vars_string, the --set-env-vars flag is omitted.
+        # The app should be prepared to handle missing optional env vars if not baked into the image,
+        # or rely on defaults set in its Dockerfile or app code.
+
+        print(f"Deploying Instavibe App {image_name} to Cloud Run in {region} with env vars: {env_vars_string if env_vars_string else 'No specific env-vars passed via --set-env-vars'}")
         subprocess.run(
-            [
-                "gcloud",
-                "run",
-                "deploy",
-                image_name,
-                "--image",
-                f"gcr.io/{project_id}/{image_name}",
-                "--platform",
-                "managed",
-                "--region",
-                region,
-                "--project",
-                project_id,
-                "--allow-unauthenticated", # Assuming public access for now
-                "--set-env-vars",
-                f"GOOGLE_CLOUD_PROJECT={project_id},SPANNER_INSTANCE_ID=instavibe-graph-instance,SPANNER_DATABASE_ID=graphdb",
-            ],
+            deploy_command,
             check=True,
             capture_output=True,
             text=True,
@@ -293,7 +293,7 @@ def deploy_platform_mcp_client(project_id: str, region: str):
         print(f"Stderr: {e.stderr}")
         raise
 
-def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-tool-server"):
+def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-tool-server", env_vars_string: str | None = None):
     """Builds and deploys the MCP Tool Server to Cloud Run."""
     print(f"Starting deployment process for Cloud Run service '{image_name}' in project {project_id} region {region}...")
 
@@ -324,23 +324,20 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
         print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
-        print(f"Deploying MCP Tool Server {image_name} to Cloud Run in {region}...")
+        deploy_command = [
+            "gcloud", "run", "deploy", image_name,
+            "--image", f"gcr.io/{project_id}/{image_name}",
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--allow-unauthenticated", # Assuming public access for now
+        ]
+        if env_vars_string: # Add env vars if provided
+            deploy_command.extend(["--set-env-vars", env_vars_string])
+
+        print(f"Deploying MCP Tool Server {image_name} to Cloud Run in {region} {'with env vars: ' + env_vars_string if env_vars_string else 'without specific env vars for --set-env-vars'}")
         subprocess.run(
-            [
-                "gcloud",
-                "run",
-                "deploy",
-                image_name,
-                "--image",
-                f"gcr.io/{project_id}/{image_name}",
-                "--platform",
-                "managed",
-                "--region",
-                region,
-                "--project",
-                project_id,
-                "--allow-unauthenticated", # Assuming public access for now
-            ],
+            deploy_command,
             check=True,
             capture_output=True,
             text=True,
@@ -356,9 +353,23 @@ def main():
     """
     Main function to deploy all components of the instavibe app.
     """
+    load_dotenv() # Load .env file from project root
+
+    project_id = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+    # Using AGENTS_ORCHESTRATE_GOOGLE_CLOUD_LOCATION as the common region for all deployments in this script.
+    # Consider adding a specific COMMON_DEPLOY_REGION to .env if preferred.
+    region = os.environ.get("AGENTS_ORCHESTRATE_GOOGLE_CLOUD_LOCATION")
+    staging_bucket_uri = os.environ.get("COMMON_VERTEX_STAGING_BUCKET")
+
+    if not project_id:
+        raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT not set in .env file")
+    if not region:
+        raise ValueError("AGENTS_ORCHESTRATE_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set in .env file")
+    if not staging_bucket_uri:
+        raise ValueError("COMMON_VERTEX_STAGING_BUCKET not set in .env file")
+
     parser = argparse.ArgumentParser(description="Deploy all components of the instavibe app.")
-    parser.add_argument("--project_id", required=True, help="Google Cloud project ID.")
-    parser.add_argument("--region", required=True, help="Google Cloud region for deployment.")
+    # Removed --project_id, --region, --staging_bucket arguments
     parser.add_argument(
         "--skip_agents", action="store_true", help="Skip deploying the agents."
     )
@@ -371,21 +382,16 @@ def main():
     parser.add_argument(
         "--skip_mcp_tool_server", action="store_true", help="Skip deploying the MCP Tool Server."
     )
-    parser.add_argument(
-        "--staging_bucket",
-        type=str,
-        required=True,
-        help="GCS URI for the Vertex AI staging bucket (e.g., gs://your-bucket-name).",
-    )
+    # Removed --staging_bucket argument
 
     args = parser.parse_args()
 
-    print(f"Initializing Vertex AI with project: {args.project_id}, region: {args.region}, staging bucket: {args.staging_bucket}")
+    print(f"Initializing Vertex AI with project: {project_id}, region: {region}, staging bucket: {staging_bucket_uri}")
     try:
         vertexai.init(
-            project=args.project_id,
-            location=args.region,
-            staging_bucket=args.staging_bucket
+            project=project_id,
+            location=region,
+            staging_bucket=staging_bucket_uri
         )
         print("Vertex AI initialized successfully.")
     except Exception as e:
@@ -410,24 +416,54 @@ def main():
         raise
 
     if not args.skip_agents:
-        deploy_planner_agent(args.project_id, args.region)
-        deploy_social_agent(args.project_id, args.region)
-        deploy_orchestrate_agent(args.project_id, args.region)
+        deploy_planner_agent(project_id, region) # Use variables from env
+        deploy_social_agent(project_id, region) # Use variables from env
+        deploy_orchestrate_agent(project_id, region) # Use variables from env
     else:
         print("Skipping agent deployments.")
 
     if not args.skip_app:
-        deploy_instavibe_app(args.project_id, args.region)
+        # Construct env_vars string for Instavibe app
+        instavibe_env_vars_list = [
+            f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
+            f"COMMON_SPANNER_INSTANCE_ID={os.environ.get('COMMON_SPANNER_INSTANCE_ID', '')}",
+            f"COMMON_SPANNER_DATABASE_ID={os.environ.get('COMMON_SPANNER_DATABASE_ID', '')}",
+            f"INSTAVIBE_FLASK_SECRET_KEY={os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', '')}",
+            f"INSTAVIBE_APP_HOST={os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0')}",
+            f"INSTAVIBE_APP_PORT={os.environ.get('INSTAVIBE_APP_PORT', '8080')}",
+            f"INSTAVIBE_GOOGLE_MAPS_API_KEY={os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', '')}",
+            f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', '')}",
+        ]
+        # Filter out vars that were not set in .env to avoid "VARNAME=" or "VARNAME=None"
+        instavibe_env_vars_string = ",".join(
+            var for var in instavibe_env_vars_list if var.split('=', 1)[1] not in ['None', '']
+        )
+        deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
         print("Skipping Instavibe app deployment.")
 
     if not args.skip_platform_mcp_client:
-        deploy_platform_mcp_client(args.project_id, args.region)
+        deploy_platform_mcp_client(project_id, region) # Use variables from env
     else:
         print("Skipping Platform MCP Client deployment.")
 
     if not args.skip_mcp_tool_server:
-        deploy_mcp_tool_server(args.project_id, args.region)
+        # For mcp_tool_server, construct env_vars_string if needed.
+        # These are examples; the mcp_server.py itself doesn't use many of these directly,
+        # but its dependencies or underlying ADK/cloud libraries might.
+        mcp_tool_server_env_vars_list = [
+            f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
+            f"TOOLS_INSTAVIBE_BASE_URL={os.environ.get('TOOLS_INSTAVIBE_BASE_URL', '')}",
+            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', '')}",
+            f"TOOLS_GOOGLE_CLOUD_LOCATION={os.environ.get('TOOLS_GOOGLE_CLOUD_LOCATION', '')}",
+            f"TOOLS_GOOGLE_API_KEY={os.environ.get('TOOLS_GOOGLE_API_KEY', '')}",
+            # Add other TOOLS_ prefixed vars if the mcp_server uses them (e.g., APP_HOST, APP_PORT if they were prefixed)
+        ]
+        mcp_tool_server_env_vars_string = ",".join(
+            var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1] not in ['None', '']
+        )
+        # Pass the env_vars_string. If it's empty, no --set-env-vars will be added by the deploy function.
+        deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
     else:
         print("Skipping MCP Tool Server deployment.")
 

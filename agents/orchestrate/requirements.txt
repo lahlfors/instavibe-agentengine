@@ -1,6 +1,6 @@
 # Core dependencies for Vertex AI Agent Engine deployment
 google-cloud-aiplatform
-python-dotenv
+python-dotenv==1.0.1
 
 # Local shared library for agent communication
 # This relative path assumes that during deployment to Vertex AI,

@@ -8,6 +8,14 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from common.task_manager import AgentTaskManager
 from . import agent
+import os # For path joining
+from dotenv import load_dotenv # To load .env
+
+# Load environment variables from the root .env file.
+# While agent.py (imported as .agent) also does this,
+# adding it here ensures that if SocialAgent is used or tested in a context
+# where agent.py wasn't the first import, the environment is still correctly configured.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 class SocialAgent(AgentTaskManager):
   """An agent that handles social profile analysis."""

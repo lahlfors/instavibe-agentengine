@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+from dotenv import load_dotenv
 import json
 import logging
 from collections.abc import Sequence
@@ -50,15 +52,35 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
         :param debug: Enable debug mode for additional logging
         :param kwargs: Additional arguments to pass to the parent class
         """
+        # Load environment variables from the root .env file
+        # This is crucial if the parent class or Google clients implicitly pick up GOOGLE_CLOUD_PROJECT
+        load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"))
+
         super().__init__(**kwargs)
         self.debug = debug
+
+        # Determine project_id to use. If not explicitly passed to CloudTraceSpanExporter (via kwargs),
+        # it often defaults to GOOGLE_CLOUD_PROJECT from env.
+        # We ensure COMMON_GOOGLE_CLOUD_PROJECT is loaded into GOOGLE_CLOUD_PROJECT by dotenv if it's set in .env
+        # Or, if project is explicitly passed to this constructor's kwargs, that will be used by super().__init__
+        # For clients initialized here, we use self.project_id which is set by the parent.
+        # If GOOGLE_CLOUD_PROJECT was set by load_dotenv, and no project explicitly passed to super,
+        # self.project_id should reflect that.
+
+        effective_project_id = self.project_id or os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+
         self.logging_client = logging_client or google_cloud_logging.Client(
-            project=self.project_id
+            project=effective_project_id
         )
         self.logger = self.logging_client.logger(__name__)
-        self.storage_client = storage_client or storage.Client(project=self.project_id)
+        self.storage_client = storage_client or storage.Client(project=effective_project_id)
+
+        # Use effective_project_id for bucket name construction if self.project_id was None.
+        # If self.project_id was already set (e.g. passed explicitly to constructor), use that.
+        base_project_id_for_bucket = self.project_id if self.project_id else os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT", "default-project")
+
         self.bucket_name = (
-            bucket_name or f"{self.project_id}-cityspark-logs-data"
+            bucket_name or f"{base_project_id_for_bucket}-cityspark-logs-data"
         )
         self.bucket = self.storage_client.bucket(self.bucket_name)
 
@@ -75,7 +97,9 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
             span_id = format(span_context.span_id, "x")
             span_dict = json.loads(span.to_json())
 
-            span_dict["trace"] = f"projects/{self.project_id}/traces/{trace_id}"
+            # Use self.project_id as set by the parent exporter, assuming it's correctly initialized
+            # (potentially influenced by the load_dotenv if project wasn't explicit in constructor)
+            span_dict["trace"] = f"projects/{self.project_id or os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT')}/traces/{trace_id}"
             span_dict["span_id"] = span_id
 
             span_dict = self._process_large_attributes(

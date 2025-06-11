@@ -4,10 +4,18 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
 from typing import Any, Dict, List
+import os # For path joining
+from dotenv import load_dotenv # To load .env
 
 # Import HostAgent to create the underlying LlmAgent
 from agents.orchestrate.host_agent import HostAgent
 import logging # For logging addresses
+
+# Load environment variables from the root .env file
+# This ensures that any underlying components (like HostAgent or its dependencies)
+# that might implicitly rely on environment variables (e.g., for Google Cloud clients)
+# have them loaded.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 log = logging.getLogger(__name__)
 

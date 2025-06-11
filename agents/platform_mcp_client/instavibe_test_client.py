@@ -1,4 +1,5 @@
 import asyncio
+import os # For path joining
 from dotenv import load_dotenv
 from google.genai import types
 from google.adk.agents.llm_agent import LlmAgent
@@ -10,7 +11,11 @@ from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactServ
 from agent import get_agent_async
 import asyncio
 
-load_dotenv()
+# Load environment variables from the root .env file.
+# This ensures that when get_agent_async() is called, and it initializes
+# the agent and MCPToolset, they can access necessary environment variables
+# (e.g., MCP_SERVER_URL, API keys, project IDs) from the root .env.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 
 async def async_main():

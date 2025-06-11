@@ -15,6 +15,13 @@ import google.auth # For google.auth.exceptions
 
 # Import the agent module that contains the `root_agent`
 from agents.platform_mcp_client import agent as platform_mcp_client_agent_module
+from dotenv import load_dotenv # For loading .env file
+
+# Load environment variables from the root .env file
+# This ensures that any implicit environment variable reads by underlying
+# libraries (e.g., Google Cloud clients if project_id isn't explicit everywhere)
+# or by the agent module itself are configured from the root .env.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str):
     """Deploys the Platform MCP Client Agent to Vertex AI Reasoning Engines using GAPIC client."""

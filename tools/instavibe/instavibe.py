@@ -3,8 +3,9 @@ import json
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-BASE_URL = os.environ.get("INSTAVIBE_BASE_URL")
+# Load environment variables from the root .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+BASE_URL = os.environ.get("TOOLS_INSTAVIBE_BASE_URL")
 
 def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL):
     """

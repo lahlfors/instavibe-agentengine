@@ -1,4 +1,5 @@
 import asyncio
+import os # For path joining
 from dotenv import load_dotenv
 from google.genai import types
 from google.adk.agents.llm_agent import LlmAgent
@@ -10,7 +11,11 @@ from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactServ
 from . import agent 
 import asyncio
 
-load_dotenv()
+# Load environment variables from the root .env file.
+# This ensures that when agent.root_agent is loaded and used,
+# any underlying components (like google_search tool or ADK services)
+# can access the necessary environment variables (API keys, project IDs, etc.).
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 async def async_main():
   session_service = InMemorySessionService()

@@ -12,8 +12,14 @@ from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineG
 from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
 from google.cloud import storage
 import google.auth
+import os # Ensure os is imported if not already fully at top for load_dotenv
+from dotenv import load_dotenv # For loading .env file
 
 from agents.orchestrate.orchestrate_service_agent import OrchestrateServiceAgent
+
+# Load environment variables from the root .env file
+# This should be done early, especially if any imported modules might rely on them.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 
 def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
@@ -50,8 +56,8 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
               "or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.")
         raise
 
-    remote_agent_addresses_str = os.getenv("REMOTE_AGENT_ADDRESSES", "")
-    print(f"Orchestrate Agent will be initialized with REMOTE_AGENT_ADDRESSES: '{remote_agent_addresses_str}'")
+    remote_agent_addresses_str = os.getenv("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES", "")
+    print(f"Orchestrate Agent will be initialized with AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES: '{remote_agent_addresses_str}'")
     agent_instance_to_pickle = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
 
     pickled_agent_filename = f"orchestrate_agent_pickle_{uuid.uuid4()}.pkl"

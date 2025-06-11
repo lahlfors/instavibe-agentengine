@@ -13,38 +13,37 @@ from ally_routes import ally_bp
 
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a_default_secret_key_for_dev") 
+# Load environment variables from root .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+app.secret_key = os.environ.get("INSTAVIBE_FLASK_SECRET_KEY", "a_default_secret_key_for_dev")
 app.register_blueprint(ally_bp)
 
-load_dotenv()
 # --- Spanner Configuration ---
-INSTANCE_ID = os.environ.get("SPANNER_INSTANCE_ID")
+INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
 if not INSTANCE_ID:
-    raise ValueError("CRITICAL: SPANNER_INSTANCE_ID environment variable not set. Application cannot start.")
-DATABASE_ID = os.environ.get("SPANNER_DATABASE_ID")
+    raise ValueError("CRITICAL: COMMON_SPANNER_INSTANCE_ID environment variable not set. Application cannot start.")
+DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID")
 if not DATABASE_ID:
-    raise ValueError("CRITICAL: SPANNER_DATABASE_ID environment variable not set. Application cannot start.")
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
-APP_PORT = os.environ.get("APP_PORT","8080")
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
-GOOGLE_MAPS_MAP_KEY = os.environ.get('GOOGLE_MAPS_MAP_ID')
+    raise ValueError("CRITICAL: COMMON_SPANNER_DATABASE_ID environment variable not set. Application cannot start.")
+PROJECT_ID = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+APP_HOST = os.environ.get("INSTAVIBE_APP_HOST", "0.0.0.0")
+APP_PORT = os.environ.get("INSTAVIBE_APP_PORT","8080")
+GOOGLE_MAPS_API_KEY = os.environ.get("INSTAVIBE_GOOGLE_MAPS_API_KEY")
+GOOGLE_MAPS_MAP_ID = os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID') # Corrected variable name GOOGLE_MAPS_MAP_KEY to GOOGLE_MAPS_MAP_ID
 
 if not GOOGLE_MAPS_API_KEY:
-    print("INFO: The GOOGLE_MAPS_API_KEY environment variable is not set. Mapping features relying on this key may be limited or non-functional.")
+    print("INFO: The INSTAVIBE_GOOGLE_MAPS_API_KEY environment variable is not set. Mapping features relying on this key may be limited or non-functional.")
 
 if not GOOGLE_MAPS_MAP_ID:
-    print("INFO: The GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
+    print("INFO: The INSTAVIBE_GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
 
 if not PROJECT_ID:
-    # This check is from the original code, the new one is added below as per instructions
-    # but this one is fine and well-placed.
-    raise ValueError("GOOGLE_CLOUD_PROJECT environment variable not set.")
+    # This check is critical for Spanner client initialization.
+    raise ValueError("CRITICAL: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
 
 # --- Spanner Client Initialization ---
-# Requirement 1: Add a check for PROJECT_ID (even if slightly redundant with above)
-if not PROJECT_ID:
-    raise ValueError("CRITICAL: GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
+# PROJECT_ID is now sourced from COMMON_GOOGLE_CLOUD_PROJECT, critical check above handles it.
 
 db = None
 try:
@@ -525,7 +524,7 @@ def home():
         posts=all_posts,
         all_events_attendance=all_events_attendance, # Pass events to template
         google_maps_api_key=GOOGLE_MAPS_API_KEY, # For potential future use on home page
-        google_maps_map_id=GOOGLE_MAPS_MAP_KEY # Pass it to the template
+        google_maps_map_id=GOOGLE_MAPS_MAP_ID # Pass it to the template, ensuring consistency with the variable name used at definition
     )
 
 
@@ -567,7 +566,7 @@ def event_detail_page(event_id):
         abort(503) # Service Unavailable
 
     if not GOOGLE_MAPS_API_KEY:
-        flash("Google Maps API Key is not configured. Map functionality will be disabled.", "warning")
+        flash("INSTAVIBE_GOOGLE_MAPS_API_KEY is not configured. Map functionality will be disabled.", "warning")
 
     event_data = None
     try:
@@ -828,4 +827,4 @@ if __name__ == '__main__':
         print("\n--- Starting Flask Development Server ---")
         # Use debug=True only in development! It reloads code and provides better error pages.
         # Use host='0.0.0.0' to make it accessible on your network (e.g., from a VM)
-        app.run(debug=True, host=APP_HOST, port=APP_PORT) # Changed port to avoid conflicts
+        app.run(debug=True, host=APP_HOST, port=int(APP_PORT)) # Ensure APP_PORT is int, and uses updated INSTAVIBE_APP_HOST/PORT

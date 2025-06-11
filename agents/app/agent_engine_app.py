@@ -18,6 +18,7 @@ import datetime
 import json
 import logging # Keep logging import
 import os
+from dotenv import load_dotenv
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -34,8 +35,11 @@ from app.utils.tracing import CloudTraceLoggingSpanExporter
 from app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
+# Load environment variables from the root .env file
+# This should be among the first imports to ensure variables are available globally.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
+GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
 class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
@@ -186,8 +190,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deploy agent engine app to Vertex AI")
     parser.add_argument(
         "--project",
-        default=GOOGLE_CLOUD_PROJECT,
-        help="GCP project ID (defaults to application default credentials)",
+        default=GOOGLE_CLOUD_PROJECT, # This will now correctly use COMMON_GOOGLE_CLOUD_PROJECT from .env
+        help="GCP project ID (defaults to COMMON_GOOGLE_CLOUD_PROJECT from .env or application default credentials)",
     )
     parser.add_argument(
         "--location",

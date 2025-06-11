@@ -8,10 +8,10 @@ import os
 import nest_asyncio # Import nest_asyncio
 
 
-# Load environment variables from .env file in the parent directory
+# Load environment variables from the root .env file
 # Place this near the top, before using env vars like API keys
-load_dotenv()
-MCP_SERVER_URL=os.environ.get("MCP_SERVER_URL", "http://0.0.0.0:8080/sse")
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+MCP_SERVER_URL=os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL", "http://0.0.0.0:8080/sse")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)

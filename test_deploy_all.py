@@ -11,7 +11,12 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('deploy_all.deploy_planner_main_func')
     @patch('subprocess.run')
-    def test_deploy_planner_agent(self, mock_run, mock_planner_main_func):
+    @patch('deploy_all.check_reasoning_engine_exists')
+    @patch('deploy_all.reasoning_engine_service.ReasoningEngineServiceClient')
+    def test_deploy_planner_agent(self, mock_gapic_client_constructor, mock_check_exists, mock_run, mock_planner_main_func):
+        mock_gapic_client_constructor.return_value # mock_gapic_instance
+        mock_check_exists.return_value = False
+
         mock_pip_uninstall_planner_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"],
             returncode=0, stdout='', stderr=''
@@ -20,7 +25,6 @@ class TestDeployAllScript(unittest.TestCase):
             args=[sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
             returncode=0, stdout='', stderr=''
         )
-        # gcloud config get project is not called by deploy_planner_agent in deploy_all.py
         mock_run.side_effect = [mock_pip_uninstall_planner_success, mock_pip_install_planner_success]
 
         deploy_all.deploy_planner_agent('test-project', 'us-central1')
@@ -37,12 +41,16 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('deploy_all.deploy_social_main_func')
     @patch('subprocess.run')
-    def test_deploy_social_agent(self, mock_run, mock_social_main_func):
+    @patch('deploy_all.check_reasoning_engine_exists')
+    @patch('deploy_all.reasoning_engine_service.ReasoningEngineServiceClient')
+    def test_deploy_social_agent(self, mock_gapic_client_constructor, mock_check_exists, mock_run, mock_social_main_func):
+        mock_gapic_client_constructor.return_value
+        mock_check_exists.return_value = False
+
         mock_pip_install_generic_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             returncode=0, stdout='', stderr=''
         )
-        # gcloud config get project is not called by deploy_social_agent in deploy_all.py
         mock_run.side_effect = [mock_pip_install_generic_success]
 
         deploy_all.deploy_social_agent('test-project', 'us-central1')
@@ -55,12 +63,16 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('deploy_all.deploy_orchestrate_main_func')
     @patch('subprocess.run')
-    def test_deploy_orchestrate_agent(self, mock_run, mock_orchestrate_main_func):
+    @patch('deploy_all.check_reasoning_engine_exists')
+    @patch('deploy_all.reasoning_engine_service.ReasoningEngineServiceClient')
+    def test_deploy_orchestrate_agent(self, mock_gapic_client_constructor, mock_check_exists, mock_run, mock_orchestrate_main_func):
+        mock_gapic_client_constructor.return_value
+        mock_check_exists.return_value = False
+
         mock_pip_install_generic_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             returncode=0, stdout='', stderr=''
         )
-        # gcloud config get project is not called by deploy_orchestrate_agent in deploy_all.py
         mock_run.side_effect = [mock_pip_install_generic_success]
 
         deploy_all.deploy_orchestrate_agent('test-project', 'us-central1')
@@ -73,12 +85,16 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('deploy_all.deploy_platform_mcp_client_main_func')
     @patch('subprocess.run')
-    def test_deploy_platform_mcp_client_agent(self, mock_run, mock_platform_main_func): # Test name kept for clarity on what it tests
+    @patch('deploy_all.check_reasoning_engine_exists')
+    @patch('deploy_all.reasoning_engine_service.ReasoningEngineServiceClient')
+    def test_deploy_platform_mcp_client_agent(self, mock_gapic_client_constructor, mock_check_exists, mock_run, mock_platform_main_func): # Test name kept for clarity
+        mock_gapic_client_constructor.return_value
+        mock_check_exists.return_value = False
+
         mock_pip_install_generic_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
             returncode=0, stdout='', stderr=''
         )
-        # gcloud config get project is not called by deploy_platform_mcp_client in deploy_all.py
         mock_run.side_effect = [mock_pip_install_generic_success]
 
         deploy_all.deploy_platform_mcp_client('test-project', 'us-central1')
@@ -139,13 +155,12 @@ class TestDeployAllScript(unittest.TestCase):
 
     @patch('deploy_all.deploy_planner_main_func')
     @patch('subprocess.run')
-    def test_deploy_planner_agent_failure(self, mock_run, mock_planner_main_func): # mock_run is last due to decorator order
-        mock_gcloud_config_result = subprocess.CompletedProcess(
-            args=('gcloud', 'config', 'get', 'project'), # Command as tuple
-            returncode=0,
-            stdout='test-project',
-            stderr=''
-        )
+    @patch('deploy_all.check_reasoning_engine_exists')
+    @patch('deploy_all.reasoning_engine_service.ReasoningEngineServiceClient')
+    def test_deploy_planner_agent_failure(self, mock_gapic_client_constructor, mock_check_exists, mock_run, mock_planner_main_func):
+        mock_gapic_client_constructor.return_value
+        mock_check_exists.return_value = False
+
         mock_pip_uninstall_success = subprocess.CompletedProcess(
             args=[sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"],
             returncode=0,
@@ -162,12 +177,7 @@ class TestDeployAllScript(unittest.TestCase):
             output="pip install failed output",
             stderr="pip install failed stderr"
         )
-        # deploy_planner_agent in deploy_all.py calls:
-        # 1. pip uninstall
-        # 2. pip install (this one fails)
-        # It does NOT call 'gcloud config get project'.
         mock_run.side_effect = [
-            # mock_gcloud_config_result, # Not called by deploy_planner_agent
             mock_pip_uninstall_success,
             mock_pip_install_failure
         ]
@@ -193,8 +203,8 @@ class TestDeployAllScript(unittest.TestCase):
         mock_social.assert_called_once_with('test-p-env', 'test-r-env')
         mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env') # deploy_instavibe_app also uses project_id, region from env
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env') # deploy_mcp_tool_server also uses project_id, region from env
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
     @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
@@ -214,8 +224,8 @@ class TestDeployAllScript(unittest.TestCase):
         # deploy_platform_mcp_client is skipped by its own flag --skip_platform_mcp_client.
         # So, platform_mcp, instavibe, mcp_tool should still be called if their flags are not set.
         mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
     @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
@@ -232,7 +242,7 @@ class TestDeployAllScript(unittest.TestCase):
         mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
         mock_instavibe.assert_not_called()
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
     @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
@@ -248,8 +258,8 @@ class TestDeployAllScript(unittest.TestCase):
         mock_social.assert_called_once_with('test-p-env', 'test-r-env')
         mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_not_called()
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
     @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
@@ -265,7 +275,7 @@ class TestDeployAllScript(unittest.TestCase):
         mock_social.assert_called_once_with('test-p-env', 'test-r-env')
         mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
         mock_mcp_tool.assert_not_called()
 
     @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
@@ -287,7 +297,7 @@ class TestDeployAllScript(unittest.TestCase):
         mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_not_called()
         mock_instavibe.assert_not_called()
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
     @patch.dict(os.environ, {}, clear=True) # Test with NO env vars set
     def test_main_missing_project_id(self):

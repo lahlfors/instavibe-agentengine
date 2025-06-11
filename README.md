@@ -13,12 +13,8 @@ Before deploying any components, you need to configure your environment. This pr
         ```
 2.  **Populate `.env`:**
     *   Open the newly created `.env` file with a text editor.
-    *   Fill in the values for each variable. Pay close attention to:
-        *   `COMMON_GOOGLE_CLOUD_PROJECT`: Your Google Cloud Project ID.
-        *   `COMMON_GOOGLE_CLOUD_LOCATION`: The default Google Cloud region (e.g., `us-central1`) for deployments.
-        *   `COMMON_VERTEX_STAGING_BUCKET`: The URI of your GCS bucket for Vertex AI staging (e.g., `gs://your-bucket-name`).
-        *   Spanner instance and database IDs (`COMMON_SPANNER_INSTANCE_ID`, `COMMON_SPANNER_DATABASE_ID`).
-        *   Any component-specific API keys or secrets as listed in `.env.example`.
+    *   Fill in the values for each variable. Pay close attention to key variables like `COMMON_GOOGLE_CLOUD_PROJECT`, `COMMON_GOOGLE_CLOUD_LOCATION`, `COMMON_VERTEX_STAGING_BUCKET`, Spanner IDs, and any necessary API keys or secrets as outlined in `.env.example`.
+    *   For detailed guidance on how to obtain or define each of these values, please refer to the [Environment Variable Setup Guide](./ENVIRONMENT_SETUP_GUIDE.md).
     *   **Important:** Do not commit the `.env` file to version control. It should be listed in your `.gitignore` file.
 
 3.  **Source Environment Variables and Configure `gcloud`:**

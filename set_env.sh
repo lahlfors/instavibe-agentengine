@@ -28,7 +28,9 @@ if [ -n "$ENV_FILE_TO_USE" ]; then
   echo "Sourcing environment variables from $ENV_FILE_TO_USE..."
   # Using set -a to export all variables defined in the .env file
   # Using POSIX-compliant way to source by temporarily disabling 'nounset' if active
-  (set -o allexport; source "$ENV_FILE_TO_USE"; set +o allexport)
+  set -o allexport
+  source "$ENV_FILE_TO_USE"
+  set +o allexport
   if [ $? -ne 0 ]; then
     echo "Error: Failed to source $ENV_FILE_TO_USE."
     echo "Please check the file for syntax errors."

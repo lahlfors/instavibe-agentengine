@@ -1,12 +1,72 @@
-from vertexai import agent_engines
 from dotenv import load_dotenv
+load_dotenv() # Ensure this is at the very top
+
+import os
 import pprint
 import json 
-import os
+import logging # Added for logging
 
-load_dotenv()
+import google.cloud.aiplatform as vertexai
+from google.cloud.aiplatform_v1.services import reasoning_engine_service_client
+# from vertexai import agent_engines # This is available via vertexai.agent_engines
 
-#REPLACE ME initiate agent_engine
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+# Global variable for the agent engine
+planner_agent_engine = None
+
+def init_agent_engine(project_id, location):
+    """Initializes the Vertex AI Agent Engine."""
+    global planner_agent_engine
+    try:
+        vertexai.init(project=project_id, location=location)
+        client = reasoning_engine_service_client.ReasoningEngineServiceClient()
+        parent = f"projects/{project_id}/locations/{location}"
+
+        logger.info(f"Listing reasoning engines in {parent}...")
+        engines = client.list_reasoning_engines(parent=parent)
+
+        target_engine_display_name = "Planner Agent"
+        found_engine = None
+
+        for engine in engines:
+            logger.debug(f"Found engine: {engine.name} with display name: {engine.display_name}")
+            if engine.display_name == target_engine_display_name:
+                found_engine = engine
+                break
+
+        if found_engine:
+            engine_id_full = found_engine.name
+            # Extract the engine ID from the full name (e.g., projects/.../locations/.../reasoningEngines/...)
+            extracted_id = engine_id_full.split('/')[-1]
+            logger.info(f"Found '{target_engine_display_name}' with ID: {extracted_id} (Full path: {engine_id_full})")
+
+            planner_agent_engine = vertexai.preview.ReasoningEngine(engine_id_full) # Use new SDK
+            # planner_agent_engine = vertexai.agent_engines.AgentEngine.connect(
+            #     engine_id=extracted_id,
+            #     project_id=project_id,
+            #     location=location
+            # ) # Old SDK, keeping new one
+            logger.info(f"Successfully connected to '{target_engine_display_name}' (engine ID: {extracted_id}).")
+        else:
+            logger.error(f"'{target_engine_display_name}' not found in {parent}.")
+            planner_agent_engine = None # Ensure it's None if not found
+
+    except Exception as e:
+        logger.error(f"Failed to initialize agent engine: {e}", exc_info=True)
+        planner_agent_engine = None
+
+# Initialize the agent engine on module load
+COMMON_GOOGLE_CLOUD_PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+COMMON_GOOGLE_CLOUD_LOCATION = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+if COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION:
+    logger.info(f"Attempting to initialize agent engine for project {COMMON_GOOGLE_CLOUD_PROJECT} in {COMMON_GOOGLE_CLOUD_LOCATION}")
+    init_agent_engine(COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION)
+else:
+    logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION environment variables not set. Agent engine will not be initialized.")
+
 
 
 def call_agent_for_plan(user_name, planned_date, location_n_perference, selected_friend_names_list):
@@ -60,8 +120,12 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
 
     yield {"type": "thought", "data": f"--- Agent Response Stream Starting ---"}
     try:
+        if not planner_agent_engine:
+            yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
+            return
+
         for event_idx, event in enumerate(
-            #REPLACE ME Query remote agent get plan
+            planner_agent_engine.query(input=prompt_message, session_id=user_id)
         ):
             print(f"\n--- Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console
@@ -190,8 +254,12 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     accumulated_response_text = ""
 
     try:
+        if not planner_agent_engine:
+            yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
+            return
+
         for event_idx, event in enumerate(
-            #REPLACE ME Query remote agent for confirmation
+            planner_agent_engine.chat(input=prompt_message, session_id=agent_session_user_id) # Assuming chat for follow-up
         ):
             print(f"\n--- Post Event - Agent Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console

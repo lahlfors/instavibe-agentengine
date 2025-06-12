@@ -246,14 +246,14 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
     print(f"Proceeding with deployment of Cloud Run service '{image_name}'.")
     try:
         # Build Docker image using Google Cloud Build
-        print(f"Building Instavibe App Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
+        print(f"Building Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} using Google Cloud Build...")
         subprocess.run(
             [
                 "gcloud",
                 "builds",
                 "submit",
                 "--tag",
-                f"gcr.io/{project_id}/{image_name}",
+                f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}",
                 ".",
                 "--project",
                 project_id,
@@ -263,12 +263,12 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
             text=True,
             cwd="instavibe/", # Run this command in the instavibe/ directory
         )
-        print(f"Instavibe App Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
+        print(f"Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
         deploy_command = [
             "gcloud", "run", "deploy", image_name,
-            "--image", f"gcr.io/{project_id}/{image_name}",
+            "--image", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}",
             "--platform", "managed",
             "--region", region,
             "--project", project_id,
@@ -280,7 +280,7 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
         # The app should be prepared to handle missing optional env vars if not baked into the image,
         # or rely on defaults set in its Dockerfile or app code.
 
-        print(f"Deploying Instavibe App {image_name} to Cloud Run in {region} with env vars: {env_vars_string if env_vars_string else 'No specific env-vars passed via --set-env-vars'}")
+        print(f"Deploying Instavibe App us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} to Cloud Run in {region} with env vars: {env_vars_string if env_vars_string else 'No specific env-vars passed via --set-env-vars'}")
         subprocess.run(
             deploy_command,
             check=True,
@@ -348,14 +348,14 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
     print(f"Proceeding with deployment of Cloud Run service '{image_name}'.")
     try:
         # Build Docker image using Google Cloud Build
-        print(f"Building MCP Tool Server Docker image gcr.io/{project_id}/{image_name} using Google Cloud Build...")
+        print(f"Building MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} using Google Cloud Build...")
         subprocess.run(
             [
                 "gcloud",
                 "builds",
                 "submit",
                 "--tag",
-                f"gcr.io/{project_id}/{image_name}",
+                f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}",
                 ".",
                 "--project",
                 project_id,
@@ -365,12 +365,12 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
             text=True,
             cwd="tools/instavibe/", # Run this command in the tools/instavibe/ directory
         )
-        print(f"MCP Tool Server Docker image gcr.io/{project_id}/{image_name} built and pushed successfully via Cloud Build.")
+        print(f"MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully via Cloud Build.")
 
         # Deploy to Cloud Run
         deploy_command = [
             "gcloud", "run", "deploy", image_name,
-            "--image", f"gcr.io/{project_id}/{image_name}",
+            "--image", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}",
             "--platform", "managed",
             "--region", region,
             "--project", project_id,
@@ -379,7 +379,7 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
         if env_vars_string: # Add env vars if provided
             deploy_command.extend(["--set-env-vars", env_vars_string])
 
-        print(f"Deploying MCP Tool Server {image_name} to Cloud Run in {region} {'with env vars: ' + env_vars_string if env_vars_string else 'without specific env vars for --set-env-vars'}")
+        print(f"Deploying MCP Tool Server us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} to Cloud Run in {region} {'with env vars: ' + env_vars_string if env_vars_string else 'without specific env vars for --set-env-vars'}")
         subprocess.run(
             deploy_command,
             check=True,

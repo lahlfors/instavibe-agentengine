@@ -34,6 +34,7 @@ With these steps completed, your environment is ready for deploying the applicat
 
 A central Python script `deploy_all.py` is provided in the root directory to orchestrate the deployment of all components.
 The script deploys:
+- Google Cloud Spanner instance and database (if they don't already exist, using `COMMON_SPANNER_INSTANCE_ID` and `COMMON_SPANNER_DATABASE_ID` from your `.env` file). Subsequently, it runs `instavibe/setup.py` to initialize the schema and populate data.
 - Planner Agent (Vertex AI Agent Engine)
 - Social Agent (Vertex AI Agent Engine)
 - Orchestrate Agent (Vertex AI Agent Engine)
@@ -47,7 +48,7 @@ Before running the central deployment script, ensure you have the following:
 
 1.  **Completed Initial Environment Setup**: You must have created and populated the `.env` file and sourced it using `source ./set_env.sh` as described in the "Initial Environment Setup" section. This step loads necessary configurations like project ID, region, and staging bucket into your environment.
 2.  **Google Cloud SDK (`gcloud`)**: Installed. Ensure you have authenticated at least once via `gcloud auth login`. The `set_env.sh` script handles setting the active project.
-3.  **Enabled APIs**: The Cloud Build API (`cloudbuild.googleapis.com`) and Vertex AI API (`aiplatform.googleapis.com`) must be enabled in your GCP project. You can enable them by visiting the Google Cloud Console or by running `gcloud services enable cloudbuild.googleapis.com aiplatform.googleapis.com`.
+3.  **Enabled APIs**: The Cloud Build API (`cloudbuild.googleapis.com`), Vertex AI API (`aiplatform.googleapis.com`), and the Cloud Spanner API (`spanner.googleapis.com`) must be enabled in your GCP project. You can enable them by visiting the Google Cloud Console or by running `gcloud services enable cloudbuild.googleapis.com aiplatform.googleapis.com spanner.googleapis.com`.
 4.  **Python 3**: Installed on your system.
 
 *Note on Docker: While Docker was previously required for local image builds for some services, `deploy_all.py` now uses Google Cloud Build for containerized services, which builds your images in the cloud. Therefore, a local Docker installation is generally not required to run the script. However, Docker might still be useful for local development and testing of containerized components.*

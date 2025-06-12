@@ -403,6 +403,8 @@ def main(argv=None):
     # Using COMMON_GOOGLE_CLOUD_LOCATION as the common region for all deployments in this script.
     region = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
     staging_bucket_uri = os.environ.get("COMMON_VERTEX_STAGING_BUCKET")
+    COMMON_SPANNER_INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
+    COMMON_SPANNER_DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID")
 
     if not project_id:
         raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT not set in .env file")
@@ -410,6 +412,79 @@ def main(argv=None):
         raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set in .env file")
     if not staging_bucket_uri:
         raise ValueError("COMMON_VERTEX_STAGING_BUCKET not set in .env file")
+    if not COMMON_SPANNER_INSTANCE_ID:
+        raise ValueError("COMMON_SPANNER_INSTANCE_ID not set in .env file")
+    if not COMMON_SPANNER_DATABASE_ID:
+        raise ValueError("COMMON_SPANNER_DATABASE_ID not set in .env file")
+
+    # Spanner setup
+    print("Starting Spanner setup...")
+    try:
+        subprocess.run(
+            [
+                "gcloud", "spanner", "instances", "create", COMMON_SPANNER_INSTANCE_ID,
+                "--config=regional-us-central1",
+                "--description=GraphDB Instance InstaVibe",
+                "--processing-units=100",
+                "--edition=ENTERPRISE",
+                "--project", project_id, # Added project_id for clarity and explicitness
+            ],
+            check=True, capture_output=True, text=True
+        )
+        print(f"Spanner instance {COMMON_SPANNER_INSTANCE_ID} created successfully or already exists.")
+    except subprocess.CalledProcessError as e:
+        if "ALREADY_EXISTS" in e.stderr:
+            print(f"Spanner instance {COMMON_SPANNER_INSTANCE_ID} already exists.")
+        else:
+            print(f"Error creating Spanner instance: {e}")
+            print(f"Stdout: {e.stdout}")
+            print(f"Stderr: {e.stderr}")
+            raise
+
+    try:
+        subprocess.run(
+            [
+                "gcloud", "spanner", "databases", "create", COMMON_SPANNER_DATABASE_ID,
+                f"--instance={COMMON_SPANNER_INSTANCE_ID}",
+                "--database-dialect=GOOGLE_STANDARD_SQL",
+                "--project", project_id, # Added project_id
+            ],
+            check=True, capture_output=True, text=True
+        )
+        print(f"Spanner database {COMMON_SPANNER_DATABASE_ID} created successfully or already exists.")
+    except subprocess.CalledProcessError as e:
+        if "ALREADY_EXISTS" in e.stderr: # Crude check, might need refinement based on actual gcloud output
+            print(f"Spanner database {COMMON_SPANNER_DATABASE_ID} on instance {COMMON_SPANNER_INSTANCE_ID} already exists.")
+        else:
+            print(f"Error creating Spanner database: {e}")
+            print(f"Stdout: {e.stdout}")
+            print(f"Stderr: {e.stderr}")
+            raise
+
+    original_cwd = os.getcwd()
+    try:
+        print("Changing directory to 'instavibe' to run setup.py...")
+        os.chdir("instavibe")
+        subprocess.run(
+            [sys.executable, "setup.py"], # Assuming setup.py is executable and handles its own logic
+            check=True, capture_output=True, text=True
+        )
+        print("instavibe/setup.py executed successfully.")
+    except FileNotFoundError:
+        print("Error: 'instavibe' directory not found or setup.py not in it.")
+        # Potentially restore CWD here if further operations depend on it, though script might exit
+        os.chdir(original_cwd)
+        raise
+    except subprocess.CalledProcessError as e:
+        print(f"Error running instavibe/setup.py: {e}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+        os.chdir(original_cwd) # Ensure CWD is restored even on error
+        raise
+    finally:
+        os.chdir(original_cwd)
+        print(f"Changed directory back to {original_cwd}.")
+    print("Spanner setup completed.")
 
     parser = argparse.ArgumentParser(description="Deploy all components of the instavibe app.")
     # Removed --project_id, --region, --staging_bucket arguments

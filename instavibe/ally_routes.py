@@ -31,7 +31,22 @@ def get_all_people_for_ally_page():
         fields = ["person_id", "name"]
         # The run_query function in your app.py uses the global 'db' from app.py
         people = main_app_run_query(sql, expected_fields=fields)
-        return people
+
+        # Ensure uniqueness based on person_id
+        unique_people_list = []
+        seen_person_ids = set()
+        if people: # Ensure people is not None and is iterable
+            for person_dict in people:
+                if isinstance(person_dict, dict) and 'person_id' in person_dict:
+                    person_id = person_dict['person_id']
+                    if person_id not in seen_person_ids:
+                        seen_person_ids.add(person_id)
+                        unique_people_list.append(person_dict)
+                else:
+                    # Log or handle unexpected item structure if necessary
+                    print(f"Warning: Skipping unexpected item in people list: {person_dict}")
+
+        return unique_people_list
     except ImportError:
         print("ERROR in ally_routes.get_all_people_for_ally_page: Could not import db or run_query from app.py. Check app.py structure and execution.")
         return [] # Fallback to empty list

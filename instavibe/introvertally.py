@@ -26,9 +26,9 @@ def init_agent_engine(project_id, location):
 
         logger.info("Initializing ReasoningEngineServiceClient")
         client = ReasoningEngineServiceClient()
-        parent = f"projects/{project_id}/locations/global"
+        parent = f"projects/{project_id}/locations/{location}"
 
-        logger.info(f"Listing reasoning engines in project {project_id}, location global")
+        logger.info(f"Listing reasoning engines in project {project_id}, location {location}")
         engines = client.list_reasoning_engines(parent=parent)
 
         target_engine_display_name = "Planner Agent"

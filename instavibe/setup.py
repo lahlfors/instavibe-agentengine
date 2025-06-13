@@ -199,9 +199,49 @@ def setup_graph_definition(db_instance):
 # --- Data Generation / Insertion ---
 def generate_uuid(): return str(uuid.uuid4())
 
+def clear_all_data(db_instance):
+    if not db_instance:
+        print("Skipping data clearing - db connection unavailable.")
+        return False
+    print("\n--- Clearing All Existing Data from Tables ---")
+
+    tables_to_clear_ordered = [
+        "Mention",
+        "Attendance",
+        "EventLocation",
+        "Friendship",
+        "Post",
+        "Location", # Clear before Event if Event might reference it (though FK is on EventLocation)
+        "Event",    # Clear before Person if Person might reference it
+        "Person"
+    ]
+
+    def clear_tables_txn(transaction):
+        for table_name in tables_to_clear_ordered:
+            print(f"Deleting all rows from {table_name}...")
+            transaction.delete(table=table_name, keyset=spanner.KeySet(all_=True))
+        print("All specified tables cleared in transaction.")
+
+    try:
+        db_instance.run_in_transaction(clear_tables_txn)
+        print("Data clearing transaction committed successfully.")
+        return True
+    except Exception as e:
+        print(f"ERROR during data clearing transaction: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def insert_relational_data(db_instance):
     """Generates and inserts the curated data into the new relational tables."""
-    if not db_instance: print("Skipping data insertion - db connection unavailable."); return False
+    if not db_instance:
+        print("Skipping data insertion - db connection unavailable.");
+        return False
+
+    if not clear_all_data(db_instance):
+        print("Aborting data insertion due to failure in clearing existing data.")
+        return False
+
     print("\n--- Defining Fixed Curated Data for Relational Insertion ---")
 
     people_map = {} # name -> id

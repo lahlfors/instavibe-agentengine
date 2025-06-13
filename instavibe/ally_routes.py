@@ -68,7 +68,6 @@ def introvert_ally_page():
     if friends_list is None: # Should be an empty list on error from get_all_people_for_ally_page
         friends_list = []
         flash("Could not load the list of people from the database.", "warning")
-    print(f"ALLY_PAGE_DEBUG: Friends list for template: {friends_list}")
     return render_template('introvert_ally.html', friends=friends_list, title="Introvert Ally Planner")
 
 

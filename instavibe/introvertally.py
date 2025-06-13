@@ -19,43 +19,50 @@ planner_agent_engine = None
 def init_agent_engine(project_id, location):
     """Initializes the Vertex AI Agent Engine."""
     global planner_agent_engine
+    logger.info("Attempting to initialize agent engine...")
     try:
+        logger.info(f"Using project_id: {project_id}, location: {location} for vertexai.init")
         vertexai.init(project=project_id, location=location)
+
+        logger.info("Initializing ReasoningEngineServiceClient")
         client = ReasoningEngineServiceClient()
         parent = f"projects/{project_id}/locations/{location}"
 
-        logger.info(f"Listing reasoning engines in {parent}...")
+        logger.info(f"Listing reasoning engines in project {project_id}, location {location}")
         engines = client.list_reasoning_engines(parent=parent)
 
         target_engine_display_name = "Planner Agent"
         found_engine = None
 
         for engine in engines:
-            logger.debug(f"Found engine: {engine.name} with display name: {engine.display_name}")
+            logger.info(f"Found engine: {engine.display_name} (ID: {engine.name})")
             if engine.display_name == target_engine_display_name:
                 found_engine = engine
                 break
 
         if found_engine:
             engine_id_full = found_engine.name
-            # Extract the engine ID from the full name (e.g., projects/.../locations/.../reasoningEngines/...)
-            extracted_id = engine_id_full.split('/')[-1]
-            logger.info(f"Found '{target_engine_display_name}' with ID: {extracted_id} (Full path: {engine_id_full})")
+            engine_name = found_engine.name # For logging consistency with prompt
+            logger.info(f"Planner Agent found: {engine_name}. Attempting to connect using full name.")
 
-            planner_agent_engine = vertexai.preview.ReasoningEngine(engine_id_full) # Use new SDK
-            # planner_agent_engine = vertexai.agent_engines.AgentEngine.connect(
-            #     engine_id=extracted_id,
-            #     project_id=project_id,
-            #     location=location
-            # ) # Old SDK, keeping new one
-            logger.info(f"Successfully connected to '{target_engine_display_name}' (engine ID: {extracted_id}).")
+            # Extract the engine ID from the full name (e.g., projects/.../locations/.../reasoningEngines/...)
+            # extracted_id = engine_id_full.split('/')[-1] # Already have this if needed for other logs
+
+            logger.info(f"Connecting to engine using full resource name: {engine_id_full}")
+            planner_agent_engine = vertexai.preview.ReasoningEngine(engine_id_full)
+            logger.info("Successfully connected to Planner Agent.")
         else:
-            logger.error(f"'{target_engine_display_name}' not found in {parent}.")
+            logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id}, location {location}.")
             planner_agent_engine = None # Ensure it's None if not found
 
     except Exception as e:
-        logger.error(f"Failed to initialize agent engine: {e}", exc_info=True)
+        logger.error(f"Error during agent engine initialization: {e}", exc_info=True)
         planner_agent_engine = None
+
+    if planner_agent_engine is None:
+        logger.warning("Planner agent engine is None after initialization attempt.")
+    else:
+        logger.info("Planner agent engine initialized successfully.")
 
 # Initialize the agent engine on module load
 COMMON_GOOGLE_CLOUD_PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")

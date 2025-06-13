@@ -25,11 +25,10 @@ def init_agent_engine(project_id, location):
         vertexai.init(project=project_id, location=location)
 
         logger.info("Initializing ReasoningEngineServiceClient")
-        client_options = {"api_endpoint": "aiplatform.googleapis.com"}
-        client = ReasoningEngineServiceClient(client_options=client_options)
-        parent = f"projects/{project_id}/locations/global"
+        client = ReasoningEngineServiceClient()
+        parent = f"projects/{project_id}/locations/{location}"
 
-        logger.info(f"Listing reasoning engines in project {project_id}, location global")
+        logger.info(f"Listing reasoning engines in project {project_id}, location {location}")
         engines = client.list_reasoning_engines(parent=parent)
 
         target_engine_display_name = "Planner Agent"

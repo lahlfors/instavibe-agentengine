@@ -1,8 +1,11 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response, stream_with_context
 import json 
 import traceback 
+import logging # Added for logging
 from introvertally import call_agent_for_plan, post_plan_event
 
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # It's good practice to use a Blueprint for organizing routes
 ally_bp = Blueprint('ally', __name__, template_folder='templates')
@@ -65,6 +68,7 @@ def introvert_ally_page():
     if friends_list is None: # Should be an empty list on error from get_all_people_for_ally_page
         friends_list = []
         flash("Could not load the list of people from the database.", "warning")
+    logger.info(f"Friends list passed to template introvert_ally.html: {friends_list}")
     return render_template('introvert_ally.html', friends=friends_list, title="Introvert Ally Planner")
 
 

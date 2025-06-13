@@ -591,6 +591,7 @@ def main(argv=None):
             f"INSTAVIBE_APP_PORT={os.environ.get('INSTAVIBE_APP_PORT', '8080')}",
             f"INSTAVIBE_GOOGLE_MAPS_API_KEY={os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', '')}",
             f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', '')}",
+            f"COMMON_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}"
         ]
         # Filter out vars that were not set in .env to avoid "VARNAME=" or "VARNAME=None"
         instavibe_env_vars_string = ",".join(

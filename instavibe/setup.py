@@ -202,6 +202,26 @@ def generate_uuid(): return str(uuid.uuid4())
 def insert_relational_data(db_instance):
     """Generates and inserts the curated data into the new relational tables."""
     if not db_instance: print("Skipping data insertion - db connection unavailable."); return False
+
+    # Check if Person table already has data
+    try:
+        with db_instance.snapshot() as snapshot:
+            results = snapshot.execute_sql("SELECT COUNT(*) FROM Person")
+            person_count = 0
+            for row in results: # Should be only one row
+                person_count = row[0]
+                break # Ensure we only take the first row's first column
+
+        if person_count > 0:
+            print(f"Person table already contains {person_count} rows. Skipping data population.")
+            return True # Indicate success (as no action was needed)
+        else:
+            print("Person table is empty. Proceeding with data population.")
+    except Exception as e:
+        print(f"Error checking Person table count: {e}. Proceeding with data population attempt cautiously, but this might indicate other issues.")
+        # Depending on desired strictness, you could return False here or let it proceed.
+        # For now, let's allow it to proceed but log the error.
+
     print("\n--- Defining Fixed Curated Data for Relational Insertion ---")
 
     people_map = {} # name -> id

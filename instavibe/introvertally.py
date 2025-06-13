@@ -7,7 +7,7 @@ import json
 import logging # Added for logging
 
 import google.cloud.aiplatform as vertexai
-from google.cloud.aiplatform_v1.services import reasoning_engine_service_client
+from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
 # Initialize logger
@@ -21,7 +21,7 @@ def init_agent_engine(project_id, location):
     global planner_agent_engine
     try:
         vertexai.init(project=project_id, location=location)
-        client = reasoning_engine_service_client.ReasoningEngineServiceClient()
+        client = ReasoningEngineServiceClient()
         parent = f"projects/{project_id}/locations/{location}"
 
         logger.info(f"Listing reasoning engines in {parent}...")

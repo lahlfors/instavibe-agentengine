@@ -419,28 +419,68 @@ def main(argv=None):
 
     # Spanner setup
     print("Starting Spanner setup...")
+    instance_exists = False
     try:
-        subprocess.run(
-            [
-                "gcloud", "spanner", "instances", "create", COMMON_SPANNER_INSTANCE_ID,
-                "--config=regional-us-central1",
-                "--description=GraphDB Instance InstaVibe",
-                "--processing-units=100",
-                "--edition=ENTERPRISE",
-                "--project", project_id, # Added project_id for clarity and explicitness
-            ],
-            check=True, capture_output=True, text=True
-        )
-        print(f"Spanner instance {COMMON_SPANNER_INSTANCE_ID} created successfully or already exists.")
-    except subprocess.CalledProcessError as e:
-        if "ALREADY_EXISTS" in e.stderr:
-            print(f"Spanner instance {COMMON_SPANNER_INSTANCE_ID} already exists.")
-        else:
-            print(f"Error creating Spanner instance: {e}")
-            print(f"Stdout: {e.stdout}")
-            print(f"Stderr: {e.stderr}")
-            raise
+        print(f"Checking if Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' exists in project '{project_id}'...")
+        describe_command = [
+            'gcloud', 'spanner', 'instances', 'describe', COMMON_SPANNER_INSTANCE_ID,
+            '--project', project_id
+        ]
+        result = subprocess.run(describe_command, capture_output=True, text=True, check=False) # check=False to handle non-zero exits
 
+        if result.returncode == 0:
+            print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' already exists.")
+            instance_exists = True
+        elif "NOT_FOUND" in result.stderr or "failed to find" in result.stderr.lower(): # Check for typical not found messages
+            print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' does not exist. Will attempt to create it.")
+            instance_exists = False
+        else:
+            # An unexpected error occurred
+            print(f"Error describing Spanner instance '{COMMON_SPANNER_INSTANCE_ID}': {result.stderr}")
+            print(f"Stdout: {result.stdout}")
+            # Decide whether to raise an error or try to proceed. For now, let's raise.
+            raise subprocess.CalledProcessError(result.returncode, describe_command, output=result.stdout, stderr=result.stderr)
+
+    except subprocess.CalledProcessError as e:
+        # This catches errors from the describe command if check=True was used, or if we re-raise above
+        print(f"An error occurred during Spanner instance check for '{COMMON_SPANNER_INSTANCE_ID}': {e}")
+        print(f"Stdout: {e.output}")
+        print(f"Stderr: {e.stderr}")
+        print("Halting Spanner setup due to an issue checking instance existence.")
+        raise # Re-raise to stop further execution in main()
+    except Exception as e:
+        print(f"An unexpected error occurred while checking Spanner instance '{COMMON_SPANNER_INSTANCE_ID}': {e}")
+        print("Halting Spanner setup due to an unexpected issue checking instance existence.")
+        raise # Re-raise to stop further execution in main()
+
+    if not instance_exists:
+        try:
+            print(f"Creating Spanner instance '{COMMON_SPANNER_INSTANCE_ID}'...")
+            subprocess.run(
+                [
+                    "gcloud", "spanner", "instances", "create", COMMON_SPANNER_INSTANCE_ID,
+                    "--config=regional-us-central1", # Ensure this config is appropriate or make it a variable
+                    "--description=GraphDB Instance InstaVibe",
+                    "--processing-units=100", # Ensure this is appropriate or make it a variable
+                    "--edition=ENTERPRISE", # Ensure this is appropriate or make it a variable
+                    "--project", project_id,
+                ],
+                check=True, capture_output=True, text=True
+            )
+            print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' created successfully.")
+        except subprocess.CalledProcessError as e:
+            # The ALREADY_EXISTS check here is less likely to be hit if the describe logic is robust,
+            # but kept as a fallback.
+            if "ALREADY_EXISTS" in e.stderr:
+                print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' already exists (detected during create attempt).")
+            else:
+                print(f"Error creating Spanner instance '{COMMON_SPANNER_INSTANCE_ID}': {e}")
+                print(f"Stdout: {e.stdout}")
+                print(f"Stderr: {e.stderr}")
+                raise # Re-raise the exception to halt execution
+
+    # Database creation (assuming instance exists or was created)
+    # We can add a similar check for the database if needed, but the prompt only asked for instance check.
     try:
         subprocess.run(
             [

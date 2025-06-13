@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
-load_dotenv() # Ensure this is at the very top
+#from dotenv import load_dotenv
+#load_dotenv() # Ensure this is at the very top
 
 import os
 import pprint
@@ -26,9 +26,9 @@ def init_agent_engine(project_id, location):
 
         logger.info("Initializing ReasoningEngineServiceClient")
         client = ReasoningEngineServiceClient()
-        parent = f"projects/{project_id}/locations/{location}"
+        parent = f"projects/{project_id}/locations/global"
 
-        logger.info(f"Listing reasoning engines in project {project_id}, location {location}")
+        logger.info(f"Listing reasoning engines in project {project_id}, location global")
         engines = client.list_reasoning_engines(parent=parent)
 
         target_engine_display_name = "Planner Agent"

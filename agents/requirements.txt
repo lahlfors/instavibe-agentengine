@@ -1,16 +1,25 @@
-google-cloud-aiplatform[adk,agent_engines]==1.91.0
-Flask==3.1.0
-mcp[cli]==1.7.1
-google-adk==0.4.0
-python-dateutil==2.9.0.post0
-humanize==4.12.3
-nest_asyncio==1.6.0
-asyncclick==8.1.8.0
-a2a_common-0.1.0-py3-none-any.whl
-deprecated==1.2.18
-python-dotenv==1.0.1
-langgraph
+# Core LangGraph and LangChain dependencies
 langchain
+langchain-community # Added for tools like GoogleSearchAPIWrapper
+langgraph
 langchain-google-genai
+pydantic>=1.10,<3.0 # For data validation and state management
+
+# Web server (FastAPI recommended, uvicorn for serving)
 fastapi
 uvicorn[standard]
+Flask==3.1.0 # Kept for now, review if main.py or other components use it.
+
+# Utilities
+python-dotenv==1.0.1 # For loading .env files
+python-dateutil==2.9.0.post0
+humanize==4.12.3
+nest_asyncio==1.6.0 # For asyncio in sync environments if needed
+asyncclick==8.1.8.0 # For CLI tools
+deprecated==1.2.18
+
+# Removed ADK and related dependencies:
+# google-cloud-aiplatform[adk,agent_engines]==1.91.0
+# google-adk==0.4.0
+# mcp[cli]==1.7.1
+# a2a_common-0.1.0-py3-none-any.whl

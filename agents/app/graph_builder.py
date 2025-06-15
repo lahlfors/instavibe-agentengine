@@ -9,35 +9,48 @@ from agents.orchestrate.orchestrator_nodes import (
 from agents.planner.planner_node import execute_planner_node
 from agents.social.social_exec_node import execute_social_node
 from agents.platform_mcp_client.platform_exec_node import execute_platform_node
+import logging
+
+# Configure basic logging for the module if it's used standalone or for setup visibility
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
 def build_graph():
-    print("---Building Graph---")
+    logging.info("---Building Graph---")
     # Define the StateGraph with the OrchestratorState
-    # LangGraph typically uses TypedDict for state. If OrchestratorState is Pydantic,
-    # it needs to be compatible or converted (e.g. using .dict() and .parse_obj()).
-    # For now, we assume direct compatibility or that OrchestratorState is effectively a TypedDict.
+    # OrchestratorState is a Pydantic model, which is compatible with LangGraph.
     workflow = StateGraph(OrchestratorState)
 
     # Add nodes to the graph
-    # Ensure node names are consistent with their definitions and usage in edges/routing.
+    logging.info("Adding nodes to the graph...")
     workflow.add_node("entry_point", entry_point_node)
+    logging.info("Node 'entry_point' added.")
     workflow.add_node("planner_router", planner_router_node)
+    logging.info("Node 'planner_router' added.")
     workflow.add_node("planner_agent", execute_planner_node)
+    logging.info("Node 'planner_agent' added.")
     workflow.add_node("social_agent", execute_social_node)
+    logging.info("Node 'social_agent' added.")
     workflow.add_node("platform_agent", execute_platform_node)
+    logging.info("Node 'platform_agent' added.")
     workflow.add_node("error_handler", error_handler_node)
+    logging.info("Node 'error_handler' added.")
     workflow.add_node("final_output_node", output_node) # Using the imported 'output_node' function
+    logging.info("Node 'final_output_node' added.")
 
     # Define edges
+    logging.info("Defining edges for the graph...")
 
     # 1. Entry point
+    logging.info("Setting entry point to 'entry_point'.")
     workflow.set_entry_point("entry_point")
 
     # 2. From entry_point to planner_router or error_handler
     # Entry point node itself can set 'route' to 'error_handler' if user_request is missing
     def route_from_entry(state: OrchestratorState) -> str:
-        print(f"---Routing from entry_point. Error: {state.get('error_message')}---")
-        if state.get('error_message'):
+        # Access Pydantic model fields using attribute access
+        error_msg = state.error_message
+        logging.info(f"---Routing from entry_point. Error: {error_msg}---")
+        if error_msg:
             return "error_handler"
         return "planner_router"
 
@@ -49,39 +62,40 @@ def build_graph():
             "error_handler": "error_handler"
         }
     )
+    logging.info("Added conditional edges from 'entry_point' to 'planner_router' or 'error_handler'.")
 
     # 3. Conditional edges from planner_router
     def decide_next_route(state: OrchestratorState) -> str:
-        route = state.get('route') # This 'route' is set by planner_router_node's LLM call
-        error_message = state.get('error_message') # Error message might be set by planner_router itself
+        # Access Pydantic model fields using attribute access
+        route = state.route
+        error_message = state.error_message
 
-        print(f"---Deciding next route from planner_router. Route: '{route}', Error: '{error_message}'---")
+        logging.info(f"---Deciding next route from planner_router. Route: '{route}', Error: '{error_message}'---")
 
-        if error_message and route != "final_responder": # If router or a previous step set an error
-            # And it's not an error that should just be reported (e.g. "planner failed, going to final_responder")
-            # This check might need refinement depending on how errors are propagated vs. explicit routing to final_responder with error info.
-            # If planner_router itself decided 'error_handler', 'route' will be 'error_handler'.
-            print(f"Error message present ('{error_message}'), routing to error_handler.")
+        if error_message and route != "final_responder":
+            logging.info(f"Error message present ('{error_message}'), routing to error_handler.")
             return "error_handler"
 
         if route == "planner":
-            print("Routing to planner_agent.")
+            logging.info("Routing to planner_agent.")
             return "planner_agent"
         elif route == "social":
-            print("Routing to social_agent.")
+            logging.info("Routing to social_agent.")
             return "social_agent"
         elif route == "platform":
-            print("Routing to platform_agent.")
+            logging.info("Routing to platform_agent.")
             return "platform_agent"
         elif route == "final_responder":
-            print("Routing to final_output_node.")
+            logging.info("Routing to final_output_node.")
             return "final_output_node"
-        elif route == "error_handler": # If router explicitly chose error_handler
-            print("Routing to error_handler as per router's decision.")
+        elif route == "error_handler":
+            logging.info("Routing to error_handler as per router's decision.")
             return "error_handler"
         else:
-            print(f"Unknown or invalid route '{route}' from planner_router. Defaulting to error_handler.")
-            state['error_message'] = f"Invalid route '{route}' decided by planner_router."
+            logging.warning(f"Unknown or invalid route '{route}' from planner_router. Defaulting to error_handler.")
+            # Direct mutation of state (e.g., state.error_message = ...) in a conditional function is not standard.
+            # The preceding node (planner_router_node) should ideally set this error_message if it detects an invalid route.
+            # If this path is taken, the error_handler_node should be robust enough to set a generic error.
             return "error_handler"
 
     workflow.add_conditional_edges(
@@ -95,11 +109,15 @@ def build_graph():
             "error_handler": "error_handler",
         }
     )
+    logging.info("Added conditional edges from 'planner_router'.")
 
     # 4. From specialized agents back to planner_router for next decision
     workflow.add_edge("planner_agent", "planner_router")
+    logging.info("Added edge from 'planner_agent' to 'planner_router'.")
     workflow.add_edge("social_agent", "planner_router")
+    logging.info("Added edge from 'social_agent' to 'planner_router'.")
     workflow.add_edge("platform_agent", "planner_router")
+    logging.info("Added edge from 'platform_agent' to 'planner_router'.")
 
     # 5. From error_handler to final_output_node (to display the error)
     # The error_handler_node itself now sets route to "final_responder",
@@ -108,69 +126,71 @@ def build_graph():
     # Let's ensure error_handler_node's output is handled correctly by final_output_node.
     # The error_handler_node sets "intermediate_output" with error details.
     workflow.add_edge("error_handler", "final_output_node")
+    logging.info("Added edge from 'error_handler' to 'final_output_node'.")
 
     # 6. End node
     # final_output_node is the last step that prepares the 'final_output' field in the state.
     # After this node, the graph should end.
     workflow.add_edge("final_output_node", END)
+    logging.info("Added edge from 'final_output_node' to END.")
 
     # Compile the graph
+    logging.info("Compiling the graph...")
     try:
         app = workflow.compile()
-        print("---Graph Compiled Successfully---")
+        logging.info("---Graph Compiled Successfully---")
         return app
     except Exception as e:
-        print(f"---Error Compiling Graph: {e}---")
-        import traceback
-        print(traceback.format_exc())
+        logging.error(f"---Error Compiling Graph: {e}---", exc_info=True)
         raise
 
 if __name__ == "__main__":
-    # This is for basic testing of graph compilation and structure.
+    # This __main__ block is for basic testing of graph compilation and structure.
+    # Logging is configured at the top of the file.
+    logging.info("Executing graph_builder.py as __main__ for testing.")
+
     from dotenv import load_dotenv
     import os
 
-    # Ensure correct path to .env, assuming graph_builder.py is in agents/app/
-    # So, ../../.env from agents/app/
+    # Ensure correct path to .env
     dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-    print(f"Loading .env from: {dotenv_path}")
-    load_dotenv(dotenv_path=dotenv_path)
+    logging.info(f"Attempting to load .env from: {dotenv_path}")
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path=dotenv_path)
+        logging.info(".env file loaded successfully.")
+    else:
+        logging.warning(f".env file not found at {dotenv_path}. Required environment variables might not be set.")
 
-    # Check if API key is loaded (optional, for info)
-    # print(f"GOOGLE_API_KEY loaded: {'GOOGLE_API_KEY' in os.environ and bool(os.environ['GOOGLE_API_KEY'])}")
+    # Example: Check if a specific environment variable expected by nodes is present
+    # api_key = os.environ.get("SOME_API_KEY")
+    # if not api_key:
+    #     logging.warning("SOME_API_KEY environment variable is not set. Node execution requiring this key might fail.")
 
     graph_app = None
     try:
+        logging.info("Attempting to build graph in __main__...")
         graph_app = build_graph()
     except Exception as e:
-        print(f"Failed to build graph in __main__: {e}")
-        # Optional: exit or further error handling
+        logging.error(f"Failed to build graph in __main__: {e}", exc_info=True)
 
     if graph_app:
-        print("\nGraph built successfully. To run, you would invoke `graph_app.invoke(initial_state, config)`.")
-        print("Example: final_state = graph_app.invoke({'user_request': 'Plan a trip to Paris.'}, {'recursion_limit': 10})")
-        print("Then inspect final_state.get('final_output') or final_state['final_output']")
-        print("\n---Simulating a graph run (conceptual)---")
-        # This is a conceptual simulation. A real run needs actual invocation.
-        # The following is a placeholder for how one might invoke and what to expect.
+        logging.info("Graph built successfully in __main__.")
+        logging.info("To run the graph, you would typically invoke `graph_app.invoke(initial_state_dict, config)`.")
+        logging.info("Example: final_state = graph_app.invoke(initial_input_state.dict(), {'recursion_limit': 10})")
+        logging.info("Inspect `final_state['final_output']` for the result.")
 
-        # Example initial state
+        logging.info("---Conceptual Graph Invocation Example---")
+        # Example initial state using the Pydantic model
         initial_input_state = OrchestratorState(
-            user_request="Can you plan a fun weekend in San Francisco for me, interested in food and parks?",
-            current_task_description=None, # Will be set by entry_point
-            intermediate_output=None,
-            final_output=None,
-            session_id=None, # Will be set by entry_point
-            current_agent_name=None,
-            error_message=None,
-            route=None
+            user_request="Plan a fun weekend in San Francisco, focus on parks and local food spots."
+            # Other fields will use their default values (None or as defined in Pydantic model)
         )
 
-        print(f"Conceptual initial input: {initial_input_state}")
-        print("If you were to run: `final_state = graph_app.invoke(initial_input_state, {'recursion_limit': 15})`")
-        print("You would then check `final_state['final_output']` for the result from the output_node.")
-        print("Note: Running the actual invocation here would require all API keys to be correctly set up and might incur costs.")
-        print("Consider writing a separate test script for full invocation.")
+        logging.info(f"Conceptual initial input state (as dict): {initial_input_state.model_dump()}") # Pydantic V2 uses model_dump()
+        logging.info("To perform an actual run: `final_state = graph_app.invoke(initial_input_state.model_dump(), {'recursion_limit': 15})`")
+        logging.info("Then, you would check `final_state.get('final_output')` or access other fields from the resulting state dictionary.")
+        logging.info("Note: A real invocation would execute all node logic, potentially making external API calls if nodes are designed to do so.")
+        logging.info("For comprehensive testing, consider creating dedicated test files (e.g., using pytest) that can mock external services if needed.")
 
     else:
-        print("Graph building failed. Cannot proceed with example run.")
+        logging.error("Graph building failed in __main__. Cannot provide invocation example.")

@@ -14,7 +14,7 @@ from google.cloud import storage
 import google.auth # For google.auth.exceptions
 
 # Import the agent module that contains the `root_agent`
-from agents.platform_mcp_client import agent as platform_mcp_client_agent_module
+from agents.platform_mcp_client import root_agent
 from dotenv import load_dotenv # For loading .env file
 
 # Load environment variables from the root .env file
@@ -49,7 +49,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         raise
 
     # The agent to pickle is platform_mcp_client_agent_module.root_agent
-    agent_instance_to_pickle = platform_mcp_client_agent_module.root_agent
+    agent_instance_to_pickle = root_agent
     if agent_instance_to_pickle is None:
         raise ValueError("Error: The root_agent in platform_mcp_client.agent is None. Ensure it's initialized.")
 

@@ -6,40 +6,50 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage # SystemMessage can be used for more static parts of prompt
 import uuid # For session_id
+import logging
+from typing import Dict, Any # Added missing imports
 
 # Load environment variables
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-# Ensure GOOGLE_API_KEY is set for GenAI
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path=dotenv_path)
+    logging.info("OrchestratorNodes: .env file loaded.")
+else:
+    logging.warning(f"OrchestratorNodes: .env file not found at {dotenv_path}. API keys may not be available.")
 
-def entry_point_node(state: OrchestratorState) -> dict:
-    print("---Entry Point Node---")
+# Configure basic logging if this file is run standalone or for visibility during setup.
+# This might be overridden by a central logging configuration if this is part of a larger app.
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
+
+
+def entry_point_node(state: OrchestratorState) -> Dict[str, Any]:
+    logging.info("---Entry Point Node---")
     session_id = str(uuid.uuid4())
-    user_request = state.get('user_request')
+    user_request = state.user_request # Pydantic attribute access
 
     if not user_request:
-        print("Error: User request missing in initial state.")
-        # Even with an error, initialize all fields for consistency
+        logging.error("Entry Point Node: User request missing in initial state.")
         return {
-            "session_id": state.get('session_id') or session_id,
+            "session_id": state.session_id or session_id, # Use existing session_id if available (e.g. retry)
             "user_request": None,
             "current_task_description": None,
             "intermediate_output": None,
             "final_output": None,
             "current_agent_name": "entry_point",
             "error_message": "User request missing in initial state.",
-            "route": "error_handler" # Route to error handler
+            "route": "error_handler"
         }
 
-    print(f"Entry point: Received user request: {user_request}")
+    logging.info(f"Entry Point Node: Received user request: '{user_request[:100]}...'")
     return {
-        "session_id": state.get('session_id') or session_id,
+        "session_id": state.session_id or session_id,
         "user_request": user_request,
         "current_task_description": user_request, # Initialize current_task_description
-        "intermediate_output": None,
-        "final_output": None,
+        "intermediate_output": None, # Ensure this is initialized
+        "final_output": None, # Ensure this is initialized
         "current_agent_name": "entry_point",
-        "error_message": None,
-        "route": None
+        "error_message": None, # Clear any previous error
+        "route": None # Let planner_router decide next
     }
 
 ORCHESTRATOR_PROMPT_TEMPLATE = """
@@ -111,152 +121,166 @@ Intermediate Output: {intermediate_output}
 Your JSON Response:
 """
 
-def planner_router_node(state: OrchestratorState) -> dict:
-    print("---Planner/Router Node---")
+async def planner_router_node(state: OrchestratorState) -> Dict[str, Any]: # Made async
+    logging.info("---Planner/Router Node---")
+    current_agent_name = "planner_router"
     try:
-        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3, convert_system_message_to_human=True) # Using convert_system_message_to_human for older models if needed
+        # Ensure GOOGLE_API_KEY is loaded for ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3, convert_system_message_to_human=True)
 
-        user_request = state.get('user_request')
-        if not user_request: # Should have been caught by entry_point, but good to double check
-            return {**state, "route": "error_handler", "error_message": "User request missing in state for planner_router.", "current_agent_name": "planner_router"}
+        user_request = state.user_request
+        if not user_request:
+            logging.error("Planner Router Node: User request missing in state.")
+            return {
+                "route": "error_handler",
+                "error_message": "User request missing in state for planner_router.",
+                "current_agent_name": current_agent_name
+            }
 
         intermediate_output_str = "None"
-        if state.get('intermediate_output') is not None:
+        if state.intermediate_output is not None:
             try:
-                intermediate_output_str = json.dumps(state.get('intermediate_output'))
-            except TypeError:
-                intermediate_output_str = str(state.get('intermediate_output'))
+                intermediate_output_str = json.dumps(state.intermediate_output)
+            except TypeError: # Handle non-serializable intermediate_output gracefully
+                intermediate_output_str = str(state.intermediate_output)
+                logging.warning(f"Planner Router Node: Intermediate output was not JSON serializable, used str(): {intermediate_output_str[:100]}...")
+
 
         prompt_content = ORCHESTRATOR_PROMPT_TEMPLATE.format(
             user_request=user_request,
             intermediate_output=intermediate_output_str
         )
-
-        # Using HumanMessage for the full prompt as Gemini API prefers this for complex instructions
-        # SystemMessage could be used if there was a more static part of the role definition.
         messages = [HumanMessage(content=prompt_content)]
 
-        print(f"Router node invoking LLM. First 200 chars of prompt: {prompt_content[:200]}...")
-        response = llm.invoke(messages)
+        logging.info(f"Router node invoking LLM. Prompt snippet: {prompt_content[:200]}...")
+        response = await llm.ainvoke(messages) # Changed to ainoke for async
         llm_output_json_str = response.content.strip()
-
-        print(f"Router LLM raw output: {llm_output_json_str}")
+        logging.info(f"Router LLM raw output: {llm_output_json_str}")
 
         parsed_llm_response = None
         next_route = None
-        task_description_for_next_node = user_request # Default
+        # Default to original user_request if LLM doesn't provide a new one
+        task_description_for_next_node = user_request
 
         try:
-            # Attempt to find JSON block if markdown backticks are present
             if llm_output_json_str.startswith("```json"):
-                llm_output_json_str = llm_output_json_str[7:]
-                if llm_output_json_str.endswith("```"):
-                    llm_output_json_str = llm_output_json_str[:-3]
-            elif llm_output_json_str.startswith("```"): # Just ```
-                llm_output_json_str = llm_output_json_str[3:]
-                if llm_output_json_str.endswith("```"):
-                    llm_output_json_str = llm_output_json_str[:-3]
+                json_str_cleaned = llm_output_json_str[7:-3].strip() if llm_output_json_str.endswith("```") else llm_output_json_str[7:].strip()
+            elif llm_output_json_str.startswith("```"):
+                 json_str_cleaned = llm_output_json_str[3:-3].strip() if llm_output_json_str.endswith("```") else llm_output_json_str[3:].strip()
+            else:
+                json_str_cleaned = llm_output_json_str
 
-            parsed_llm_response = json.loads(llm_output_json_str)
+            parsed_llm_response = json.loads(json_str_cleaned)
             next_route = parsed_llm_response.get("next_node")
-            task_description_for_next_node = parsed_llm_response.get("current_task_description_for_next_node", user_request)
+            # Update task_description only if provided by LLM and valid, else keep default
+            task_description_for_next_node = parsed_llm_response.get("current_task_description_for_next_node", task_description_for_next_node)
+
         except json.JSONDecodeError as e:
             error_msg = f"Router LLM did not return valid JSON. Error: {e}. Raw output: {llm_output_json_str}"
-            print(error_msg)
-            return {**state, "route": "error_handler", "error_message": error_msg, "current_agent_name": "planner_router"}
-        except AttributeError as e: # If LLM output is not even a string with .get, or parsed_llm_response is not a dict
-            error_msg = f"Router LLM response structure error or not a dict. Error: {e}. Raw output: {llm_output_json_str}"
-            print(error_msg)
-            return {**state, "route": "error_handler", "error_message": error_msg, "current_agent_name": "planner_router"}
+            logging.error(error_msg)
+            return {
+                "route": "error_handler",
+                "error_message": error_msg,
+                "current_agent_name": current_agent_name
+            }
+        except AttributeError as e:
+            error_msg = f"Router LLM response structure error. Error: {e}. Raw output: {llm_output_json_str}"
+            logging.error(error_msg)
+            return {
+                "route": "error_handler",
+                "error_message": error_msg,
+                "current_agent_name": current_agent_name
+            }
 
         known_routes = ["planner", "social", "platform", "final_responder", "error_handler"]
         if not next_route or next_route not in known_routes:
-            error_msg = f"Router LLM decided an invalid or missing route: '{next_route}'. Valid routes are: {known_routes}."
-            print(error_msg)
-            # Pass through the potentially problematic task_description if it exists, or default.
-            state['current_task_description'] = task_description_for_next_node
-            return {**state, "route": "error_handler", "error_message": error_msg, "current_agent_name": "planner_router"}
+            error_msg = f"Router LLM decided an invalid or missing route: '{next_route}'. Valid routes: {known_routes}. Raw output: {llm_output_json_str}"
+            logging.error(error_msg)
+            # Do not change current_task_description if route is invalid, keep what was there.
+            return {
+                "route": "error_handler", # Default to error_handler on invalid route
+                "error_message": error_msg,
+                "current_agent_name": current_agent_name,
+                 # "current_task_description": state.current_task_description # Keep existing task description
+            }
 
-        print(f"Router successfully decided route: '{next_route}' with task description: '{task_description_for_next_node[:100]}...'")
+        logging.info(f"Router successfully decided route: '{next_route}' with task: '{task_description_for_next_node[:100]}...'")
         return {
-            **state,
             "route": next_route,
             "current_task_description": task_description_for_next_node,
-            "current_agent_name": "planner_router",
-            "error_message": None # Clear previous errors if successfully routed
+            "current_agent_name": current_agent_name,
+            "error_message": None # Clear previous errors
         }
 
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"Generic error in planner_router_node: {e}\n{error_trace}")
+        logging.error(f"Generic error in planner_router_node: {e}", exc_info=True)
         return {
-            **state,
             "route": "error_handler",
             "error_message": f"Generic error in planner_router_node: {str(e)}",
-            "current_agent_name": "planner_router"
+            "current_agent_name": current_agent_name
         }
 
-def error_handler_node(state: OrchestratorState) -> dict:
-    print("---Error Handler Node---")
-    error_message = state.get('error_message', "An unspecified error occurred and was routed to error_handler.")
-    print(f"Error Handler Node processing message: {error_message}")
+def error_handler_node(state: OrchestratorState) -> Dict[str, Any]:
+    logging.info("---Error Handler Node---")
+    error_message = state.error_message or "An unspecified error occurred and was routed to error_handler."
+    logging.info(f"Error Handler Node processing message: {error_message}")
 
-    # This node prepares a final error output.
-    # The actual presentation to the user happens via 'final_responder' / 'output_node'.
-    # We set intermediate_output here, which output_node will pick up.
-    # The route to 'final_responder' will be set by the graph's edge from error_handler.
+    # This node prepares a final error output for the output_node.
+    # The graph edge from 'error_handler' should lead to 'final_output_node'.
     return {
-        **state, # Persist other state fields
         "intermediate_output": {"error": error_message, "details": "Processing was halted due to an error."},
         "current_agent_name": "error_handler",
-        "route": "final_responder" # Explicitly route to final_responder
+        "error_message": error_message, # Keep the error message in the state as well for clarity
+        # "route": "final_responder" # This might be redundant if graph structure handles it.
+                                  # Keep if explicit routing is desired.
+                                  # For now, assuming graph routes error_handler to final_output_node.
     }
 
-def output_node(state: OrchestratorState) -> dict:
-    print("---Output Node---")
-    # This node prepares the final response for the user.
-    # It looks for 'error_message' first, then 'intermediate_output'.
+def output_node(state: OrchestratorState) -> Dict[str, Any]:
+    logging.info("---Output Node---")
+    # This node prepares the final response string for the user.
+    # It prioritizes error messages if present.
 
-    error_msg_from_state = state.get('error_message') # Error that might have occurred in a node before error_handler
-    intermediate_out = state.get('intermediate_output') # This might be a success payload or an error payload from error_handler_node
+    error_msg_to_display = state.error_message # Error from a node or explicitly set by error_handler.
+    intermediate_out = state.intermediate_output
 
     final_response_payload = None
 
     # Check if intermediate_output itself is an error structure (e.g., from error_handler_node)
     if isinstance(intermediate_out, dict) and "error" in intermediate_out:
-        print(f"Output node processing error payload from intermediate_output: {intermediate_out.get('error')}")
+        logging.info(f"Output node using error payload from intermediate_output: {intermediate_out.get('error')}")
         final_response_payload = intermediate_out
-    elif error_msg_from_state: # If an error occurred in a node and wasn't yet formatted by error_handler
-        print(f"Output node processing direct error_message from state: {error_msg_from_state}")
-        final_response_payload = {"error": error_msg_from_state, "details": "An error occurred during processing."}
+    elif error_msg_to_display: # If an error occurred and is in error_message (possibly not yet formatted by error_handler)
+        logging.info(f"Output node using direct error_message from state: {error_msg_to_display}")
+        final_response_payload = {"error": error_msg_to_display, "details": "An error occurred during processing."}
         if intermediate_out: # Include intermediate_output if it exists, might give context
             final_response_payload["last_known_output"] = intermediate_out
     elif intermediate_out is not None:
-        print(f"Output node processing successful intermediate output: {str(intermediate_out)[:200]}...")
+        logging.info(f"Output node using successful intermediate_output: {str(intermediate_out)[:200]}...")
         final_response_payload = intermediate_out
     else:
-        print("Output node: No definitive error or intermediate output. This may indicate an issue.")
+        logging.warning("Output node: No definitive error or intermediate output. This may indicate an issue.")
         final_response_payload = {"message": "Processing completed with no specific output or error provided."}
 
     final_output_str = None
     if isinstance(final_response_payload, (dict, list)):
         try:
-            final_output_str = json.dumps(final_response_payload)
+            final_output_str = json.dumps(final_response_payload, indent=2)
         except TypeError as te:
-            print(f"Error serializing final_response_payload to JSON: {te}")
-            final_output_str = json.dumps({"error": "Output serialization error", "details": str(te)})
-    elif isinstance(final_response_payload, str): # If it's already a string (e.g. simple message)
+            logging.error(f"Error serializing final_response_payload to JSON: {te}", exc_info=True)
+            final_output_str = json.dumps({"error": "Output serialization error", "details": str(te)}, indent=2)
+    elif isinstance(final_response_payload, str):
         final_output_str = final_response_payload
-    elif final_response_payload is None: # Should ideally not happen if logic above is correct
-        final_output_str = json.dumps({"message": "No output generated."})
+    elif final_response_payload is None:
+        final_output_str = json.dumps({"message": "No output generated."}, indent=2)
     else: # Other types
         final_output_str = str(final_response_payload)
 
-    print(f"Output node final_output: {final_output_str}")
+    logging.info(f"Output node final_output string: {final_output_str}")
     return {
-        **state,
-        "final_output": final_output_str,
+        "final_output": final_output_str, # The final, user-facing string
         "current_agent_name": "output_node",
-        # No route needed from output_node as it's an end state or graph END.
+        # No "route" needed; this is typically an end node.
+        # "error_message": state.error_message, # Preserve error message if any
+        # "intermediate_output": state.intermediate_output # Preserve intermediate output
     }

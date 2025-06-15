@@ -302,5 +302,3 @@ if __name__ == '__main__':
     # asyncio.run(test_graph()) # Commented out for tool use
     print("Platform node file created. Run directly to test with example inputs.")
     print("Remember to uncomment asyncio.run(test_graph()) and ensure Spanner/MCP is configured if needed.")
-
-```

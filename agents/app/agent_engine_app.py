@@ -9,15 +9,9 @@ from typing import Any, Dict # Mapping, Sequence removed as AgentEngineApp is re
 import google.auth
 import vertexai
 import google.api_core.exceptions # For specific exception handling
-# from google.cloud import logging as google_cloud_logging # Removed, using standard logging
-# from opentelemetry import trace # OpenTelemetry tracing removed for simplification
-# from opentelemetry.sdk.trace import TracerProvider, export # OpenTelemetry tracing removed
 from vertexai import agent_engines
-# from vertexai.preview import reasoning_engines # Removed reasoning_engines if not used for non-ADK deployment
+# Removed vertexai.preview.reasoning_engines import
 from app.utils.gcs import create_bucket_if_not_exists
-# from app.utils.tracing import CloudTraceLoggingSpanExporter # OpenTelemetry tracing removed
-# from app.utils.typing import Feedback # Feedback class removed
-# from vertexai.preview.reasoning_engines import AdkApp # AdkApp removed
 
 # Import the LangGraph app builder
 from agents.app.graph_builder import build_graph
@@ -27,8 +21,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
-# AgentEngineApp class and its methods (set_up, register_feedback, register_operations, clone) are removed
-# as they are specific to AdkApp.
+# ADK-specific classes like AgentEngineApp and its methods are removed.
 
 def deploy_agent_engine_app(
     project: str,
@@ -64,26 +57,21 @@ def deploy_agent_engine_app(
 
 
     # Common configuration for both create and update operations
-    # CRITICAL CHANGE: The 'agent_engine' key now needs to point to something
-    # compatible with agent_engines.create/update.
-    # If LangGraph's compiled app is not directly compatible, this is where
-    # a wrapper (e.g., FastAPI app) or a different deployment strategy is needed.
-
-    # For now, we will optimistically pass the langgraph_app.
-    # If this fails during actual deployment (which is likely if AgentEngine expects an ADK type),
-    # then the deployment part of this function needs to be re-evaluated.
-    # The goal of this subtask is to remove ADK from *this* codebase.
-    # Actual deployment compatibility is a subsequent concern.
+    # The 'agent_engine' parameter in agent_engines.create/update is tricky.
+    # For this refactoring, we aim to make the script ADK-free.
+    # We will pass the langgraph_app directly, acknowledging this might not be
+    # directly deployable without a wrapper or future Vertex AI support.
+    # The deployment calls themselves are stubbed out.
 
     agent_config: Dict[str, Any] = {
-        # "agent_engine": langgraph_app, # This is the optimistic approach
+        # "agent_engine": langgraph_app, # This field is what would pass the app to Vertex AI.
+                                        # It's commented out as part of stubbing the deployment.
         "display_name": agent_name,
-        "description": "Orchestrator agent built with LangGraph", # Updated description
+        "description": "Orchestrator agent built with LangGraph",
         "extra_packages": extra_packages,
         "requirements": requirements,
-        # "env_vars": env_vars, # Handled by Reasoning Engine tool for remote serving if needed, or by container env
     }
-    if env_vars: # env_vars are passed to the ReasoningEngine resource
+    if env_vars:
         agent_config["environment_variables"] = env_vars
 
 
@@ -113,43 +101,45 @@ def deploy_agent_engine_app(
     remote_agent = None
 
     # STUBBED DEPLOYMENT SECTION START
+    # The following section demonstrates where the actual calls to Vertex AI Agent Engines would be.
+    # These are commented out because direct deployment of a LangGraph `CompiledGraph`
+    # via the `agent_engine` parameter is not yet confirmed to be supported without a wrapper.
+    #
     # try:
-    #     existing_agents = list(agent_engines.list(filter=f"display_name={agent_name}"))
+    #     existing_agents = agent_engines.list(filter=f"display_name='{agent_name}'")
     #     if existing_agents:
-    #         logging.info(f"Attempting to update existing agent: {agent_name}...")
-    #         # Ensure agent_config for update includes the 'name' of the existing agent
-    #         agent_config_for_update = agent_config.copy()
-    #         agent_config_for_update["name"] = existing_agents[0].name
-    #         # The 'agent_engine' field must be compatible.
-    #         # This is where direct passage of langgraph_app might be an issue.
-    #         # For a true update, one might need to create a new ReasoningEngine version
-    #         # with the updated langgraph_app and then update the AgentEngine to point to it.
-    #         # This is complex and depends on Vertex AI specifics.
-    #         # For now, we assume if `create` works, `update` would need similar compatibility.
-    #         # remote_agent = existing_agents[0].update(**agent_config) # This line is problematic if langgraph_app isn't directly usable.
-    #         logging.warning(f"Update for agent '{agent_name}' is STUBBED. Requires compatible agent_engine type.")
+    #         logging.info(f"Found existing agent(s) with name '{agent_name}'. Attempting update (STUBBED).")
+    #         # remote_agent = existing_agents[0].update(agent_engine=langgraph_app, **agent_config_for_update)
+    #         # Note: agent_config_for_update would need to be defined, similar to agent_config
+    #         # but potentially with minor differences for the update operation.
+    #         # For this stub, we assume `agent_config` is largely reusable.
+    #         logging.warning(f"Update for agent '{agent_name}' is STUBBED. `agent_engine` field would be `langgraph_app`.")
     #         remote_agent = existing_agents[0] # Simulate getting the agent
     #     else:
-    #         logging.info(f"Attempting to create new agent: {agent_name}...")
-    #         # The `agent_engine` field here is `langgraph_app`. This is the key test.
-    #         # If this is not supported, the deployment will fail here.
-    #         # remote_agent = agent_engines.create(**agent_config)
-    #         logging.warning(f"Create for agent '{agent_name}' is STUBBED. Requires compatible agent_engine type.")
-    #         # Simulate a successful creation for metadata purposes if needed by downstream code
-    #         # This would require knowing the expected structure of a remote_agent object.
+    #         logging.info(f"No existing agent found with name '{agent_name}'. Attempting create (STUBBED).")
+    #         # remote_agent = agent_engines.create(agent_engine=langgraph_app, **agent_config)
+    #         logging.warning(f"Create for agent '{agent_name}' is STUBBED. `agent_engine` field would be `langgraph_app`.")
+    #         # To simulate a remote_agent object for metadata, you might need to define a mock object:
+    #         # class MockRemoteAgent:
+    #         #     def __init__(self, name):
+    #         #         self.resource_name = f"projects/{project}/locations/{location}/agentEngines/{name}-simulated"
+    #         # remote_agent = MockRemoteAgent(agent_name)
     #
     # except google.api_core.exceptions.InvalidArgument as e:
     #     logging.error(f"!!! InvalidArgument error during (stubbed) agent deployment for '{agent_name}': {e}")
-    #     logging.error(f"--- Agent Configuration Summary: {json.dumps(log_config_summary, indent=2, default=str)} ---")
+    #     logging.error(f"--- This error would likely occur if `langgraph_app` is not a compatible type for `agent_engine`. ---")
+    #     logging.error(f"--- Agent Configuration Summary (excluding agent_engine object): {json.dumps(log_config_summary, indent=2, default=str)} ---")
     #     raise
     # except Exception as e:
     #     logging.error(f"An unexpected error occurred during (stubbed) agent deployment for '{agent_name}': {e}", exc_info=True)
     #     raise
     # STUBBED DEPLOYMENT SECTION END
 
-    if remote_agent and hasattr(remote_agent, 'resource_name'): # Check if a simulated or real remote_agent object exists
+    # If deployment were real, remote_agent would be the deployed agent_engines.AgentEngine object.
+    # For stubbed deployment, we check if remote_agent was assigned (e.g., from a simulated update).
+    if remote_agent and hasattr(remote_agent, 'resource_name'):
         config = {
-            "remote_agent_engine_id": remote_agent.resource_name,
+            "remote_agent_engine_id": remote_agent.resource_name, # Example: "projects/.../locations/.../agentEngines/..."
             "deployment_timestamp": datetime.datetime.now().isoformat(),
             "status": "STUBBED_DEPLOYMENT" # Indicate that this was not a live deployment
         }
@@ -171,8 +161,7 @@ if __name__ == "__main__":
     )
     import argparse
 
-    parser = argparse.ArgumentParser(description="Deploy LangGraph agent engine app to Vertex AI (Deployment calls are STUBBED)")
-    # ... (rest of argparse setup remains the same) ...
+    parser = argparse.ArgumentParser(description="Build and prepare LangGraph agent for deployment to Vertex AI (Deployment calls are STUBBED)")
     parser.add_argument(
         "--project",
         default=GOOGLE_CLOUD_PROJECT,

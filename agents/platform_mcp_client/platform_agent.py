@@ -1,50 +1,60 @@
-from typing import Any, AsyncIterable, Dict, Optional
-from google.adk.agents.llm_agent import LlmAgent
-from google.adk.tools.tool_context import ToolContext
-from google.adk.artifacts import InMemoryArtifactService
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
-from common.task_manager import AgentWithTaskManager
-from platform_mcp_client import agent
-import os # For path joining
-from dotenv import load_dotenv # To load .env
+import os
+from dotenv import load_dotenv
+from typing import Any, Dict, Optional
+
+# Assuming AgentWithTaskManager is a custom base class or similar to AgentTaskManager
+# If it's specific to ADK runners, it might need adjustment or replacement.
+# For now, let's assume it's compatible or a simple base class.
+from common.task_manager import AgentWithTaskManager # Or common.task_manager.AgentTaskManager if AgentWithTaskManager is not the one
+from .platform_node import build_platform_graph, PlatformGraphState # Import graph builder and state type
 
 # Load environment variables from the root .env file.
-# While agent.py (imported as platform_mcp_client.agent) also does this,
-# adding it here ensures that if PlatformAgent is used or tested in a context
-# where agent.py wasn't the first import, the environment is still correctly configured.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 class PlatformAgent(AgentWithTaskManager):
-  """An agent that post event and post to instavibe."""
-
-  SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
+  """An agent that posts events and messages to Instavibe using LangGraph."""
 
   def __init__(self):
-    self._agent = self._build_agent()
-    self._user_id = "platform_agent"
-    self._runner = Runner(
-        app_name=self._agent.name,
-        agent=self._agent,
-        artifact_service=InMemoryArtifactService(),
-        session_service=InMemorySessionService(),
-        memory_service=InMemoryMemoryService(),
-    )
+    super().__init__()
+    # Build and compile the graph when the agent is initialized.
+    # The MCP server URL is read from ENV within build_platform_graph.
+    self.graph = build_platform_graph()
+    # No _agent, _runner, or _user_id needed from ADK.
 
   def get_processing_message(self) -> str:
-      return "Processing the social post and event request..."
-
-  def _build_agent(self) -> LlmAgent:
-    """Builds the LLM agent for the Processing the social post and event request."""
-    return agent.root_agent
+      return "Processing the Instavibe post/event request with LangGraph..."
 
   async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
-    """Handles the user's request by running the agent pipeline."""
-    return await self._runner.run_pipeline(
-        app_name=self._agent.name,
-        session_id=self._user_id,
-        inputs={"text_content": query},
-        stream=False,
-    )
+    """Handles the user's request for platform actions using the LangGraph."""
+
+    initial_state: PlatformGraphState = {
+        "user_request": query,
+        "llm_response": None,
+        "final_output": None,
+        "error_message": None,
+    }
+
+    try:
+      print(f"PlatformAgent invoking graph with initial state: {initial_state}")
+      # Invoke the graph with the initial state.
+      final_state = await self.graph.ainvoke(initial_state)
+      print(f"PlatformAgent received final state from graph: {final_state}")
+
+      if final_state:
+        output = final_state.get("final_output")
+        error = final_state.get("error_message")
+
+        if error and not output:
+             return {"output": None, "error": str(error)}
+        elif output:
+             return {"output": str(output)}
+        else:
+             return {"output": None, "error": "Graph execution finished with no clear output or error."}
+      else:
+        return {"output": None, "error": "Graph execution failed to return a final state."}
+
+    except Exception as e:
+      import traceback
+      error_msg = f"An unexpected error occurred during platform agent graph invocation: {str(e)}"
+      print(f"{error_msg}\n{traceback.format_exc()}")
+      return {"output": None, "error": error_msg}

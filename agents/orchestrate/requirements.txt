@@ -1,13 +1,18 @@
-# Core dependencies for Vertex AI Agent Engine deployment
-google-cloud-aiplatform
-python-dotenv==1.0.1
+# This file is for dependencies specific to the orchestrator component.
+# Common dependencies are expected to be in a parent requirements.txt (e.g., agents/requirements.txt).
 
-# Local shared library for agent communication
-# This relative path assumes that during deployment to Vertex AI,
-# the 'app' directory is available one level up from 'orchestrate'.
-# This might need adjustment depending on how Vertex AI handles packaging.
-# For local development, this works if PYTHONPATH is set correctly or if using editable installs.
-../app
-google-adk==1.0.0
-deprecated==1.2.18
-nest_asyncio==1.6.0
+# Removed ADK-related dependencies:
+# google-cloud-aiplatform
+# google-adk==1.0.0
+
+# Removed redundant common dependencies (expected to be in parent requirements.txt):
+# python-dotenv==1.0.1
+# deprecated==1.2.18
+# nest_asyncio==1.6.0
+
+# Removed relative path dependency (should be handled by packaging or PYTHONPATH):
+# ../app
+
+# No specific dependencies remain for the orchestrator at this time,
+# as its needs (langchain-google-genai for planner_router_node) are covered
+# by the main agents/requirements.txt.

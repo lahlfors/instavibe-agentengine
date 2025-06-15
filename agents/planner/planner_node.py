@@ -7,7 +7,13 @@ from agents.app.common.graph_state import OrchestratorState
 from agents.planner.planner_agent import PlannerAgent # Import the refactored PlannerAgent
 
 # Load environment variables from the root .env file.
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path=dotenv_path) # project_core .env is repository root
+    logging.info("Planner Node: .env file loaded.")
+else:
+    logging.warning(f"Planner Node: .env file not found at {dotenv_path}.")
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,38 +27,46 @@ async def execute_planner_node(state: OrchestratorState) -> Dict[str, Any]:
     The PlannerAgent itself now handles LLM calls, prompt construction, and tool use.
     """
     logger.info("---Executing Planner Node---")
-    task_description = state.get("current_task_description")
-    current_agent_name = "planner"
+    # Access Pydantic model fields using attribute access
+    task_description = state.current_task_description
+    current_agent_name = "planner" # Set current agent name
 
     if not task_description:
-        logger.error("Planner Node: No task description provided.")
+        logger.warning("Planner Node: No task description provided in the current state.")
         return {
-            "error_message": "No task description provided for Planner Agent.",
-            "current_agent_name": current_agent_name
+            "error_message": "Planner Node: No task description provided.",
+            "current_agent_name": current_agent_name,
+            "intermediate_output": None, # Ensure intermediate_output is explicitly set to None
         }
 
     try:
-        agent = PlannerAgent() # PlannerAgent initializes its own LLM, prompt, tools
-        logger.info(f"Planner Node: Querying PlannerAgent with task: {task_description}")
-        # PlannerAgent.async_query is an async method
+        # PlannerAgent instantiation should be lightweight.
+        agent = PlannerAgent()
+        logger.info(f"Planner Node: Querying PlannerAgent with task: '{task_description[:100]}...'")
         response = await agent.async_query(task_description)
 
         output = response.get("output")
         error = response.get("error")
 
         if error:
-            logger.error(f"Planner Node: PlannerAgent returned an error: {error}")
-            # Return both intermediate_output (if any) and the error
-            return {"intermediate_output": output, "error_message": str(error), "current_agent_name": current_agent_name}
+            logger.error(f"Planner Node: PlannerAgent execution resulted in an error: {error}")
+            return {
+                "intermediate_output": output, # Could be None or partial data from a failed plan
+                "error_message": str(error),
+                "current_agent_name": current_agent_name
+            }
 
-        logger.info(f"Planner Node: PlannerAgent returned output: {str(output)[:500]}...") # Log snippet
-        return {"intermediate_output": output, "error_message": None, "current_agent_name": current_agent_name}
+        logger.info(f"Planner Node: PlannerAgent executed successfully. Output snippet: {str(output)[:200]}...")
+        return {
+            "intermediate_output": output,
+            "error_message": None, # Explicitly clear any previous error
+            "current_agent_name": current_agent_name
+        }
 
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        logger.error(f"Planner Node: Unexpected error - {e}\n{error_trace}")
+        logger.error(f"Planner Node: An unexpected error occurred during execution - {e}", exc_info=True)
         return {
+            "intermediate_output": None, # Ensure intermediate_output is None in case of unexpected error
             "error_message": f"An unexpected error occurred in the Planner Node: {str(e)}",
             "current_agent_name": current_agent_name
         }

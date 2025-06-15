@@ -1,8 +1,15 @@
-google-cloud-spanner==3.54.0
-google-genai==1.14.0
-google-adk==0.4.0
-python-dotenv==1.0.1
-fastapi==0.115.12
-urllib3==2.4.0
-../a2a_common-0.1.0-py3-none-any.whl
-deprecated==1.2.18
+# Dependencies specific to the Social Agent.
+# Common dependencies are expected to be in a parent requirements.txt (e.g., agents/requirements.txt).
+
+google-cloud-spanner==3.54.0 # If social_node.py or instavibe.py interact with Spanner
+google-genai==1.14.0         # If social_node.py or instavibe.py use the base Google GenAI SDK directly
+urllib3==2.4.0               # If specific version needed for direct HTTP calls by social tools
+
+# Removed ADK-related dependencies:
+# google-adk==0.4.0
+# ../a2a_common-0.1.0-py3-none-any.whl
+
+# Removed redundant common dependencies (expected to be in parent agents/requirements.txt):
+# python-dotenv==1.0.1
+# fastapi==0.115.12
+# deprecated==1.2.18

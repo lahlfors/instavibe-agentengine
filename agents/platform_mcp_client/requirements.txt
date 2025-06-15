@@ -1,11 +1,23 @@
-google-cloud-aiplatform[adk,agent_engines]==1.91.0
-Flask==3.1.0
-mcp[cli]==1.7.1
-google-adk==1.0.0
-python-dateutil==2.9.0.post0
-humanize==4.12.3
-nest_asyncio==1.6.0
-asyncclick==8.1.8.0
-../a2a_common-0.1.0-py3-none-any.whl
-deprecated==1.2.18
-python-dotenv==1.0.1
+# This file is for dependencies specific to the platform_mcp_client agent.
+# Common dependencies are expected to be in a parent requirements.txt (e.g., agents/requirements.txt).
+
+# The PlatformAgent uses an internal graph. If that graph or its nodes
+# (defined in platform_node.py) require specific client libraries for
+# interacting with the "Instavibe platform" or "MCP server",
+# they should be listed here if not covered by the main agents/requirements.txt.
+# Currently, no such unique pip-installable dependencies are identified from the agent code.
+
+# Removed ADK-related dependencies:
+# google-cloud-aiplatform[adk,agent_engines]==1.91.0
+# google-adk==1.0.0
+# mcp[cli]==1.7.1
+# ../a2a_common-0.1.0-py3-none-any.whl
+
+# Removed redundant common dependencies:
+# Flask==3.1.0
+# python-dateutil==2.9.0.post0
+# humanize==4.12.3
+# nest_asyncio==1.6.0
+# asyncclick==8.1.8.0
+# deprecated==1.2.18
+# python-dotenv==1.0.1

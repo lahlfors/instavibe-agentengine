@@ -1,9 +1,10 @@
 # agents/app/common/types.py
 class AgentCard:
-    def __init__(self, name=None, description=None, url=None, version=None, defaultInputModes=None, defaultOutputModes=None, capabilities=None, skills=None):
+    def __init__(self, name=None, description=None, url=None, address=None, version=None, defaultInputModes=None, defaultOutputModes=None, capabilities=None, skills=None): # Added address
         self.name = name
         self.description = description
         self.url = url
+        self.address = address # Added address
         self.version = version
         self.defaultInputModes = defaultInputModes
         self.defaultOutputModes = defaultOutputModes

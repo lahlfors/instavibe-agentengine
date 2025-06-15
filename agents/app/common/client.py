@@ -7,5 +7,5 @@ class A2ACardResolver:
     def get_agent_card(self) -> AgentCard | None:
         print("DEBUG: get_agent_card called for {self.address}") # Debug print
         # In a real scenario, this would fetch the card via HTTP
-        return AgentCard(name="DummyCardFromResolver") # Placeholder
+        return AgentCard(name="DummyCardFromResolver", address=self.address, description="A dummy agent card from resolver") # Placeholder
 print("DEBUG: common.client loaded") # Debug print

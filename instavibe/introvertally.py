@@ -48,6 +48,7 @@ def init_agent_engine(project_id, location):
             # Extract the engine ID from the full name (e.g., projects/.../locations/.../reasoningEngines/...)
             # extracted_id = engine_id_full.split('/')[-1] # Already have this if needed for other logs
 
+            logger.info(f"Attempting to connect to ReasoningEngine with full name: {engine_id_full}") # Added this line
             logger.info(f"Connecting to engine using full resource name: {engine_id_full}")
             planner_agent_engine = vertexai.preview.ReasoningEngine(engine_id_full)
             logger.info("Successfully connected to Planner Agent.")
@@ -56,6 +57,7 @@ def init_agent_engine(project_id, location):
             planner_agent_engine = None # Ensure it's None if not found
 
     except Exception as e:
+        logger.exception("Detailed exception during agent engine initialization:") # Added this line
         logger.error(f"Error during agent engine initialization: {e}", exc_info=True)
         planner_agent_engine = None
 
@@ -128,6 +130,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     yield {"type": "thought", "data": f"--- Agent Response Stream Starting ---"}
     try:
         if not planner_agent_engine:
+            logger.error("Planner agent engine is not initialized. Check previous logs for errors during init_agent_engine, especially missing environment variables or issues connecting to the reasoning engine.") # Added this line
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 

@@ -51,16 +51,17 @@ You are an expert AI Orchestrator. Your primary responsibility is to intelligent
     *   Carefully analyze the user's request: {user_request}
     *   And any output from the previously executed node: {intermediate_output}
     *   Determine the core task(s).
-    *   Identify if the request requires a single processing step or a sequence. For example, "Analyze John Doe's profile and then create a positive post" would require two steps.
+    *   Identify if the request requires a single processing step or a sequence. For example, "Analyze John Doe's profile and then create a positive post about his latest event attendance" would require two steps ('social' then 'platform').
 
 2.  **Node Selection:**
     *   Based on the user's intent and current state, select the most appropriate next node from the available options:
         *   **'planner'**: Use this node to generate creative and fun event plan suggestions. It typically requires details like dates, location, and user interests. If you select 'planner', ensure the 'current_task_description' you provide for it is a clear, self-contained request that the planner can understand (e.g., "For the upcoming weekend, from YYYY-MM-DD to YYYY-MM-DD, in LOCATION, for someone interested in INTERESTS, generate N plan suggestions.").
-        *   **'social'**: (Placeholder - capabilities to be defined) Use for tasks related to social media.
+        *   **'social'**: Use for tasks related to social media analysis, like fetching user posts, friends, or attended events. Requires person's name or other identifiers. Example task: "Get recent posts for John Doe." or "Find friends of Jane Smith."
+        *   **'platform'**: Use for interacting with the Instavibe platform, such as creating posts or registering for events. Requires details like author name, post text, sentiment for posts; or event name, date, attendee name for events. Example task: "Create a positive post for 'User123' saying 'Having a great time! #fun'." or "Register 'User123' for 'Tech Conference 2024' on '2024-12-01'."
         *   **'final_responder'**: Select this node when all processing is complete and the 'intermediate_output' contains the final information to be presented to the user, or if an error has occurred that needs to be communicated.
         *   **'error_handler'**: If you detect an unrecoverable error or an incoherent state from the previous steps, or if the user request is fundamentally flawed for the available tools, select this.
 
-3.  **Task Parameterization (Crucial for 'planner' and similar nodes):**
+3.  **Task Parameterization (Crucial for 'planner', 'social', 'platform' and similar nodes):**
     *   If you select a node like 'planner' that requires specific input, you MUST formulate a concise 'current_task_description' for it based on the user's overall request ({user_request}) and any relevant information from 'intermediate_output'. This description should be what the target node needs to perform its task.
     *   If the necessary information is not clear from the user request, you might need to guide the user to provide more details (though this version of the orchestrator doesn't directly support asking user for clarification, aim to make the best decision with available info or route to 'final_responder' with a message indicating missing details).
 
@@ -168,7 +169,7 @@ def planner_router_node(state: OrchestratorState) -> dict:
             print(error_msg)
             return {**state, "route": "error_handler", "error_message": error_msg, "current_agent_name": "planner_router"}
 
-        known_routes = ["planner", "social", "final_responder", "error_handler"]
+        known_routes = ["planner", "social", "platform", "final_responder", "error_handler"]
         if not next_route or next_route not in known_routes:
             error_msg = f"Router LLM decided an invalid or missing route: '{next_route}'. Valid routes are: {known_routes}."
             print(error_msg)

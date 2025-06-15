@@ -1,66 +1,82 @@
-from google.adk.agents import BaseAgent
-from google.adk.runners import Runner
-from google.adk.artifacts import InMemoryArtifactService
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.sessions import InMemorySessionService
-from typing import Any, Dict, List
-import os # For path joining
-from dotenv import load_dotenv # To load .env
+import os
+from dotenv import load_dotenv
+from typing import Any, Dict, Optional # List removed as SUPPORTED_CONTENT_TYPES is removed
 
-# Import HostAgent to create the underlying LlmAgent
-from agents.orchestrate.host_agent import HostAgent
-import logging # For logging addresses
+# LangGraph and application-specific imports
+from agents.app.graph_builder import build_graph # The main orchestrator graph
+from agents.app.common.graph_state import OrchestratorState # The state definition for the graph
+
+import logging
 
 # Load environment variables from the root .env file
-# This ensures that any underlying components (like HostAgent or its dependencies)
-# that might implicitly rely on environment variables (e.g., for Google Cloud clients)
-# have them loaded.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 log = logging.getLogger(__name__)
 
 class OrchestrateServiceAgent:
     """
-    A wrapper class for the Orchestrate LlmAgent to provide a queryable interface
-    compatible with the ADK deployment expectations. It now accepts remote agent
-    addresses at construction to configure the underlying HostAgent.
+    A service agent that uses a LangGraph-based orchestrator
+    to process user queries.
     """
-    SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"]
 
-    def __init__(self, remote_agent_addresses_str: str):
-        self._user_id: str = "orchestrate_service_user"
-
-        # Parse the remote_agent_addresses_str into a list
-        parsed_addresses: List[str] = [
-            addr.strip() for addr in remote_agent_addresses_str.split(',') if addr.strip()
-        ]
-        log.info(f"OrchestrateServiceAgent received remote_agent_addresses: {parsed_addresses}")
-
-        # Instantiate HostAgent and create the underlying LlmAgent
-        # Assuming HostAgent does not require a task_callback for basic agent creation
-        host_agent_logic = HostAgent(remote_agent_addresses=parsed_addresses, task_callback=None)
-        self._agent: BaseAgent = host_agent_logic.create_agent()
-
-        self._runner = Runner(
-            app_name=self._agent.name,
-            agent=self._agent,
-            artifact_service=InMemoryArtifactService(),
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
-        )
-
-    def get_processing_message(self) -> str:
-        return "Orchestrating the request..."
+    def __init__(self): # Removed remote_agent_addresses_str
+        log.info("Initializing OrchestrateServiceAgent with LangGraph orchestrator.")
+        # Instantiate the main orchestrator graph.
+        # The graph from graph_builder.py encapsulates the entire orchestration logic.
+        self.graph = build_graph()
+        # ADK runner, agent, user_id are no longer needed here.
 
     async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         """
-        Handles the user's request by running the underlying Orchestrate LlmAgent.
+        Handles the user's request by invoking the LangGraph orchestrator.
         """
-        agent_response = await self._runner.run_pipeline(
-            app_name=self._agent.name,
-            session_id=self._user_id,
-            inputs={"text_content": query},
-            stream=False,
-            **kwargs
+        log.info(f"OrchestrateServiceAgent received query: {query}")
+
+        # Prepare the initial state for the orchestrator graph.
+        # Ensure all fields of OrchestratorState are initialized.
+        # Pydantic models can be initialized with defaults if not provided.
+        initial_state = OrchestratorState(
+            user_request=query,
+            # Initialize other fields as per OrchestratorState definition,
+            # most can be None initially if they are Optional.
+            current_task_description=None,
+            intermediate_output=None,
+            final_output=None,
+            session_id=kwargs.get("session_id"), # Pass through session_id if provided
+            current_agent_name=None,
+            error_message=None,
+            route=None
         )
-        return agent_response
+
+        try:
+            # Invoke the graph. A recursion limit is often good practice for LangGraph.
+            # The config dictionary is standard for passing such parameters.
+            log.debug(f"Invoking graph with initial state: {initial_state.model_dump_json(indent=2)}")
+            final_state_dict = await self.graph.ainvoke(
+                initial_state.model_dump(), # Pass as dict if OrchestratorState is Pydantic
+                config={"recursion_limit": 25}
+            )
+
+            # Convert the result dict back to OrchestratorState object to easily access fields
+            final_state = OrchestratorState.model_validate(final_state_dict)
+            log.debug(f"Graph returned final state: {final_state.model_dump_json(indent=2)}")
+
+            if final_state.error_message:
+                log.error(f"Graph execution resulted in an error: {final_state.error_message}")
+                return {"output": final_state.final_output, "error": final_state.error_message} # Also include final_output if any
+
+            if final_state.final_output is not None:
+                return {"output": final_state.final_output}
+            else:
+                log.warning("Graph execution finished without a final output or an error message.")
+                return {"output": None, "error": "No output or error message produced by the orchestrator."}
+
+        except Exception as e:
+            import traceback
+            error_msg = f"An unexpected error occurred during orchestrator graph invocation: {str(e)}"
+            log.error(f"{error_msg}\n{traceback.format_exc()}")
+            return {"output": None, "error": error_msg}
+
+    # Removed SUPPORTED_CONTENT_TYPES and get_processing_message as they are ADK-specific
+    # and typically not used when directly invoking a LangGraph application.
+    # If a processing message is needed, it can be returned by the caller of async_query.

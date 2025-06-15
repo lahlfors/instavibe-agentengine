@@ -7,8 +7,8 @@ from agents.orchestrate.orchestrator_nodes import (
     error_handler_node
 )
 from agents.planner.planner_node import execute_planner_node
-# Import other specialized agent nodes here as they are created (e.g., social_node)
-# from agents.social.social_node import execute_social_node # Example if it existed
+from agents.social.social_exec_node import execute_social_node
+from agents.platform_mcp_client.platform_exec_node import execute_platform_node
 
 def build_graph():
     print("---Building Graph---")
@@ -22,8 +22,9 @@ def build_graph():
     # Ensure node names are consistent with their definitions and usage in edges/routing.
     workflow.add_node("entry_point", entry_point_node)
     workflow.add_node("planner_router", planner_router_node)
-    workflow.add_node("planner_agent", execute_planner_node) # Node name for the planner agent
-    # workflow.add_node("social_agent", execute_social_node) # Example for future
+    workflow.add_node("planner_agent", execute_planner_node)
+    workflow.add_node("social_agent", execute_social_node)
+    workflow.add_node("platform_agent", execute_platform_node)
     workflow.add_node("error_handler", error_handler_node)
     workflow.add_node("final_output_node", output_node) # Using the imported 'output_node' function
 
@@ -67,14 +68,11 @@ def build_graph():
             print("Routing to planner_agent.")
             return "planner_agent"
         elif route == "social":
-            print("Routing to 'social' (placeholder) - will go to error_handler for now as it's not implemented.")
-            # The planner_router_node should ideally set an error_message if it routes to an unimplemented node.
-            # This conditional logic is a fallback.
-            # To make it robust, ensure state reflects this error for error_handler.
-            # This should ideally be handled by planner_router_node setting route to 'error_handler'
-            # if it chooses an unimplemented agent.
-            state['error_message'] = "Social agent is not implemented." # Modify state directly (if LangGraph allows here) or ensure router does
-            return "error_handler"
+            print("Routing to social_agent.")
+            return "social_agent"
+        elif route == "platform":
+            print("Routing to platform_agent.")
+            return "platform_agent"
         elif route == "final_responder":
             print("Routing to final_output_node.")
             return "final_output_node"
@@ -91,16 +89,17 @@ def build_graph():
         decide_next_route,
         {
             "planner_agent": "planner_agent",
-            "social": "error_handler", # Fallback, ideally planner_router handles this
+            "social_agent": "social_agent",
+            "platform_agent": "platform_agent",
             "final_output_node": "final_output_node",
             "error_handler": "error_handler",
         }
     )
 
-    # 4. From planner_agent (specialized agent) back to planner_router for next decision
+    # 4. From specialized agents back to planner_router for next decision
     workflow.add_edge("planner_agent", "planner_router")
-    # Add edges for other specialized agents back to planner_router as they are created
-    # e.g., workflow.add_edge("social_agent", "planner_router")
+    workflow.add_edge("social_agent", "planner_router")
+    workflow.add_edge("platform_agent", "planner_router")
 
     # 5. From error_handler to final_output_node (to display the error)
     # The error_handler_node itself now sets route to "final_responder",

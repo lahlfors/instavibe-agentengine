@@ -4,131 +4,183 @@ from dotenv import load_dotenv
 import asyncio
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer # Using http.server for simplicity
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs # Keep for query param parsing if needed for health checks
 import json
+import logging # Ensure logging is imported
 
-from .types import AgentCard # Relative import
-from .task_manager import AgentTaskManager # Relative import
+# Removed ADK-specific imports: AgentCard, AgentTaskManager
+from agents.app.common.graph_state import OrchestratorState # For creating initial state
+from agents.app.graph_builder import build_graph # To load the LangGraph app
 
 logger = logging.getLogger(__name__)
+# Configure basic logging for the module.
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
-class A2AServer:
-    def __init__(self, agent_card: AgentCard, task_manager: AgentTaskManager, host: str = "localhost", port: int = 8080):
-        self.agent_card = agent_card
-        self.task_manager = task_manager
 
+class LangGraphServer:
+    """
+    A simple HTTP server to expose the LangGraph application.
+    Replaces the ADK-specific A2AServer.
+    For production use, a more robust framework like FastAPI or Flask is recommended.
+    """
+    def __init__(self, host: str = "localhost", port: int = 8080):
         # Load .env file from the root project directory
-        load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"))
+        dotenv_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
+        if os.path.exists(dotenv_path):
+            load_dotenv(dotenv_path=dotenv_path)
+            logging.info("LangGraphServer: .env file loaded.")
+        else:
+            logging.warning(f"LangGraphServer: .env file not found at {dotenv_path}. Required API keys might be missing.")
 
-        # Cloud Run compatibility:
-        # PORT environment variable is set by Cloud Run.
-        # Agent-specific A2A_HOST/A2A_PORT should be resolved by the caller and passed in via host/port args.
+        try:
+            self.graph_app = build_graph()
+            logging.info("LangGraph application built successfully.")
+        except Exception as e:
+            logging.error(f"Failed to build LangGraph application: {e}", exc_info=True)
+            self.graph_app = None # Ensure graph_app is None if build fails
+
+        # Cloud Run compatibility for port and host
         _cloud_run_port_str = os.environ.get("PORT")
         if _cloud_run_port_str:
             try:
                 self.port = int(_cloud_run_port_str)
-                logger.info(f"Using Cloud Run PORT: {self.port}")
+                logging.info(f"Using Cloud Run PORT: {self.port}")
             except ValueError:
-                logger.warning(f"Invalid Cloud Run PORT value '{_cloud_run_port_str}', falling back to constructor port {port}.")
+                logging.warning(f"Invalid Cloud Run PORT value '{_cloud_run_port_str}', falling back to constructor port {port}.")
                 self.port = port
-            # For Cloud Run, host must be '0.0.0.0' to be accessible from outside the container.
-            self.host = "0.0.0.0"
-            logger.info(f"Using Cloud Run host: {self.host}")
+            self.host = "0.0.0.0" # For Cloud Run, host must be '0.0.0.0'
+            logging.info(f"Using Cloud Run host: {self.host}")
         else:
-            # Not running in Cloud Run (or PORT not set), use provided host/port arguments.
             self.port = port
             self.host = host
 
-        logger.info(f"A2AServer configured for host '{self.host}' and port {self.port}")
-        self.server = None # Will be initialized in start()
+        logging.info(f"LangGraphServer configured for host '{self.host}' and port {self.port}")
+        self.server = None
 
     def start(self):
-        if self.server:
-            logger.warning("Server already started.")
+        if not self.graph_app:
+            logging.error("LangGraph application not loaded. Server cannot start.")
             return
 
-        # Simple HTTP server for demonstration
-        # A real implementation would use Flask, FastAPI, or similar with ADK integrations
-        class RequestHandler(BaseHTTPRequestHandler):
-            # Reference to outer class members
-            _agent_card = self.agent_card
-            _task_manager = self.task_manager
+        if self.server:
+            logging.warning("Server already started.")
+            return
+
+        # Define a local class for the request handler to access self.graph_app
+        class LangGraphRequestHandler(BaseHTTPRequestHandler):
+            _graph_app_instance = self.graph_app # Closure for graph_app
 
             def do_GET(self):
-                if self.path == '/agent-card':
+                if self.path == '/health':
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    # A real AgentCard would have a to_dict() method or similar
-                    card_dict = {
-                        "name": self._agent_card.name,
-                        "description": self._agent_card.description,
-                        "url": self._agent_card.url,
-                        "version": self._agent_card.version,
-                        # Add other fields as necessary
-                    }
-                    self.wfile.write(json.dumps(card_dict).encode('utf-8'))
+                    self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
                 else:
                     self.send_response(404)
                     self.end_headers()
                     self.wfile.write(b"Not Found")
 
-            async def _handle_task_async(self, post_data_dict):
-                # This is where ADK's task processing logic would integrate
-                return await self._task_manager.handle_request(post_data_dict)
+            async def _invoke_graph_async(self, initial_state: OrchestratorState):
+                # Configuration for the graph invocation, if any (e.g., recursion limit)
+                config = {"recursion_limit": 25}
+                # LangGraph's ainvoke is async
+                final_state = await self._graph_app_instance.ainvoke(initial_state.dict(), config=config)
+                return final_state
 
             def do_POST(self):
-                if self.path == '/handle-task': # Example endpoint
+                if self.path == '/invoke':
                     content_length = int(self.headers['Content-Length'])
-                    post_data = self.rfile.read(content_length)
+                    post_data_bytes = self.rfile.read(content_length)
                     try:
-                        post_data_dict = json.loads(post_data.decode('utf-8'))
-                        logger.info(f"Received task data: {post_data_dict}")
+                        post_data_dict = json.loads(post_data_bytes.decode('utf-8'))
+                        user_request = post_data_dict.get("user_request")
 
-                        # For simplicity, running async within sync handler
-                        # A proper async framework (FastAPI, Quart) would handle this better
+                        if not user_request:
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"error": "Missing 'user_request' in JSON body"}).encode('utf-8'))
+                            return
+
+                        logging.info(f"Received invocation request for LangGraph: {user_request[:100]}...")
+
+                        # Create initial state for the graph
+                        # Note: OrchestratorState fields default to None if not provided here.
+                        initial_state = OrchestratorState(user_request=user_request)
+
+                        # http.server is synchronous, so we run the async graph invocation
+                        # in a new event loop. This is a simplified approach.
+                        # For production, use an async framework like FastAPI.
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-                        result = loop.run_until_complete(self._handle_task_async(post_data_dict))
-                        loop.close()
+                        try:
+                            result_state = loop.run_until_complete(self._invoke_graph_async(initial_state))
+                        finally:
+                            loop.close()
+
+                        final_output = result_state.get("final_output", "No final_output in result state.")
+                        # The final_output from orchestrator_nodes.output_node should already be a JSON string.
+                        # If it's a dict, it needs to be dumped. For now, assume it's a string.
 
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
                         self.end_headers()
-                        self.wfile.write(json.dumps(result).encode('utf-8'))
+                        # Assuming final_output is already a JSON string. If it's a dict: json.dumps(final_output).encode...
+                        self.wfile.write(final_output.encode('utf-8') if isinstance(final_output, str) else json.dumps(final_output).encode('utf-8'))
+
                     except json.JSONDecodeError:
+                        logging.warning("Invalid JSON received for /invoke.", exc_info=True)
                         self.send_response(400)
                         self.send_header('Content-type', 'application/json')
                         self.end_headers()
                         self.wfile.write(json.dumps({"error": "Invalid JSON"}).encode('utf-8'))
                     except Exception as e:
-                        logger.error(f"Error handling task: {e}", exc_info=True)
+                        logging.error(f"Error processing /invoke request: {e}", exc_info=True)
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
                         self.end_headers()
-                        self.wfile.write(json.dumps({"error": "Internal server error"}).encode('utf-8'))
+                        self.wfile.write(json.dumps({"error": "Internal server error", "detail": str(e)}).encode('utf-8'))
                 else:
                     self.send_response(404)
                     self.end_headers()
                     self.wfile.write(b"Not Found")
 
         try:
-            self.server = HTTPServer((self.host, self.port), RequestHandler)
-            logger.info(f"A2AServer starting on http://{self.host}:{self.port}")
+            self.server = HTTPServer((self.host, self.port), LangGraphRequestHandler)
+            logging.info(f"LangGraphServer starting on http://{self.host}:{self.port}")
             self.server.serve_forever()
         except Exception as e:
-            logger.error(f"Could not start A2AServer: {e}", exc_info=True)
-            self.server = None # Ensure server is None if start failed
+            logging.error(f"Could not start LangGraphServer: {e}", exc_info=True)
+            self.server = None
         finally:
             if self.server:
                 self.server.server_close()
-                logger.info("A2AServer stopped.")
+                logging.info("LangGraphServer stopped.")
                 self.server = None
 
     def stop(self):
         if self.server:
-            logger.info("A2AServer stopping...")
-            self.server.shutdown() # Graceful shutdown
+            logging.info("LangGraphServer stopping...")
+            self.server.shutdown() # Should be called from another thread
+            # self.server.server_close() # server_close() is called in finally block of start()
         else:
-            logger.info("A2AServer not running or already stopped.")
-print("DEBUG: common.server loaded with Cloud Run compatibility") # Debug print
+            logging.info("LangGraphServer not running or already stopped.")
+
+# Example usage (optional, for direct execution)
+if __name__ == '__main__':
+    logging.info("Starting LangGraphServer directly for testing...")
+    # Note: Ensure .env is in the correct relative path if running this directly
+    # For example, if .env is in project root, and this file is agents/app/common/server.py
+    # load_dotenv might need to be called here with correct path for direct execution.
+    # The __init__ already handles .env loading assuming a certain structure.
+
+    # This direct execution is for local testing.
+    # In a real deployment, you might use a WSGI/ASGI server or Cloud Run.
+    server = LangGraphServer(host="localhost", port=8080)
+    try:
+        server.start()
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt received, stopping server...")
+    finally:
+        server.stop()

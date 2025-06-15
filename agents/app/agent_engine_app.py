@@ -105,9 +105,10 @@ def deploy_agent_engine_app(
     with open(requirements_file) as f:
         requirements = f.read().strip().split("\n")
 
-    from orchestrate.agent import root_agent
+    # from orchestrate.agent import root_agent # Commented out as orchestrate.agent is deleted
     agent_engine = AgentEngineApp(
-        agent=root_agent,
+        # agent=root_agent, # Commented out as root_agent is no longer available
+        agent=None, # Placeholder: This will need to be replaced with the LangGraph app or a suitable wrapper
         env_vars=env_vars,
     )
 

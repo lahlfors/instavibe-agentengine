@@ -13,6 +13,8 @@ from vertexai.preview import reasoning_engines # ADK for deployment
 # from google.cloud.aiplatform_v1.types import ReasoningEngineSpec # GAPIC, removed
 # from google.cloud import storage # Handled by ADK or not needed directly
 # import google.auth # For google.auth.exceptions
+import logging # For logging
+from typing import Optional # For Optional type hint
 
 from dotenv import load_dotenv # For loading .env file
 from agents.orchestrate.orchestrate_service_agent import OrchestrateServiceAgent
@@ -21,8 +23,9 @@ from agents.orchestrate.orchestrate_service_agent import OrchestrateServiceAgent
 # This is crucial for capturing AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES at deployment time.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
+log = logging.getLogger(__name__)
 
-def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
+def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dynamic_remote_agent_addresses: Optional[str] = None):
     """
     Deploys the Orchestrate Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -30,6 +33,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
+        dynamic_remote_agent_addresses: Optional string of comma-separated remote agent addresses.
     """
     display_name = "Orchestrate Agent"
     description = """
@@ -42,17 +46,25 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
 
     # Instantiate the agent. The ADK will pickle this instance.
     # The OrchestrateServiceAgent constructor requires remote_agent_addresses_str.
-    remote_agent_addresses_str = os.getenv("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES", "")
+
+    remote_agent_addresses_str_from_env = os.getenv("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES", "")
+    if dynamic_remote_agent_addresses:
+        remote_agent_addresses_str = dynamic_remote_agent_addresses
+        log.info(f"Using dynamically provided remote agent addresses for OrchestrateServiceAgent: {remote_agent_addresses_str}")
+    else:
+        remote_agent_addresses_str = remote_agent_addresses_str_from_env
+        log.info(f"Using environment variable AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for OrchestrateServiceAgent: {remote_agent_addresses_str}")
+
+    if not remote_agent_addresses_str:
+        log.warning("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES is not set from dynamic input or environment. Orchestrator may not connect to remote agents.")
+        # Consider if this should be an error or just a warning. For now, warning.
+
     local_agent = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
 
-    # Define environment variables for the deployed Reasoning Engine
-    # These are read from the deployment environment (where this script runs)
-    # and passed to the remote environment where the agent executes.
-    # This is still useful even if the constructor takes the addresses,
-    # as the agent might re-read from environ upon unpickling or for other purposes.
-    # env_vars_for_deployment has been removed as per new instructions.
+    # env_vars_for_deployment has been removed.
     # The agent constructor now receives the necessary configuration directly.
-    print(f"OrchestrateServiceAgent initialized with AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES: '{remote_agent_addresses_str}'")
+    # The print statement below now uses the final remote_agent_addresses_str
+    print(f"OrchestrateServiceAgent initialized with remote agent addresses: '{remote_agent_addresses_str}'")
 
 
     # base_dir is the repository root.

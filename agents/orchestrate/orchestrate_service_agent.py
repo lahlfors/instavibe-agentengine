@@ -52,7 +52,7 @@ class OrchestrateServiceAgent:
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
 
-    async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         """
         Handles the user's request by running the underlying Orchestrate LlmAgent.
         """

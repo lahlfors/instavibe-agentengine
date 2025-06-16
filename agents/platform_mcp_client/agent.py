@@ -83,9 +83,9 @@ class PlatformMCPClientServiceAgent:
         )
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
-    async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         if not self._runner or not self._agent:
-            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for async_query.")
+            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for query.")
             return {"error": "Agent not initialized"}
         session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
         agent_response = await self._runner.run_pipeline(

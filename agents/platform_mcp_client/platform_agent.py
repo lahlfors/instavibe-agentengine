@@ -5,24 +5,20 @@ from typing import Any, Dict, Optional
 # Assuming AgentWithTaskManager is a custom base class or similar to AgentTaskManager
 # If it's specific to ADK runners, it might need adjustment or replacement.
 # For now, let's assume it's compatible or a simple base class.
-from common.task_manager import AgentWithTaskManager # Or common.task_manager.AgentTaskManager if AgentWithTaskManager is not the one
+from common.task_manager import AgentTaskManager # Or common.task_manager.AgentTaskManager if AgentWithTaskManager is not the one
 from .platform_node import build_platform_graph, PlatformGraphState # Import graph builder and state type
 
 # Load environment variables from the root .env file.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-class PlatformAgent(AgentWithTaskManager):
+class PlatformAgent:
   """An agent that posts events and messages to Instavibe using LangGraph."""
 
   def __init__(self):
-    super().__init__()
     # Build and compile the graph when the agent is initialized.
     # The MCP server URL is read from ENV within build_platform_graph.
     self.graph = build_platform_graph()
     # No _agent, _runner, or _user_id needed from ADK.
-
-  def get_processing_message(self) -> str:
-      return "Processing the Instavibe post/event request with LangGraph..."
 
   async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for platform actions using the LangGraph."""

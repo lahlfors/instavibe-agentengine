@@ -2,25 +2,20 @@ import os
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional
 
-from common.task_manager import AgentTaskManager
 from .social_node import build_social_graph, SocialGraphState # Import graph builder and state type
 
 # Load environment variables from the root .env file.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-class SocialAgent(AgentTaskManager):
+class SocialAgent:
   """An agent that handles social profile analysis using LangGraph."""
 
   def __init__(self):
-    super().__init__()
     # Build and compile the graph when the agent is initialized.
     # The graph is stateless from the perspective of the SocialAgent instance itself,
     # state is passed per invocation.
     self.graph = build_social_graph()
     # No _agent, _runner, or _user_id needed anymore.
-
-  def get_processing_message(self) -> str:
-      return "Processing the social profile analysis request with LangGraph..."
 
   async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for social profile analysis using the LangGraph."""

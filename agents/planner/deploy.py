@@ -181,18 +181,3 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
 
     print(f"Planner Agent (Reasoning Engine) deployed successfully via GAPIC client: {deployed_agent_resource.name}")
     return deployed_agent_resource
-
-
-if __name__ == "__main__":
-    print("Running Planner Agent locally using AdkApp...")
-    # This section is for local testing. AdkApp import is removed as it's not used for deployment.
-    # To run locally, ensure 'from vertexai.preview.reasoning_engines import AdkApp' is active
-    # and AdkApp instantiation code is uncommented.
-    # planner_reasoning_engine_instance = PlannerAgent()
-    # from vertexai.preview.reasoning_engines import AdkApp
-    # app = AdkApp(
-    #     agent=planner_reasoning_engine_instance,
-    #     enable_tracing=True,
-    # )
-    print("AdkApp local execution setup commented out for GAPIC deployment focus.")
-    print("To run locally, ensure AdkApp related imports and code are active.")

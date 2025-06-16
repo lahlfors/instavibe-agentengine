@@ -12,3 +12,5 @@ google-adk==1.0.0
 deprecated==1.2.18
 nest_asyncio==1.6.0
 httpx==0.25.0
+fastapi
+uvicorn[standard]

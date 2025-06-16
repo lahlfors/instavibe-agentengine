@@ -1,216 +1,117 @@
 import os
 import uuid
-from urllib.parse import urlparse
-import cloudpickle
-import tarfile
-import tempfile
-import shutil
+import logging # For logging
 
-from google.cloud import aiplatform as vertexai
-from google.cloud.aiplatform_v1.services import reasoning_engine_service
-from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC
-from google.cloud.aiplatform_v1.types import ReasoningEngineSpec
-from google.cloud import storage
-import google.auth
+# Import for agent_engines.create()
+from vertexai.preview import agent_engines
+import vertexai # For vertexai.init()
+
 from dotenv import load_dotenv # For loading .env file
-
 from agents.social.social_agent import SocialAgent
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # Load environment variables from the root .env file
-# This ensures that any implicit environment variable reads by underlying
-# libraries (e.g., Google Cloud clients if project_id isn't explicit everywhere)
-# or by the SocialAgent instantiation itself are configured from the root .env.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     """
-    Deploys the Social Agent to Vertex AI Reasoning Engines using GAPIC client.
-
-    Args:
-        project_id: The Google Cloud project ID.
-        region: The Google Cloud region for deployment.
-        base_dir: The base directory of the repository.
+    Deploys the Social Agent to Vertex AI Agent Engine using agent_engines.create().
     """
-    display_name = "Social Agent"
+    agent_name = "Social"
+    display_name = f"{agent_name}AgentService-{str(uuid.uuid4())[:8]}" # Unique display name
     description = """This agent analyzes social profiles, including posts, friend networks, and event participation, to generate comprehensive summaries and identify common ground between individuals."""
 
-    staging_bucket_uri = vertexai.initializer.global_config.staging_bucket
-    if not staging_bucket_uri:
-        raise ValueError("Vertex AI staging bucket is not set. Please configure it via aiplatform.init(staging_bucket='gs://your-bucket').")
+    # Ensure Vertex AI is initialized (typically done in deploy_all.py or earlier)
+    # vertexai.init(project=project_id, location=region, staging_bucket=os.environ.get("BUCKET_NAME_FOR_VERTEX_AI_STAGING"))
 
-    parsed_uri = urlparse(staging_bucket_uri)
-    bucket_name = parsed_uri.netloc
-    bucket_prefix = parsed_uri.path.lstrip('/')
-    if bucket_prefix and not bucket_prefix.endswith('/'):
-        bucket_prefix += '/'
+    # 1. Instantiate the agent
+    local_agent_instance = SocialAgent()
+    logger.info(f"Instantiated local {agent_name} agent: {type(local_agent_instance)}")
+
+    # 2. Define requirements for agent_engines.create()
+    # These should be core dependencies for SocialAgent, excluding FastAPI/Uvicorn.
+    # Refer to agents/social/requirements.txt and strip out service-related packages.
+    agent_requirements = [
+        "google-cloud-aiplatform[agent_engines,langgraph]==1.96.0", # Make sure version is correct
+        "google-adk==1.0.0", # From its specific requirements
+        "python-dotenv==1.0.1",
+        "deprecated==1.2.18",
+        "google-cloud-spanner==3.54.0", # Specific to SocialAgent's tools/instavibe.py
+        "google-genai==1.14.0",         # Specific to SocialAgent's tools/instavibe.py
+        # "urllib3==2.4.0", # Often a sub-dependency, consider if direct import is used.
+                           # For now, assume it's pulled in if needed by spanner/genai.
+        # Add other direct dependencies of SocialAgent if any.
+    ]
+    logger.info(f"Agent requirements for {agent_name}: {agent_requirements}")
+
+    # 3. Define extra packages (source code) for agent_engines.create()
+    # base_dir is expected to be the repository root.
+    agent_extra_packages = [
+        os.path.join(base_dir, "agents", "social"),  # Social agent's own code (including instavibe.py)
+        os.path.join(base_dir, "agents", "app", "common"), # For OrchestratorState, shared types, etc.
+        os.path.join(base_dir, "agents", "a2a_common-0.1.0-py3-none-any.whl") # Shared library
+    ]
+    logger.info(f"Extra packages for {agent_name}: {agent_extra_packages}")
+    # Verify paths exist
+    for pkg_path in agent_extra_packages:
+        if not os.path.exists(pkg_path):
+            logger.warning(f"Path specified in extra_packages does not exist: {pkg_path}")
+            # raise FileNotFoundError(f"Required path for extra_packages not found: {pkg_path}")
+
+    # 4. Define environment variables for this agent
+    agent_env_vars = {
+        "GOOGLE_CLOUD_PROJECT": project_id,
+        "AGENT_NAME": agent_name,
+        # SocialAgent currently doesn't seem to require specific additional env vars for its own operation.
+    }
+    logger.info(f"Environment variables for {agent_name}: {agent_env_vars}")
+
+    # 5. Call agent_engines.create()
+    logger.info(f"Deploying {display_name} to Vertex AI Agent Engine using agent_engines.create()...")
 
     try:
-        storage_client = storage.Client(project=project_id)
-        bucket = storage_client.bucket(bucket_name)
-    except google.auth.exceptions.DefaultCredentialsError as e:
-        print(f"ERROR: Google Cloud Default Credentials not found. {e}")
-        print("Please ensure you have authenticated via `gcloud auth application-default login` "
-              "or set the GOOGLE_APPLICATION_CREDENTIALS environment variable.")
+        remote_agent = agent_engines.create(
+            local_agent_instance,
+            requirements=agent_requirements,
+            extra_packages=agent_extra_packages,
+            environment_variables=agent_env_vars,
+            display_name=display_name,
+            description=description,
+            # project and location are typically picked from vertexai.init()
+            # gcs_dir_name can be specified if you want to control the staging GCS path
+        )
+        logger.info(f"{display_name} deployed successfully. Resource name: {remote_agent.resource_name}")
+
+        return remote_agent
+    except Exception as e:
+        logger.error(f"Failed to deploy {agent_name} using agent_engines.create(): {e}", exc_info=True)
         raise
 
-    # Instantiate SocialAgent directly
-    agent_instance_to_pickle = SocialAgent()
-    if agent_instance_to_pickle is None: # Add check
-        raise ValueError("Error: The root_agent in social.agent module is None. Ensure it's initialized or correctly referenced.")
+# Main block for direct testing of this script (optional, as deploy_all.py is the primary entry point)
+# if __name__ == "__main__":
+#     logger.info("Running Social Agent deployment script directly (for testing)...")
+#     PROJECT_ID = os.environ.get("PROJECT_ID")
+#     REGION = os.environ.get("REGION")
+#     BUCKET_NAME = os.environ.get("BUCKET_NAME_FOR_VERTEX_AI_STAGING")
 
-    pickled_agent_filename = f"social_agent_pickle_{uuid.uuid4()}.pkl"
-    gcs_pickle_path = os.path.join(bucket_prefix, 'reasoning_engine_packages', pickled_agent_filename)
-    blob_pickle = bucket.blob(gcs_pickle_path)
-    with blob_pickle.open("wb") as f:
-        cloudpickle.dump(agent_instance_to_pickle, f)
-    pickle_object_gcs_uri = f"gs://{bucket_name}/{gcs_pickle_path}"
-    print(f"Uploaded pickled Social agent to {pickle_object_gcs_uri}")
+#     if not all([PROJECT_ID, REGION, BUCKET_NAME]):
+#         logger.error("Error: PROJECT_ID, REGION, and BUCKET_NAME_FOR_VERTEX_AI_STAGING must be set for local testing.")
+#     else:
+#         current_script_path = os.path.dirname(os.path.abspath(__file__))
+#         repo_base_dir = os.path.abspath(os.path.join(current_script_path, '..', '..'))
 
-    local_wheel_filename = "a2a_common-0.1.0-py3-none-any.whl"
-
-    agents_content_base_path = base_dir
-    # Adjust agents_content_base_path if base_dir is specific
-    if os.path.basename(base_dir) == "social" and os.path.isdir(os.path.join(base_dir, "..", "agents")):
-        agents_content_base_path = os.path.abspath(os.path.join(base_dir, ".."))
-    elif os.path.basename(base_dir) == "agents" and os.path.isdir(base_dir):
-        agents_content_base_path = os.path.abspath(os.path.join(base_dir, ".."))
-    elif not os.path.isdir(os.path.join(base_dir, "agents")):
-       potential_repo_root = os.path.abspath(os.path.join(base_dir, "..", ".."))
-       if os.path.isdir(os.path.join(potential_repo_root, "agents")):
-           agents_content_base_path = potential_repo_root
-
-    local_wheel_path = os.path.join(agents_content_base_path, "agents", local_wheel_filename)
-    if not os.path.exists(local_wheel_path):
-        raise FileNotFoundError(f"Local wheel {local_wheel_path} not found. Base dir: {base_dir}, Derived agents_content_base_path: {agents_content_base_path}")
-
-    actual_social_src_path = os.path.join(agents_content_base_path, "agents", "social")
-    if not os.path.isdir(actual_social_src_path):
-        raise FileNotFoundError(f"Source directory {actual_social_src_path} not found.")
-
-    dependency_files_gcs_uri = None
-    with tempfile.TemporaryDirectory() as temp_dir_for_tar:
-        temp_agents_root_in_tar_dir = os.path.join(temp_dir_for_tar, "agents")
-        os.makedirs(temp_agents_root_in_tar_dir, exist_ok=True)
-
-        copied_wheel_path = os.path.join(temp_dir_for_tar, local_wheel_filename)
-        shutil.copy(local_wheel_path, copied_wheel_path)
-        print(f"Copied wheel to {copied_wheel_path}")
-
-        dest_social_in_temp_agents = os.path.join(temp_agents_root_in_tar_dir, "social")
-        shutil.copytree(actual_social_src_path, dest_social_in_temp_agents, dirs_exist_ok=True)
-        print(f"Copied {actual_social_src_path} to {dest_social_in_temp_agents}")
-
-        staged_agents_init_py = os.path.join(temp_agents_root_in_tar_dir, "__init__.py")
-        source_agents_init_py = os.path.join(agents_content_base_path, "agents", "__init__.py")
-        if os.path.exists(source_agents_init_py):
-            shutil.copy(source_agents_init_py, staged_agents_init_py)
-        elif not os.path.exists(staged_agents_init_py):
-            with open(staged_agents_init_py, "w") as f_init:
-                f_init.write("# Auto-generated __init__.py for agents package\n")
-
-        tarball_local_filename = f"social_deps_{uuid.uuid4()}.tar.gz"
-        tarball_local_path = os.path.join(tempfile.gettempdir(), tarball_local_filename)
-
-        print(f"Creating tarball {tarball_local_path} containing {local_wheel_filename} (at root) and 'agents/' dir (with 'social/').")
-        with tarfile.open(tarball_local_path, "w:gz") as tar:
-            tar.add(copied_wheel_path, arcname=local_wheel_filename)
-            tar.add(temp_agents_root_in_tar_dir, arcname="agents")
-
-        gcs_tarball_path = os.path.join(bucket_prefix, 'reasoning_engine_dependencies', tarball_local_filename)
-        blob_tarball = bucket.blob(gcs_tarball_path)
-        blob_tarball.upload_from_filename(tarball_local_path)
-        dependency_files_gcs_uri = f"gs://{bucket_name}/{gcs_tarball_path}"
-        print(f"Uploaded dependency tarball to {dependency_files_gcs_uri}")
-        os.remove(tarball_local_path)
-
-    original_requirements_file_path = os.path.join(agents_content_base_path, "agents", "social", "requirements.txt")
-    if not os.path.exists(original_requirements_file_path):
-         if os.path.basename(base_dir) == "social" and os.path.exists(os.path.join(base_dir, "requirements.txt")):
-             original_requirements_file_path = os.path.join(base_dir, "requirements.txt")
-         else:
-             alt_req_path = os.path.join(base_dir, "social", "requirements.txt")
-             if os.path.basename(base_dir) == "agents" and os.path.exists(alt_req_path):
-                 original_requirements_file_path = alt_req_path
-             else:
-                 raise FileNotFoundError(f"Original requirements file for social not found. Checked: {original_requirements_file_path} and fallbacks based on base_dir: {base_dir}")
-
-    print(f"Reading original requirements from: {original_requirements_file_path}")
-    with open(original_requirements_file_path, "r") as f:
-        original_requirements_lines = f.readlines()
-
-    modified_requirements_lines = []
-    found_gcs_package = False
-    replaced_local_wheel = False
-
-    for line in original_requirements_lines:
-        stripped_line = line.strip()
-        if not stripped_line or stripped_line.startswith('#'):
-            modified_requirements_lines.append(line)
-            continue
-        if "../" + local_wheel_filename in stripped_line or local_wheel_filename in stripped_line:
-            if not replaced_local_wheel:
-                modified_requirements_lines.append(f"{local_wheel_filename}\n")
-                print(f"Modified requirements: Replaced '{stripped_line}' with '{local_wheel_filename}'.")
-                replaced_local_wheel = True
-            else:
-                print(f"Modified requirements: Removed redundant reference to '{local_wheel_filename}'.")
-            continue
-
-        modified_requirements_lines.append(line)
-        if "google-cloud-storage" in stripped_line:
-            found_gcs_package = True
-
-    if not replaced_local_wheel:
-       print(f"Warning: Local wheel reference for '{local_wheel_filename}' not found to replace in {original_requirements_file_path}. Appending filename directly.")
-       modified_requirements_lines.append(f"{local_wheel_filename}\n")
-
-    if not found_gcs_package:
-        modified_requirements_lines.append("google-cloud-storage\n")
-        print("Modified requirements: Added 'google-cloud-storage'.")
-
-    modified_requirements_content = "".join(modified_requirements_lines)
-    modified_requirements_content = '\n'.join(filter(None, [l.strip() for l in modified_requirements_content.splitlines()])) + '\n'
-
-    print("---- BEGIN Modified requirements.txt content for Social ----")
-    print(modified_requirements_content)
-    print("---- END Modified requirements.txt content ----")
-
-    gcs_requirements_filename = f"social_requirements_modified_{uuid.uuid4()}.txt"
-    gcs_requirements_path = os.path.join(bucket_prefix, 'reasoning_engine_packages', gcs_requirements_filename)
-    blob_reqs = bucket.blob(gcs_requirements_path)
-    blob_reqs.upload_from_string(modified_requirements_content)
-    requirements_gcs_uri = f"gs://{bucket_name}/{gcs_requirements_path}"
-    print(f"Uploaded modified requirements to {requirements_gcs_uri}")
-
-    current_package_spec = ReasoningEngineSpec.PackageSpec(
-        pickle_object_gcs_uri=pickle_object_gcs_uri,
-        requirements_gcs_uri=requirements_gcs_uri,
-        dependency_files_gcs_uri=dependency_files_gcs_uri,
-        python_version="3.12"
-    )
-
-    reasoning_engine_spec = ReasoningEngineSpec(
-        package_spec=current_package_spec
-    )
-
-    gapic_reasoning_engine_config = ReasoningEngineGAPIC(
-        display_name=display_name,
-        description=description,
-        spec=reasoning_engine_spec
-    )
-
-    print(f"Initializing GAPIC ReasoningEngineServiceClient with endpoint: {region}-aiplatform.googleapis.com")
-    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
-    gapic_client = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
-    parent_path = f"projects/{project_id}/locations/{region}"
-
-    print(f"Creating Social Reasoning Engine using GAPIC client with parent: {parent_path}...")
-    operation = gapic_client.create_reasoning_engine(
-        parent=parent_path,
-        reasoning_engine=gapic_reasoning_engine_config
-    )
-    print(f"Reasoning Engine creation operation started: {operation.operation.name}")
-    print("Waiting for operation to complete...")
-    deployed_agent_resource = operation.result()
-    print(f"Social Agent (Reasoning Engine) deployed successfully via GAPIC: {deployed_agent_resource.name}")
-    return deployed_agent_resource
+#         try:
+#             vertexai.init(project=PROJECT_ID, location=REGION, staging_bucket=f"gs://{BUCKET_NAME}")
+#             logger.info("Vertex AI SDK initialized successfully for local test.")
+#             deployed_remote_agent = deploy_social_main_func(
+#                 project_id=PROJECT_ID,
+#                 region=REGION,
+#                 base_dir=repo_base_dir
+#             )
+#             logger.info(f"Test deployment successful. Deployed Social Agent resource: {deployed_remote_agent.resource_name}")
+#         except Exception as e:
+#             logger.error(f"Error during local test of deploy_social_main_func: {e}", exc_info=True)
+#     logger.info("Social Agent deployment script direct execution test finished.")

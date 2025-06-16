@@ -41,14 +41,15 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     # project, region, staging_bucket are picked up from that global config.
 
     # Instantiate the agent. The ADK will pickle this instance.
-    # If OrchestrateServiceAgent reads AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES from os.environ in its __init__,
-    # it will do so in the *deployed* environment, which will be set by `env_vars` below.
-    local_agent = OrchestrateServiceAgent()
+    # The OrchestrateServiceAgent constructor requires remote_agent_addresses_str.
+    remote_agent_addresses_str = os.getenv("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES", "")
+    local_agent = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
 
     # Define environment variables for the deployed Reasoning Engine
     # These are read from the deployment environment (where this script runs)
     # and passed to the remote environment where the agent executes.
-    remote_agent_addresses_str = os.getenv("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES", "")
+    # This is still useful even if the constructor takes the addresses,
+    # as the agent might re-read from environ upon unpickling or for other purposes.
     env_vars_for_deployment = {
         "AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES": remote_agent_addresses_str
     }

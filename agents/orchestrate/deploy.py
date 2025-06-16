@@ -62,7 +62,6 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
 
     extra_packages = [
         os.path.join(base_dir, "agents/a2a_common-0.1.0-py3-none-any.whl"),
-        os.path.join(base_dir, "agents/app"),
         os.path.join(base_dir, "agents/orchestrate")
     ]
 

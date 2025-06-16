@@ -69,19 +69,20 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # It uses the globally configured staging bucket from vertexai.init().
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
-        remote_agent = reasoning_engines.deploy(
-            local_agent,
-            requirements=requirements_path, # Path to requirements.txt or a list of strings
-            extra_packages=extra_packages,
+        remote_agent = reasoning_engines.ReasoningEngine.create(
+            local_agent,  # First positional argument: the agent instance
             display_name=display_name,
             description=description,
-            # project=project_id, # Optional if vertexai.init() was called with project
-            # location=region,    # Optional if vertexai.init() was called with location
+            requirements=requirements_path,
+            extra_packages=extra_packages,
+            # project=project_id, # Optional: ADK uses vertexai.init() global config
+            # location=region,    # Optional: ADK uses vertexai.init() global config
             # staging_bucket_uri can be specified to override global, but usually not needed.
             # gcs_dir_name can also be specified if a custom GCS path within the staging bucket is desired.
+            # python_version can be specified if needed, e.g., python_version="3.9"
         )
     except Exception as e:
-        print(f"ERROR: ADK reasoning_engines.create() failed: {e}")
+        print(f"ERROR: ADK reasoning_engines.ReasoningEngine.create() failed: {e}")
         # Consider if specific error handling or re-raising is needed.
         # For example, if google.auth.exceptions.DefaultCredentialsError occurs here,
         # it means vertexai.init() might not have been called or failed.

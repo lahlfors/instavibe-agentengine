@@ -78,18 +78,18 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
 
 
     try:
-        remote_agent = reasoning_engines.deploy(
-            local_agent,
-            requirements=requirements_path,
-            extra_packages=extra_packages,
+        remote_agent = reasoning_engines.ReasoningEngine.create(
+            local_agent,  # First positional argument: the agent instance
             display_name=display_name,
             description=description,
+            requirements=requirements_path,
+            extra_packages=extra_packages,
             env_vars=env_vars_for_deployment, # Pass environment variables here
-            # project=project_id, # Optional, from vertexai.init()
-            # location=region,    # Optional, from vertexai.init()
+            # project=project_id, # Optional: ADK uses vertexai.init() global config
+            # location=region,    # Optional: ADK uses vertexai.init() global config
         )
     except Exception as e:
-        print(f"ERROR: ADK reasoning_engines.create() failed for Orchestrate Agent: {e}")
+        print(f"ERROR: ADK reasoning_engines.ReasoningEngine.create() failed for Orchestrate Agent: {e}")
         raise
 
     print(f"Orchestrate Agent (Reasoning Engine) deployment initiated successfully via ADK.")

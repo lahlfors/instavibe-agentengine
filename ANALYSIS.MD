@@ -120,3 +120,39 @@ Proper management of environment variables is crucial for the configuration, sec
 The internal architecture of the agents, particularly their use of LangGraph for defining execution flows and managing state, remains unchanged and fully compatible with this refactoring. The refactoring effort concentrated on inter-component communication and the deployment model, not the graph definitions themselves. The power and flexibility of LangGraph for defining complex agent behaviors within each service are retained.
 
 ---
+
+## Analysis of Google Agent Development Kit (ADK) Usage
+
+### 1. Introduction
+This section details where and why the Google Agent Development Kit (ADK) and related components (like the Vertex AI Agent Engine SDK) are utilized within the project.
+
+### 2. Core ADK Component Usage
+#### Model Context Protocol (MCP) Interaction:
+-   **File:** `agents/platform_mcp_client/mcp_client.py`
+-   **ADK Module:** `google.adk.tools.mcp_tool.mcp_toolset` (providing `MCPToolset` and `SseServerParams`).
+-   **Purpose:** The `MCPClient` uses `MCPToolset` for standardized communication with the Instavibe platform's backend (MCP Tool Server), which speaks the Model Context Protocol. This is essential for the `PlatformAgent`'s core functionality of interacting with the platform (e.g., creating posts, events).
+
+### 3. Deployment to Vertex AI Agent Engine
+-   **Files:** All per-agent `deploy.py` scripts (Planner, Social, Platform, Orchestrator).
+-   **SDK Module:** `vertexai.preview.agent_engines` (from the `google-cloud-aiplatform` SDK, specifically with the `[agent_engines]` extra).
+-   **Purpose:** These scripts use `agent_engines.create()` to deploy the agent *objects* (e.g., `PlannerAgent()` instances) to Vertex AI Agent Engine. Agent Engine is the managed platform for these agents, providing the HTTP server and lifecycle management. This SDK is the standard method for such deployments.
+
+### 4. Local Agent Execution and Testing
+-   **File Example:** `agents/planner/planner_client.py`
+-   **ADK Modules:** `google.adk.runners.Runner`, `google.adk.sessions.InMemorySessionService`, `google.adk.artifacts.InMemoryArtifactService`.
+-   **Purpose:** These ADK components facilitate local development, execution, and testing of agents, allowing simulation of parts of the agent runtime without full cloud deployment.
+
+### 5. Key Dependencies
+#### `a2a_common-0.1.0-py3-none-any.whl`:
+-   **Role:** Packaged dependency included in all Agent Engine deployments via `extra_packages`.
+-   **Inferred Purpose:** Likely provides common utilities, base classes, or implicit hooks necessary for the ADK runtime environment on Agent Engine or for general ADK compatibility of deployed agents. Its exact contents are not inspected but its inclusion is tied to the ADK-centric deployment target.
+#### `requirements.txt` Files:
+-   **`google-adk==1.0.0`:** Listed for projects requiring direct ADK imports (e.g., `MCPClient` for `MCPToolset`, local test runners).
+-   **`google-cloud-aiplatform[agent_engines,adk,langgraph]==1.96.0`:** Listed for projects using the Agent Engine SDK for deployment and potentially other ADK compatibility features or LangGraph.
+
+### 6. Overall Assessment
+ADK usage within this project is targeted for specific, essential functionalities:
+-   Interacting with external services using specific ADK-defined protocols (MCP).
+-   Deploying agents to, and managing them on, the designated Google Cloud platform (Vertex AI Agent Engine via its SDK).
+-   Providing tools for local development and testing of agents.
+The core application logic of the agents (e.g., their internal LangGraph structures or business decision-making) is largely decoupled from direct ADK dependencies, except where ADK provides specific, encapsulated tools (like those from `MCPClient`) or defines the interaction patterns with the hosting platform.

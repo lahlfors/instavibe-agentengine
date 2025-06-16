@@ -16,3 +16,6 @@ python-dotenv==1.0.1
 langgraph
 langchain
 langchain-google-genai
+httpx==0.25.0
+fastapi
+uvicorn[standard]

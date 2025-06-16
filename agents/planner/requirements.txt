@@ -4,3 +4,6 @@ python-dateutil==2.9.0.post0
 #../a2a_common-0.1.0-py3-none-any.whl
 deprecated==1.2.18
 python-dotenv==1.0.1
+fastapi
+uvicorn[standard]
+httpx==0.25.0

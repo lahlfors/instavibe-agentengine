@@ -11,42 +11,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 
-# Attempt to import MCPToolset and SseServerParams
-try:
-    from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
-    IS_MCP_TOOLSET_AVAILABLE = True
-except ImportError:
-    print("Warning: MCPToolset could not be imported. Platform agent will use dummy tools.")
-    IS_MCP_TOOLSET_AVAILABLE = False
-    # Define dummy classes if MCPToolset is not available, so the rest of the code can be structured
-    class SseServerParams:
-        def __init__(self, url: str, headers: dict):
-            self.url = url
-            self.headers = headers
-    class MCPToolset:
-        def __init__(self, connection_params: SseServerParams):
-            print("Dummy MCPToolset initialized.")
-        async def create_post(self, author_name: str, text: str, sentiment: str) -> str:
-            return f"Dummy: Post created for {author_name} with text '{text}' and sentiment '{sentiment}'."
-        async def create_event(self, event_name: str, event_date: str, attendee_name: str) -> str:
-            return f"Dummy: Event '{event_name}' on {event_date} created for {attendee_name}."
-        async def close(self): # Add a close method for dummy too
-            print("Dummy MCPToolset closed.")
-        def get_tools(self) -> List[BaseTool]: # To mimic providing LangChain tools
-            @tool("create_post_tool")
-            async def create_post_tool(author_name: str, text: str, sentiment: str) -> str:
-                """Creates a new post with the given author name, text, and sentiment."""
-                return await self.create_post(author_name, text, sentiment)
-
-            @tool("create_event_tool")
-            async def create_event_tool(event_name: str, event_date: str, attendee_name: str) -> str:
-                """Creates a new event with the given name, date, and registers an attendee."""
-                return await self.create_event(event_name, event_date, attendee_name)
-            return [create_post_tool, create_event_tool]
-
+from .mcp_client import MCPClient # Import the new client
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+# --- Logger ---
+logger = logging.getLogger(__name__)
 
 # --- State Definition ---
 class PlatformGraphState(TypedDict):
@@ -81,87 +52,21 @@ General Guidelines:
 - If you use a tool, the observation will be the direct result from the tool. Present this result clearly to the user. If the tool indicates success, confirm the action. If it indicates failure or an error, inform the user.
 """
 
-# Global MCPToolset instance
-mcp_toolset_instance: Optional[MCPToolset] = None
-platform_tools: List[BaseTool] = []
-
-async def initialize_mcp_tools():
-    global mcp_toolset_instance, platform_tools
-    if not IS_MCP_TOOLSET_AVAILABLE:
-        print("MCPToolset is not available, using dummy tools for Platform Agent.")
-        # Use the dummy MCPToolset's get_tools method
-        mcp_toolset_instance = MCPToolset(connection_params=SseServerParams(url="", headers={})) # Dummy params
-        platform_tools = mcp_toolset_instance.get_tools()
-        return
-
-    if mcp_toolset_instance is None:
-        mcp_server_url = os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL")
-        if not mcp_server_url:
-            print("Error: AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL is not set.")
-            raise ValueError("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL not set for MCPToolset.")
-
-        print(f"Initializing MCPToolset with URL: {mcp_server_url}")
-        # nest_asyncio.apply() might be needed before this if MCPToolset's constructor uses asyncio.run internally
-        # However, ADK's agent.py applied it globally, so it should be fine.
-        mcp_toolset_instance = MCPToolset(
-            connection_params=SseServerParams(url=mcp_server_url, headers={})
-        )
-
-        # Extract tools from MCPToolset.
-        # The ADK LlmAgent passes the MCPToolset instance directly.
-        # For LangChain, tools need to be instances of BaseTool.
-        # We need to check if MCPToolset provides a way to get LangChain tools
-        # or if we need to wrap its methods manually.
-        # Based on ADK LlmAgent, it seems it might be auto-discovering methods.
-        # Let's assume for now we need to wrap them or it has a .get_tools() like method.
-        # If MCPToolset is directly a list of BaseTools or has a method like .get_langchain_tools()
-        if isinstance(mcp_toolset_instance, list) and all(isinstance(t, BaseTool) for t in mcp_toolset_instance):
-             platform_tools = mcp_toolset_instance
-        elif hasattr(mcp_toolset_instance, 'get_tools') and callable(getattr(mcp_toolset_instance, 'get_tools')):
-            # This is a common pattern for toolkits
-            platform_tools = mcp_toolset_instance.get_tools()
-        else:
-            # Manually wrap known tools if the above don't work
-            print("MCPToolset does not seem to be a list of tools or have a get_tools() method. Manually wrapping create_post and create_event.")
-
-            @tool("create_post_tool")
-            async def create_post_tool(author_name: str, text: str, sentiment: str) -> str:
-                """Creates a new post with the given author name, text, and sentiment."""
-                if not mcp_toolset_instance:
-                    return "Error: MCPToolset not initialized."
-                # MCPToolset methods might be async
-                if asyncio.iscoroutinefunction(mcp_toolset_instance.create_post):
-                    return await mcp_toolset_instance.create_post(author_name=author_name, text=text, sentiment=sentiment)
-                else: # Assuming synchronous if not explicitly async
-                    return mcp_toolset_instance.create_post(author_name=author_name, text=text, sentiment=sentiment)
-
-            @tool("create_event_tool")
-            async def create_event_tool(event_name: str, event_date: str, attendee_name: str) -> str:
-                """Creates a new event with the given name, date, and registers an attendee."""
-                if not mcp_toolset_instance:
-                    return "Error: MCPToolset not initialized."
-                if asyncio.iscoroutinefunction(mcp_toolset_instance.create_event):
-                    return await mcp_toolset_instance.create_event(event_name=event_name, event_date=event_date, attendee_name=attendee_name)
-                else:
-                    return mcp_toolset_instance.create_event(event_name=event_name, event_date=event_date, attendee_name=attendee_name)
-
-            platform_tools = [create_post_tool, create_event_tool]
-
-        print(f"Platform tools initialized: {[t.name for t in platform_tools]}")
+# Global list to hold tools, populated by build_platform_graph
+platform_tools_global: List[BaseTool] = []
 
 
 # --- Node Definitions ---
 async def platform_interaction_node(state: PlatformGraphState) -> dict:
-    print("---Executing Platform Interaction Node---")
+    logger.info("---Executing Platform Interaction Node---")
     user_request = state.get("user_request")
     if not user_request:
+        logger.error("Platform Interaction Node: User request is missing.")
         return {"error_message": "User request is missing."}
 
-    if not platform_tools: # Ensure tools are loaded
-        await initialize_mcp_tools() # Attempt to load them if not already
-        if not platform_tools: # If still no tools (e.g. MCP URL missing and dummy tools also failed)
-             return {"error_message": "Platform tools could not be initialized."}
-
+    if not platform_tools_global:
+         logger.error("Platform Interaction Node: Platform tools not initialized. MCPClient might have failed or returned no tools.")
+         return {"error_message": "Platform tools could not be initialized via MCPClient."}
 
     messages = [
         SystemMessage(content=PLATFORM_AGENT_INSTRUCTION),
@@ -171,7 +76,7 @@ async def platform_interaction_node(state: PlatformGraphState) -> dict:
     try:
         # Invoke LLM with tools. LangChain handles the tool calling and response cycle if LLM decides to use a tool.
         # The response will include the LLM's message and any tool calls/results.
-        response = await LLM.ainvoke(messages, tools=platform_tools)
+        response = await LLM.ainvoke(messages, tools=platform_tools_global)
 
         # The 'content' of the response is the LLM's textual answer.
         # If a tool was called, LangChain's default agent executors would typically handle
@@ -196,18 +101,18 @@ async def platform_interaction_node(state: PlatformGraphState) -> dict:
             # For now, we assume the LLM's response content will be sufficient.
             # If `response.content` is empty and `tool_calls` exist, it implies the LLM expects the human/system to run them.
             # However, `ChatGoogleGenerativeAI().ainvoke(tools=...)` should handle this.
-            pass # Assuming content is already appropriately formatted by LLM or the tool calling mechanism.
+            pass
 
-        print(f"Platform Interaction Node LLM Output (content): {llm_output_content}")
+        logger.info(f"Platform Interaction Node LLM Output (content): {llm_output_content[:200]}...") # Log snippet
         return {"llm_response": llm_output_content, "error_message": None}
 
     except Exception as e:
         import traceback
-        print(f"Error in Platform Interaction Node: {e}\n{traceback.format_exc()}")
+        logger.error(f"Error in Platform Interaction Node: {e}\n{traceback.format_exc()}")
         return {"error_message": f"Unexpected error in platform_interaction_node: {str(e)}"}
 
 def final_result_node(state: PlatformGraphState) -> dict:
-    print("---Executing Final Result Node---")
+    logger.info("---Executing Final Result Node---")
     if state.get("error_message"):
         # If an error occurred upstream, that's our final output (as error)
         return {"final_output": state.get("error_message")}
@@ -224,27 +129,24 @@ def final_result_node(state: PlatformGraphState) -> dict:
 def build_platform_graph():
     # Apply nest_asyncio: ADK's agent.py did this globally.
     # It's important if MCPToolset or other components use asyncio.run in a running loop.
-    nest_asyncio.apply()
+    nest_asyncio.apply() # Ensure this is called if not already globally managed
 
-    # Initialize tools (especially MCPToolset) when building the graph.
-    # This ensures that environment variables are checked and tools are ready.
-    # Using asyncio.run here for the async tool initialization.
-    # This is okay at setup time.
-    async def setup_tools():
-        await initialize_mcp_tools()
+    # Initialize MCPClient and get tools
+    logger.info("build_platform_graph: Initializing MCPClient...")
+    mcp_client_instance = MCPClient() # Instantiate client
 
-    # Running async setup if not in an already running loop.
-    # If build_platform_graph is called from an async context, direct await might be better.
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If called from within an async function, schedule it
-            asyncio.ensure_future(setup_tools())
-        else:
-            asyncio.run(setup_tools())
-    except RuntimeError: # No event loop
-        asyncio.run(setup_tools())
+    global platform_tools_global # Declare intent to modify global
+    platform_tools_global = mcp_client_instance.get_langchain_tools()
 
+    if not platform_tools_global:
+        logger.warning("build_platform_graph: MCPClient returned no tools. Platform agent might not function as expected.")
+    else:
+        logger.info(f"build_platform_graph: Tools loaded from MCPClient: {[t.name for t in platform_tools_global]}")
+
+    # IMPORTANT: Consider MCPClient's lifecycle. If it holds connections (like real MCPToolset),
+    # it might need to be closed. For a persistent service, MCPClient could be a singleton
+    # managed outside the graph build, or build_platform_graph could return the client
+    # instance for later cleanup. For now, it's created and tools are extracted per build.
 
     graph_builder = StateGraph(PlatformGraphState)
 
@@ -265,12 +167,11 @@ if __name__ == '__main__':
     # To test, you would need to run an async function.
     # Example:
     async def test_graph():
-        # Check if MCP URL is set, otherwise dummy tools will be used
-        if not os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL") and IS_MCP_TOOLSET_AVAILABLE:
-            print("Warning: AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL is not set. Real MCPToolset will likely fail.")
-            print("Consider setting it or expect dummy tool behavior if MCPToolset is available but URL is not.")
+        graph = build_platform_graph() # This will initialize tools via MCPClient
 
-        graph = build_platform_graph() # This will initialize tools
+        # Log whether real or dummy tools are expected based on MCPClient's own logging
+        # (MCPClient logs this during its initialization)
+        logger.info("Test_graph: build_platform_graph() completed. Refer to MCPClient logs for tool status (real/dummy).")
 
         test_queries = [
             "Please create a post for author 'Alice' with text 'Hello world from LangGraph!' and make it positive.",
@@ -288,19 +189,19 @@ if __name__ == '__main__':
             }
             try:
                 async for event in graph.astream(initial_state):
-                    print(f"Event: {event}")
+                    logger.info(f"Event: {event}")
                     if END in event:
                         final_state = event[END]
-                        print(f"Final Output: {final_state.get('final_output')}")
-                        print(f"Error (if any): {final_state.get('error_message')}")
+                        logger.info(f"Final Output: {final_state.get('final_output')}")
+                        logger.info(f"Error (if any): {final_state.get('error_message')}")
                         break
             except Exception as e:
-                print(f"Error during test run for query '{query}': {e}")
+                logger.error(f"Error during test run for query '{query}': {e}", exc_info=True)
                 import traceback
-                traceback.print_exc()
+                traceback.print_exc() # Still useful for console debugging
 
     # asyncio.run(test_graph()) # Commented out for tool use
-    print("Platform node file created. Run directly to test with example inputs.")
-    print("Remember to uncomment asyncio.run(test_graph()) and ensure Spanner/MCP is configured if needed.")
+    logger.info("Platform node file created. Run directly to test with example inputs.")
+    logger.info("Remember to uncomment asyncio.run(test_graph()) and ensure Spanner/MCP is configured if needed.")
 
 ```

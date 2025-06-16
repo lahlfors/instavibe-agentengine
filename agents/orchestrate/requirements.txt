@@ -1,5 +1,5 @@
 # Core dependencies for Vertex AI Agent Engine deployment
-google-cloud-aiplatform
+google-cloud-aiplatform[adk,agent_engines]==1.96.0
 python-dotenv==1.0.1
 
 # Local shared library for agent communication
@@ -11,3 +11,4 @@ python-dotenv==1.0.1
 google-adk==1.0.0
 deprecated==1.2.18
 nest_asyncio==1.6.0
+httpx==0.25.0

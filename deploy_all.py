@@ -394,9 +394,23 @@ def main(argv=None):
 
 
     if not args.skip_app:
-        # Construct env_vars string for Instavibe app, now using logger
-        # ... (Instavibe env var construction with logger) ...
-        deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string) # Assuming instavibe_env_vars_string is constructed
+        # Construct env_vars string for Instavibe app
+        instavibe_env_vars_list = [
+            # Removed: f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
+            f"COMMON_SPANNER_INSTANCE_ID={os.environ.get('COMMON_SPANNER_INSTANCE_ID', '')}",
+            f"COMMON_SPANNER_DATABASE_ID={os.environ.get('COMMON_SPANNER_DATABASE_ID', '')}",
+            f"INSTAVIBE_FLASK_SECRET_KEY={os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', '')}",
+            f"INSTAVIBE_APP_HOST={os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0')}", # Host can still be useful
+            # Removed: f"INSTAVIBE_APP_PORT={os.environ.get('INSTAVIBE_APP_PORT', '8080')}", # PORT is set by Cloud Run
+            f"INSTAVIBE_GOOGLE_MAPS_API_KEY={os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', '')}",
+            f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', '')}",
+            # Removed: f"COMMON_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}"
+        ]
+        # Filter out vars that were not set in .env to avoid "VARNAME=" or "VARNAME=None"
+        instavibe_env_vars_string = ",".join(
+            var for var in instavibe_env_vars_list if var.split('=', 1)[1] not in ['None', '']
+        )
+        deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
         logger.info("Skipping Instavibe app deployment.")
 
@@ -406,8 +420,18 @@ def main(argv=None):
     # For now, its deployment is tied to 'not args.skip_agents and not args.skip_platform'.
 
     if not args.skip_mcp_tool_server:
-        # ... (MCP Tool Server env var construction with logger) ...
-        deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None) # Assuming mcp_tool_server_env_vars_string is constructed
+        # For mcp_tool_server, construct env_vars_string if needed.
+        mcp_tool_server_env_vars_list = [
+            # Removed: f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
+            f"TOOLS_INSTAVIBE_BASE_URL={os.environ.get('TOOLS_INSTAVIBE_BASE_URL', '')}",
+            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', '')}",
+            # Removed: f"TOOLS_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}",
+            f"TOOLS_GOOGLE_API_KEY={os.environ.get('TOOLS_GOOGLE_API_KEY', '')}",
+        ]
+        mcp_tool_server_env_vars_string = ",".join(
+            var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1] not in ['None', '']
+        )
+        deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
     else:
         logger.info("Skipping MCP Tool Server deployment.")
 

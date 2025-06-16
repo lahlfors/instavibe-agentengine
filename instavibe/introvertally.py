@@ -165,7 +165,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             return
 
         for event_idx, event in enumerate(
-            planner_agent_engine.query(input=prompt_message, session_id=user_id)
+            planner_agent_engine.query(query=prompt_message, session_id=user_id)
         ):
             print(f"\n--- Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console

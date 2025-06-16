@@ -8,6 +8,7 @@ import logging # Added for logging
 
 import google.cloud.aiplatform as vertexai
 from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
+from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
 # Initialize logger
@@ -19,13 +20,48 @@ planner_agent_engine = None
 def init_agent_engine(project_id, location):
     """Initializes the Vertex AI Agent Engine."""
     global planner_agent_engine
-    logger.info("Attempting to initialize agent engine...")
-    try:
-        logger.info(f"Using project_id: {project_id}, location: {location} for vertexai.init")
-        vertexai.init(project=project_id, location=location)
+    planner_resource_name_from_env = os.getenv("AGENTS_PLANNER_RESOURCE_NAME")
 
-        logger.info("Initializing ReasoningEngineServiceClient")
-        client = ReasoningEngineServiceClient()
+    if planner_resource_name_from_env:
+        logger.info(f"Found AGENTS_PLANNER_RESOURCE_NAME: {planner_resource_name_from_env}. Attempting direct connection.")
+        try:
+            # Ensure vertexai.init has been called if needed by SDK for this direct instantiation
+            # It's called later if this path fails, or at module load if project/location are set.
+            # If direct instantiation with full resource name doesn't require project/location in init(), this is fine.
+            # For safety, ensure init is called once before any client/engine use.
+            if not vertexai.global_config.project: # Check if init was already effectively called
+                 logger.info(f"Calling vertexai.init from direct connection path for project: {project_id}, location: {location}")
+                 vertexai.init(project=project_id, location=location)
+
+            planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
+            logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
+            return # Successfully initialized
+        except Exception as e:
+            logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
+            logger.warning("Falling back to listing reasoning engines.")
+            planner_agent_engine = None # Ensure it's None before fallback
+    else:
+        logger.info("AGENTS_PLANNER_RESOURCE_NAME not set. Will attempt to find Planner Agent by listing engines.")
+
+    # Fallback to listing logic if direct connection failed or env var not set
+    if planner_agent_engine is None:
+        logger.info("Attempting to initialize agent engine by listing (fallback)...")
+        try:
+            logger.info(f"Using project_id: {project_id}, location: {location} for vertexai.init (fallback)")
+            # Call init here if not called globally or if specific project/location needed for this client
+            if not vertexai.global_config.project: # Check if init was already effectively called
+                vertexai.init(project=project_id, location=location)
+            else: # If already initialized, ensure it's for the correct project/location for this specific call, or log a warning
+                if vertexai.global_config.project != project_id or vertexai.global_config.location != location:
+                    logger.warning(f"vertexai already initialized with project/location ({vertexai.global_config.project}/{vertexai.global_config.location}) different from current target ({project_id}/{location}). This might cause issues if clients are reused.")
+                    # Re-initializing might be an option if the SDK supports it gracefully, or use specific client options.
+                    # For now, proceed with potentially mis-matched global config if direct init above didn't happen.
+                    # This path implies the direct connection failed, so this init is critical for the listing client.
+                    vertexai.init(project=project_id, location=location)
+
+
+            logger.info("Initializing ReasoningEngineServiceClient (fallback)")
+            client = ReasoningEngineServiceClient()
         parent = f"projects/{project_id}/locations/{location}"
 
         logger.info(f"Listing reasoning engines in project {project_id}, location {location}")
@@ -48,10 +84,10 @@ def init_agent_engine(project_id, location):
             # Extract the engine ID from the full name (e.g., projects/.../locations/.../reasoningEngines/...)
             # extracted_id = engine_id_full.split('/')[-1] # Already have this if needed for other logs
 
-            logger.info(f"Attempting to connect to ReasoningEngine with full name: {engine_id_full}") # Added this line
-            logger.info(f"Connecting to engine using full resource name: {engine_id_full}")
-            planner_agent_engine = vertexai.preview.ReasoningEngine(engine_id_full)
-            logger.info("Successfully connected to Planner Agent.")
+            logger.info(f"Attempting to connect to ReasoningEngine with full name: {engine_id_full}")
+            logger.info(f"Connecting to engine using full resource name: {engine_id_full} (fallback)")
+            planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full) # Use imported reasoning_engines
+            logger.info("Successfully connected to Planner Agent (fallback).")
         else:
             logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id}, location {location}.")
             planner_agent_engine = None # Ensure it's None if not found

@@ -50,10 +50,9 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     # and passed to the remote environment where the agent executes.
     # This is still useful even if the constructor takes the addresses,
     # as the agent might re-read from environ upon unpickling or for other purposes.
-    env_vars_for_deployment = {
-        "AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES": remote_agent_addresses_str
-    }
-    print(f"Deployment-time AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES: '{remote_agent_addresses_str}' will be set for the deployed agent.")
+    # env_vars_for_deployment has been removed as per new instructions.
+    # The agent constructor now receives the necessary configuration directly.
+    print(f"OrchestrateServiceAgent initialized with AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES: '{remote_agent_addresses_str}'")
 
 
     # base_dir is the repository root.
@@ -74,7 +73,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     print(f"  Project: {project_id}, Region: {region}") # Informational
     print(f"  Requirements file: {requirements_path}")
     print(f"  Extra packages: {extra_packages}")
-    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
+    # print(f"  Environment variables for deployed agent: {env_vars_for_deployment}") # Removed
 
 
     try:
@@ -84,7 +83,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
             description=description,
             requirements=requirements_path,
             extra_packages=extra_packages,
-            env_vars=env_vars_for_deployment, # Pass environment variables here
+            # env_vars=env_vars_for_deployment, # env_vars parameter removed
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )

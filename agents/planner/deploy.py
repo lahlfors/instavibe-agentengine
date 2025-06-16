@@ -50,8 +50,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # The 'agents/app' and 'agents/planner' are directories containing package code.
     # The 'agents/a2a_common-0.1.0-py3-none-any.whl' is a wheel file.
     extra_packages = [
-        os.path.join(base_dir, "agents/a2a_common-0.1.0-py3-none-any.whl"), # Path to the wheel
-        os.path.join(base_dir, "agents/planner") # Path to the 'planner' package directory
+        os.path.join(base_dir, "agents")
     ]
 
     # Verify extra_packages paths exist

@@ -51,8 +51,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
         raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
 
     extra_packages = [
-        os.path.join(base_dir, "agents/a2a_common-0.1.0-py3-none-any.whl"), # Path to the wheel
-        os.path.join(base_dir, "agents/social") # Path to the 'social' package directory
+        os.path.join(base_dir, "agents")
     ]
 
     # Verify extra_packages paths exist

@@ -40,8 +40,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
 
     extra_packages = [
-        os.path.join(base_dir, "agents/a2a_common-0.1.0-py3-none-any.whl"),
-        os.path.join(base_dir, "agents/platform_mcp_client")
+        os.path.join(base_dir, "agents")
     ]
 
     for pkg_path in extra_packages:

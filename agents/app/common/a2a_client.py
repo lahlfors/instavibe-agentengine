@@ -36,53 +36,39 @@ class A2AClient:
         # this payload needs to be adapted. This is a KEY ADAPTATION POINT.
         # For now, using the simple {"query": ..., "session_id": ...} structure.
         # This will need to be verified against Agent Engine's "Use an agent" documentation.
-        request_payload: Dict[str, Any] = {"query": query}
+
+        # Construct the payload for Agent Engine's :query method, which expects an "input" key.
+        input_params: Dict[str, Any] = {"query": query}
         if session_id:
-            request_payload["session_id"] = session_id
+            input_params["session_id"] = session_id
 
-        # Placeholder for the actual request structure Agent Engine expects.
-        # This might be e.g. {"instances": [{"query": query, "session_id": session_id}]}
-        # or just `request_payload` if the agent method signature matches.
-        # For a deployed LangGraph/Agent, it's often a dict with a key like 'input' or 'question'.
-        # Let's assume for now the agent method exposed by AgentEngine can take `query` and `session_id`
-        # perhaps as part of a single JSON object in the request.
-        # The official documentation for "Use an agent" for the specific type of deployed agent (LangGraph, custom class) is crucial here.
-        # For a custom class with an `async_query(self, query, session_id=None)` method,
-        # Agent Engine might map the JSON body directly to these parameters or expect them under a specific key.
+        request_payload_for_engine = {"input": input_params}
 
-        logger.info(f"A2AClient: Invoking agent '{agent_name}' at URL '{target_url}' with query: '{query[:100]}...'")
+        logger.debug(f"A2AClient: Invoking agent '{agent_name}' at URL '{target_url}'. Payload: {request_payload_for_engine}")
+        logger.info(f"A2AClient: Invoking agent '{agent_name}' at URL '{target_url}' with query: '{query[:100]}...'") # Keep high-level info log
 
+        # Note on Authentication:
+        # When calling Google Cloud APIs (like a deployed Agent Engine endpoint),
+        # httpx.AsyncClient() will typically use Application Default Credentials (ADC)
+        # if run in a GCP environment (e.g., Cloud Run, GCE, GKE).
+        # For local development, ensure ADC is set up via `gcloud auth application-default login`.
+        # No explicit token handling is usually needed in the client code itself if ADC is configured.
         try:
             async with httpx.AsyncClient() as client:
-                # The exact payload structure sent to Agent Engine needs verification.
-                # If Agent Engine expects `{"instances": [payload]}`, then adjust `json=actual_payload_for_agent_engine`.
-                # For now, sending the payload directly.
-                response = await client.post(target_url, json=request_payload, timeout=120.0) # Longer timeout for cold starts / complex agents
+                response = await client.post(target_url, json=request_payload_for_engine, timeout=120.0) # Longer timeout
 
                 if 200 <= response.status_code < 300:
                     try:
-                        # Agent Engine might wrap the agent's actual output.
-                        # E.g., {"predictions": [agent_actual_output]}
-                        # The `agent_actual_output` should be {"output": ..., "error": ...}
+                        # Assume the Agent Engine :query endpoint directly returns the
+                        # agent's output dictionary, e.g., {"output": ..., "error": ...}
                         response_json = response.json()
-                        # This parsing needs to be robust based on Agent Engine's actual response structure.
-                        # If it's like {"predictions": [{"output": "...", "error": "..."}]}, extract that.
-                        if "predictions" in response_json and isinstance(response_json["predictions"], list) and len(response_json["predictions"]) > 0:
-                            agent_internal_response = response_json["predictions"][0]
-                            if isinstance(agent_internal_response, dict):
-                                return agent_internal_response
-                            else: # If the prediction isn't the dict we expect
-                                logger.warning(f"A2AClient: Unexpected prediction format from {agent_name}: {agent_internal_response}")
-                                return {"output": agent_internal_response, "error": None} # Pass it through as output
-                        else:
-                            # If no "predictions" key, assume the response is directly the agent's output dict
-                            logger.debug(f"A2AClient: Response from {agent_name} does not have 'predictions' key, assuming direct response. JSON: {response_json}")
-                            return response_json # This should be {"output": ..., "error": ...}
+                        logger.debug(f"A2AClient: Successfully received response from {agent_name}. JSON: {response_json}")
+                        return response_json
                     except Exception as e:
-                        logger.error(f"A2AClient: Failed to decode or parse JSON response from {agent_name} (status {response.status_code}). Response text: {response.text[:500]}", exc_info=True)
+                        logger.error(f"A2AClient: Failed to decode JSON response from {agent_name} (status {response.status_code}). Response text: {response.text[:500]}", exc_info=True)
                         return {"output": None, "error": f"A2AClient: Failed to decode/parse JSON from {agent_name}. Details: {str(e)}"}
                 else:
-                    error_details = response.text[:500]
+                    error_details = response.text[:500] # Limit error detail length
                     logger.error(f"A2AClient: Call to {agent_name} failed with status {response.status_code}. Details: {error_details}")
                     try:
                         error_json = response.json()

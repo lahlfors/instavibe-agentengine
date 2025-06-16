@@ -47,28 +47,28 @@ def extract_service_url_from_deployment_info(remote_agent_object: Any, agent_nam
     resource_name = remote_agent_object.resource_name
     logger.info(f"Attempting to find endpoint URI for {agent_name} (Resource: {resource_name})")
 
-    # --- BEGIN CRITICAL SECTION THAT NEEDS VERIFICATION ---
-    # The following are hypotheses. The actual method to get the invokable HTTP URL
-    # for an agent deployed via agent_engines.create() needs to be confirmed from
-    # Vertex AI Agent Engine "Use an agent" documentation or SDK reference.
+    try:
+        parts = resource_name.split('/')
+        if len(parts) != 6 or parts[0] != 'projects' or parts[2] != 'locations' or parts[4] != 'reasoningEngines':
+            logger.error(f"Resource name '{resource_name}' for {agent_name} is not in the expected format projects/PROJECT_ID/locations/LOCATION/reasoningEngines/REASONING_ENGINE_ID.")
+            return None
 
-    # Hypothesis 1: Direct attribute on RemoteAgent object
-    for attr_name in ['predict_uri', 'endpoint_uri', 'uri', 'service_endpoint', 'default_endpoint_uri']:
-         if hasattr(remote_agent_object, attr_name) and getattr(remote_agent_object, attr_name):
-            url = getattr(remote_agent_object, attr_name)
-            logger.info(f"Found direct URL attribute '{attr_name}': {url} for {agent_name}")
-            return url
+        # project_id_from_name = parts[1] # Not used in this URL structure directly
+        location = parts[3]
+        # reasoning_engine_id = parts[5] # Not used in this URL structure directly, full resource_name is used.
 
-    logger.warning(
-        f"Exact method to retrieve invokable HTTP URL from RemoteAgent object for '{agent_name}' needs to be confirmed. "
-        f"Consult Vertex AI Agent Engine 'Use an agent' documentation. Resource name: {resource_name}. "
-        f"Known attributes on remote_agent_object: {dir(remote_agent_object)}"
-    )
-    # --- END CRITICAL SECTION THAT NEEDS VERIFICATION ---
+        # Construct the URL based on the standard pattern for the :query method for Reasoning Engines
+        # POST https://LOCATION-aiplatform.googleapis.com/v1beta1/projects/PROJECT_ID/locations/LOCATION/reasoningEngines/REASONING_ENGINE_ID:query
+        # The {resource_name} itself is "projects/PROJECT_ID/locations/LOCATION/reasoningEngines/REASONING_ENGINE_ID"
 
-    placeholder_url = f"http://{agent_name.lower().replace(' ', '-')}.agent-engine.placeholder.vertexai/{resource_name.split('/')[-1]}"
-    logger.info(f"Using placeholder URL for {agent_name}: {placeholder_url}. THIS MUST BE REPLACED WITH ACTUAL URL DISCOVERY LOGIC.")
-    return placeholder_url
+        service_url = f"https://{location}-aiplatform.googleapis.com/v1beta1/{resource_name}:query"
+
+        logger.info(f"Constructed service URL for {agent_name}: {service_url}")
+        return service_url
+
+    except Exception as e:
+        logger.error(f"Error parsing resource name or constructing URL for {agent_name} (Resource: {resource_name}): {e}", exc_info=True)
+        return None
 
 def check_cloud_run_service_exists(service_name: str, project_id: str, region: str) -> bool:
     try:

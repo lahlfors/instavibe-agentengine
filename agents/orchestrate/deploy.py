@@ -78,7 +78,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
 
 
     try:
-        remote_agent = reasoning_engines.create(
+        remote_agent = reasoning_engines.deploy(
             local_agent,
             requirements=requirements_path,
             extra_packages=extra_packages,

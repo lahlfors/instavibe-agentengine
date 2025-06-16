@@ -67,7 +67,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     print(f"  Extra packages: {extra_packages}")
 
     try:
-        remote_agent = reasoning_engines.create(
+        remote_agent = reasoning_engines.deploy(
             local_agent,
             requirements=requirements_path,
             extra_packages=extra_packages,

@@ -69,7 +69,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # It uses the globally configured staging bucket from vertexai.init().
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
-        remote_agent = reasoning_engines.create(
+        remote_agent = reasoning_engines.deploy(
             local_agent,
             requirements=requirements_path, # Path to requirements.txt or a list of strings
             extra_packages=extra_packages,

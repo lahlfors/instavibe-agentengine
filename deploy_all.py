@@ -129,20 +129,20 @@ def deploy_planner_agent(project_id: str, region: str):
         return
 
     # The original print("Deploying Planner Agent...") is now covered by the more specific print above.
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Uninstalling existing {agent_display_name} dependencies...")
-        # Uninstall doesn't need --break-system-packages
-        subprocess.run([sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
-        print("Installing Planner Agent dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/planner",
-        )
+        # print(f"Uninstalling existing {agent_display_name} dependencies...")
+        # subprocess.run([sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
+        # print("Installing Planner Agent dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/planner",
+        # )
         deploy_planner_main_func(project_id, region, base_dir=".")
-        print("Planner Agent deployed successfully.")
+        print("Planner Agent deployment process completed.") # Changed from "deployed successfully" to "process completed" as ADK is async.
     except subprocess.CalledProcessError as e:
         print(f"Error deploying Planner Agent: {e}")
         print(f"Stdout: {e.stdout}")
@@ -175,17 +175,18 @@ def deploy_social_agent(project_id: str, region: str):
         print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Installing {agent_display_name} dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/social",
-        )
+        # print(f"Installing {agent_display_name} dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/social",
+        # )
         deploy_social_main_func(project_id, region, base_dir=".")
-        print(f"{agent_display_name} deployed successfully.")
+        print(f"{agent_display_name} deployment process completed.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
@@ -218,17 +219,18 @@ def deploy_orchestrate_agent(project_id: str, region: str):
         print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Installing {agent_display_name} dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/orchestrate",
-        )
+        # print(f"Installing {agent_display_name} dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/orchestrate",
+        # )
         deploy_orchestrate_main_func(project_id, region, base_dir=".")
-        print(f"{agent_display_name} deployed successfully.")
+        print(f"{agent_display_name} deployment process completed.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
@@ -320,17 +322,18 @@ def deploy_platform_mcp_client(project_id: str, region: str):
         print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Installing {agent_display_name} dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/platform_mcp_client",
-        )
+        # print(f"Installing {agent_display_name} dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/platform_mcp_client",
+        # )
         deploy_platform_mcp_client_main_func(project_id, region, base_dir=".")
-        print(f"{agent_display_name} deployed successfully to Project: {project_id}, Region: {region}.")
+        print(f"{agent_display_name} deployment process completed for Project: {project_id}, Region: {region}.")
     except subprocess.CalledProcessError as e:
         print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")

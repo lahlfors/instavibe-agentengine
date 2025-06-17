@@ -9,8 +9,8 @@ from google.adk.agents import BaseAgent # Add BaseAgent
 from google.adk.runners import Runner
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.sessions import InMemorySessionService
-from typing import Any, Dict, List, Tuple # Ensure Tuple, Dict, Any, List are imported
+from google.adk.sessions import InMemorySessionService, SessionNotFoundError # Added SessionNotFoundError
+from typing import Any, Dict, List, Tuple, Optional # Added Optional
 
 
 # Load environment variables from the root .env file
@@ -83,25 +83,74 @@ class PlatformMCPClientServiceAgent:
         )
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
-    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
-        if not self._runner or not self._agent:
-            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for query.")
+    async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
+        logger = logging.getLogger(__name__) # Define logger locally
+        app_name = self._agent.name # self._agent should be initialized in __init__ / _async_init_components
+
+        if not self._agent: # Guard against agent not being initialized
+            logger.error("PlatformMCPClientServiceAgent: _agent is not initialized. Cannot proceed with query.")
             return {"error": "Agent not initialized"}
-        session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
+
+        external_session_id = kwargs.get("session_id")
+
+        interaction_user_id = self._user_id
+        desired_session_id: str
+
+        if external_session_id:
+            interaction_user_id = str(external_session_id)
+            desired_session_id = str(external_session_id)
+        else:
+            # For PlatformMCPClient, the original logic for a default session_id was slightly different,
+            # using os.urandom. We'll keep that specific pattern for its default.
+            desired_session_id = self._user_id + "_" + os.urandom(4).hex()
+            # interaction_user_id remains self._user_id in this specific default case for this agent.
+
+        current_session_obj = None
+        try:
+            current_session_obj = self._runner.session_service.get_session(
+                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
+            )
+            if current_session_obj:
+                 logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+        except SessionNotFoundError:
+            logger.info(f"Session {desired_session_id} for user {interaction_user_id} not found by get_session. Will create.")
+            current_session_obj = None
+        except Exception as e_get:
+            logger.warning(f"Error during get_session for {desired_session_id} (user {interaction_user_id}): {e_get}. Will try to create.")
+            current_session_obj = None
+
+        if current_session_obj is None:
+            try:
+                current_session_obj = self._runner.session_service.create_session(
+                    app_name=app_name, user_id=interaction_user_id, session_id_override=desired_session_id
+                )
+                logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+            except Exception as e_create:
+                logger.error(f"Failed to create session for user {interaction_user_id} with desired_id {desired_session_id}: {e_create}", exc_info=True)
+                return {"error": f"Session management failure during create: {e_create}"}
+
+        if not current_session_obj:
+            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
+            return {"error": "Failed to get or create a session."}
+
+        # Variable name was agent_response, changing to response_event_data for consistency
         response_event_data = None
         async for event in self._runner.run_async(
-            user_id=self._user_id, # Use self._user_id for the user_id parameter
-            session_id=session_id, # Use the local session_id variable
-            new_message={"text_content": query}
+            user_id=interaction_user_id,
+            session_id=current_session_obj.id,
+            new_message={"text_content": query_text}
         ):
             response_event_data = event
             break
 
         if response_event_data:
-            # Assuming event is or contains the Dict[str, Any] response
-            return response_event_data
+            if isinstance(response_event_data, dict):
+                return response_event_data
+            else:
+                logger.warning(f"run_async returned event of type {type(response_event_data)} instead of dict for session {current_session_obj.id}: {str(response_event_data)[:200]}")
+                return {"error": "Unexpected event type from agent execution", "event_preview": str(response_event_data)[:100]}
         else:
-            # log.error("PlatformMCPClientServiceAgent: No response event received from run_async.") # Optional
+            logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
 
     async def close_async(self): # Optional: for explicit cleanup if needed elsewhere

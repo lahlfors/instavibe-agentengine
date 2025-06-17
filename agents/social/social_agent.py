@@ -1,6 +1,9 @@
-from typing import Any, AsyncIterable, Dict, Optional
+from typing import Any, Dict, Optional # Removed AsyncIterable as it's not used in the new query
+import logging # Added
 from google.adk.agents import LoopAgent
 from google.adk.tools.tool_context import ToolContext
+from google.adk.sessions import SessionNotFoundError # Added
+# from google.adk.sessions import Session # Optional for type hint
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
@@ -40,21 +43,71 @@ class SocialAgent(AgentTaskManager):
     """Builds the LLM agent for the social profile analysis agent."""
     return agent.root_agent
 
-  async def query(self, query: str, **kwargs) -> Dict[str, Any]:
-    """Handles the user's request for social profile analysis."""
-    session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
-    response_event_data = None
-    async for event in self._runner.run_async(
-        user_id=self._user_id,
-        session_id=session_id,
-        new_message={"text_content": query}
-    ):
-        response_event_data = event
-        break
+  async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
+        logger = logging.getLogger(__name__)
+        app_name = self._agent.name
 
-    if response_event_data:
-        # Assuming event is or contains the Dict[str, Any] response
-        return response_event_data
-    else:
-        # logger.error("SocialAgent: No response event received from run_async.") # Optional: if logger is set up
-        return {"error": "No response event received from agent execution"}
+        external_session_id = kwargs.get("session_id")
+
+        interaction_user_id = self._user_id
+        desired_session_id: str
+
+        if external_session_id:
+            interaction_user_id = str(external_session_id)
+            desired_session_id = str(external_session_id)
+            # logger.info(f"External session_id '{desired_session_id}' provided, setting interaction_user_id to match.")
+        else:
+            desired_session_id = self._user_id + "_" + os.urandom(4).hex()
+            # logger.info(f"No external session_id. Generated '{desired_session_id}' for user '{interaction_user_id}'.")
+
+        current_session_obj = None
+        try:
+            # Try to get the session (assuming sync for InMemorySessionService)
+            # logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
+            current_session_obj = self._runner.session_service.get_session(
+                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
+            )
+            if current_session_obj:
+                 # logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+                 pass
+        except SessionNotFoundError:
+            # logger.info(f"Session {desired_session_id} for user {interaction_user_id} not found by get_session. Will create.")
+            current_session_obj = None
+        except Exception as e_get:
+            # logger.warning(f"Error during get_session for {desired_session_id} (user {interaction_user_id}): {e_get}. Will try to create.")
+            current_session_obj = None
+
+        if current_session_obj is None:
+            try:
+                # logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id_override='{desired_session_id}'")
+                # Create the session (assuming sync for InMemorySessionService)
+                current_session_obj = self._runner.session_service.create_session(
+                    app_name=app_name, user_id=interaction_user_id, session_id_override=desired_session_id
+                )
+                # logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+            except Exception as e_create:
+                # logger.error(f"Failed to create session for user {interaction_user_id} with desired_id {desired_session_id}: {e_create}", exc_info=True)
+                return {"error": f"Session management failure during create: {e_create}"}
+
+        if not current_session_obj:
+            # logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
+            return {"error": "Failed to get or create a session."}
+
+        response_event_data = None
+        async for event in self._runner.run_async(
+            user_id=interaction_user_id,
+            session_id=current_session_obj.id,
+            new_message={"text_content": query_text}
+        ):
+            response_event_data = event
+            break
+
+        if response_event_data:
+            if isinstance(response_event_data, dict):
+                return response_event_data
+            else:
+                # logger.warning(f"run_async returned event of type {type(response_event_data)} instead of dict for session {current_session_obj.id}: {str(response_event_data)[:200]}")
+                return {"error": "Unexpected event type from agent execution", "event_preview": str(response_event_data)[:100]}
+        else:
+            # logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
+            return {"error": "No response event received from agent execution"}

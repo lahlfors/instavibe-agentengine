@@ -43,11 +43,26 @@ class PlannerAgent(AgentTaskManager):
   async def query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for planning."""
     # TODO(b/336700618): Implement the actual logic for handling the request.
-    session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
+
+    # Determine user_id and session_id for the run
+    run_user_id = self._user_id  # Default to agent's own user_id
+
+    # Try to get session_id from the caller (e.g., instavibe-app passes user_name as session_id)
+    run_session_id = kwargs.pop("session_id", None)
+
+    if run_session_id:
+        # If caller provided a session_id, use that for both user_id and session_id
+        # for this specific run, assuming it represents the end-user.
+        run_user_id = run_session_id
+    else:
+        # If no session_id from caller, generate a new unique session_id for this run.
+        # run_user_id remains the agent's default _user_id.
+        run_session_id = self._user_id + "_" + os.urandom(4).hex()
+
     response_event_data = None
     async for event in self._runner.run_async(
-        user_id=self._user_id,
-        session_id=session_id,
+        user_id=run_user_id,
+        session_id=run_session_id,
         new_message={"text_content": query}
         # Default run_config has StreamingMode.NONE, so expect one event.
     ):

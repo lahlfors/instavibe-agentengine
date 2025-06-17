@@ -40,9 +40,9 @@ class SocialAgent(AgentTaskManager):
     """Builds the LLM agent for the social profile analysis agent."""
     return agent.root_agent
 
-  async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
+  async def query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for social profile analysis."""
-    return await self._runner.run_pipeline(
+    return await self._runner.arun(
         app_name=self._agent.name,
         session_id=self._user_id,
         inputs={"text_content": query},

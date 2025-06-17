@@ -56,10 +56,11 @@ class OrchestrateServiceAgent:
         """
         Handles the user's request by running the underlying Orchestrate LlmAgent.
         """
+        session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
         response_event_data = None
         async for event in self._runner.run_async(
             user_id=self._user_id,
-            session_id=self._user_id,
+            session_id=session_id,
             new_message={"text_content": query}
         ):
             response_event_data = event

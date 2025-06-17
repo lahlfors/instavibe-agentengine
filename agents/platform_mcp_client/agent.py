@@ -9,8 +9,8 @@ from google.adk.agents import BaseAgent # Add BaseAgent
 from google.adk.runners import Runner
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.sessions import InMemorySessionService, SessionNotFoundError # Added SessionNotFoundError
-from typing import Any, Dict, List, Tuple, Optional # Added Optional
+from google.adk.sessions import InMemorySessionService # Removed SessionNotFoundError, Session
+from typing import Any, Dict, List, Tuple, Optional
 
 
 # Load environment variables from the root .env file
@@ -84,10 +84,10 @@ class PlatformMCPClientServiceAgent:
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
     async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
-        logger = logging.getLogger(__name__)
+        # Using module-level 'log' instead of local 'logger'
         # self._agent might be None if _async_init_components hasn't finished or failed.
         if not self._agent:
-            logger.error("PlatformMCPClientServiceAgent: _agent is not initialized. Call _async_init_components first or check for errors during init.")
+            log.error("PlatformMCPClientServiceAgent: _agent is not initialized. Call _async_init_components first or check for errors during init.")
             return {"error": "Agent components not initialized"}
         app_name = self._agent.name
 
@@ -99,59 +99,59 @@ class PlatformMCPClientServiceAgent:
         if external_session_id:
             interaction_user_id = str(external_session_id) # Align user_id with external session_id if provided
             desired_session_id = str(external_session_id)
-            logger.info(f"External session_id '{desired_session_id}' provided, setting interaction_user_id to match.")
+            log.info(f"External session_id '{desired_session_id}' provided, setting interaction_user_id to match.")
         else:
             # PlatformMCPClientServiceAgent's specific default for session_id if none provided
             desired_session_id = self._user_id + "_" + os.urandom(4).hex()
             # interaction_user_id remains self._user_id in this case
-            logger.info(f"No external session_id. Generated '{desired_session_id}' for user '{interaction_user_id}'.")
+            log.info(f"No external session_id. Generated '{desired_session_id}' for user '{interaction_user_id}'.")
 
-        current_session: Optional[Session] = None
+        current_session_obj: Optional[Any] = None
         try:
-            logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-            current_session = await self._runner.session_service.get_session(
+            # Ensure logger is defined (module has log = logging.getLogger(__name__))
+            log.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
+            current_session_obj = await self._runner.session_service.get_session(
                 app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
             )
-            if current_session:
-                 logger.info(f"Found existing session: {current_session.id} for user {interaction_user_id}")
-        except SessionNotFoundError:
-            logger.info(f"Session {desired_session_id} for user {interaction_user_id} not found. Will create.")
-            current_session = None
+            if current_session_obj:
+                log.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+            else:
+                log.info(f"Session {desired_session_id} for user {interaction_user_id} not found (get_session returned None). Will create.")
         except Exception as e_get:
-            logger.warning(f"Error during get_session for {desired_session_id} (user {interaction_user_id}): {e_get}. Will try to create.")
-            current_session = None
+            log.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id}': {e_get}. Will assume session needs creation.")
+            current_session_obj = None
 
-        if current_session is None:
+        if current_session_obj is None:
             try:
-                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-                current_session = await self._runner.session_service.create_session(
-                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
-                ) # Using session_id, not session_id_override
-                logger.info(f"Successfully created session: {current_session.id} for user {interaction_user_id}.")
+                log.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id_override='{desired_session_id}'")
+                current_session_obj = await self._runner.session_service.create_session(
+                    app_name=app_name, user_id=interaction_user_id, session_id_override=desired_session_id
+                ) # Using session_id_override here as per previous logic
+                log.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
             except Exception as e_create:
-                logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id}: {e_create}", exc_info=True)
+                log.error(f"Failed to create session for user {interaction_user_id} with session_id_override {desired_session_id}: {e_create}", exc_info=True)
                 return {"error": f"Session management failure during create: {e_create}"}
 
-        if not current_session:
-            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
+        if not current_session_obj:
+            log.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
             return {"error": "Failed to get or create a session."}
 
         response_event_data = None
         try:
             # Check if self._runner is initialized, which happens in _async_init_components
             if not self._runner:
-                logger.error("PlatformMCPClientServiceAgent: _runner is not initialized.")
+                log.error("PlatformMCPClientServiceAgent: _runner is not initialized.")
                 return {"error": "Runner not initialized"}
 
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
-                session_id=current_session.id,
+                session_id=current_session_obj.id,
                 new_message={"text_content": query_text}
             ):
                 response_event_data = event
                 break
         except Exception as e_run:
-            logger.error(f"Error during run_async for session {current_session.id}: {e_run}", exc_info=True)
+            log.error(f"Error during run_async for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
@@ -160,10 +160,10 @@ class PlatformMCPClientServiceAgent:
             elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
                 if response_event_data.content and response_event_data.content.parts and response_event_data.content.parts[0].text:
                     return {"output": response_event_data.content.parts[0].text}
-            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session.id}. Content: {str(response_event_data)[:200]}")
+            log.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
             return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
         else:
-            logger.warning(f"No response event received from agent execution for session {current_session.id}.")
+            log.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
 
     async def close_async(self): # Optional: for explicit cleanup if needed elsewhere

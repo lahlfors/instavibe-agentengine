@@ -4,7 +4,8 @@ from dotenv import load_dotenv # To load .env
 from typing import Any, Dict, Optional # Removed AsyncIterable, ensured Any, Dict, Optional
 from google.adk.agents import LoopAgent
 from google.adk.tools.tool_context import ToolContext
-from google.adk.sessions import SessionNotFoundError, Session # Assuming these are correct for ADK 1.0.0
+# from google.adk.sessions import SessionNotFoundError # Removed
+# from google.adk.sessions import Session # Removed Session for Optional[Any]
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
@@ -58,35 +59,35 @@ class PlannerAgent(AgentTaskManager):
         # We'll use this as the session_id for get/create, effectively making session_id = user_id for these calls.
         desired_session_id_for_service = interaction_user_id
 
-        current_session: Optional[Session] = None # Using ADK's Session type hint
+        current_session_obj: Optional[Any] = None # Changed type hint to Optional[Any] for safety
         try:
             logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-            current_session = await self._runner.session_service.get_session(
+            current_session_obj = await self._runner.session_service.get_session(
                 app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
             )
-            if current_session:
-                 logger.info(f"Found existing session: {current_session.id} for user {interaction_user_id}")
-        except SessionNotFoundError:
-            logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found. Will create.")
-            current_session = None
+            if current_session_obj:
+                logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+            else:
+                # Handles get_session returning None if session not found
+                logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found (get_session returned None). Will create.")
+                # current_session_obj is already None in this path
         except Exception as e_get:
-            logger.warning(f"Error during get_session for {desired_session_id_for_service} (user {interaction_user_id}): {e_get}. Will try to create.")
-            current_session = None
+            # Catches other errors from get_session (e.g., if it still raises something on 'not found' that isn't SessionNotFoundError)
+            logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Will assume session needs creation.")
+            current_session_obj = None # Ensure it's None so create is attempted
 
-        if current_session is None:
+        if current_session_obj is None:
             try:
                 logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}' (acting as override/specific ID)")
-                # ADK 1.0.0 example for InMemorySessionService shows create_session(..., session_id=THE_ID_TO_USE)
-                # This implies 'session_id' param in create_session might act as session_id_override.
-                current_session = await self._runner.session_service.create_session(
+                current_session_obj = await self._runner.session_service.create_session(
                     app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
                 )
-                logger.info(f"Successfully created session: {current_session.id} for user {interaction_user_id}.")
+                logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
             except Exception as e_create:
                 logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
                 return {"error": f"Session management failure during create: {e_create}"}
 
-        if not current_session:
+        if not current_session_obj:
             logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
             return {"error": "Failed to get or create a session."}
 
@@ -94,13 +95,13 @@ class PlannerAgent(AgentTaskManager):
         try:
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
-                session_id=current_session.id, # Use the ID from the obtained session object
+                session_id=current_session_obj.id, # Use the ID from the obtained session object
                 new_message={"text_content": query_text}
             ):
                 response_event_data = event
                 break
         except Exception as e_run:
-            logger.error(f"Error during run_async for session {current_session.id}: {e_run}", exc_info=True)
+            logger.error(f"Error during run_async for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
@@ -114,8 +115,8 @@ class PlannerAgent(AgentTaskManager):
                     # This part is speculative based on typical ADK event structure.
                     # The actual dict structure might need to be built differently.
                     return {"output": response_event_data.content.parts[0].text}
-            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session.id}. Content: {str(response_event_data)[:200]}")
+            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
             return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
         else:
-            logger.warning(f"No response event received from agent execution for session {current_session.id}.")
+            logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}

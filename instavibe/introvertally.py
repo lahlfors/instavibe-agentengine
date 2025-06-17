@@ -8,6 +8,7 @@ import logging # Added for logging
 
 import google.cloud.aiplatform as vertexai
 from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
+from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
 # Initialize logger
@@ -20,51 +21,80 @@ def init_agent_engine(project_id, location):
     """Initializes the Vertex AI Agent Engine."""
     global planner_agent_engine
     logger.info("Attempting to initialize agent engine...")
+
     try:
-        logger.info(f"Using project_id: {project_id}, location: {location} for vertexai.init")
+        # Initialize with the specific location, this is important for when we instantiate
+        # a ReasoningEngine object later using its full resource name (which includes the location).
+        logger.info(f"Initializing Vertex AI with project: {project_id}, location: {location}")
         vertexai.init(project=project_id, location=location)
-
-        logger.info("Initializing ReasoningEngineServiceClient")
-        client = ReasoningEngineServiceClient()
-        parent = f"projects/{project_id}/locations/{location}"
-
-        logger.info(f"Listing reasoning engines in project {project_id}, location {location}")
-        engines = client.list_reasoning_engines(parent=parent)
-
-        target_engine_display_name = "Planner Agent"
-        found_engine = None
-
-        for engine in engines:
-            logger.info(f"Found engine: {engine.display_name} (ID: {engine.name})")
-            if engine.display_name == target_engine_display_name:
-                found_engine = engine
-                break
-
-        if found_engine:
-            engine_id_full = found_engine.name
-            engine_name = found_engine.name # For logging consistency with prompt
-            logger.info(f"Planner Agent found: {engine_name}. Attempting to connect using full name.")
-
-            # Extract the engine ID from the full name (e.g., projects/.../locations/.../reasoningEngines/...)
-            # extracted_id = engine_id_full.split('/')[-1] # Already have this if needed for other logs
-
-            logger.info(f"Attempting to connect to ReasoningEngine with full name: {engine_id_full}") # Added this line
-            logger.info(f"Connecting to engine using full resource name: {engine_id_full}")
-            planner_agent_engine = vertexai.preview.ReasoningEngine(engine_id_full)
-            logger.info("Successfully connected to Planner Agent.")
-        else:
-            logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id}, location {location}.")
-            planner_agent_engine = None # Ensure it's None if not found
-
     except Exception as e:
-        logger.exception("Detailed exception during agent engine initialization:") # Added this line
-        logger.error(f"Error during agent engine initialization: {e}", exc_info=True)
-        planner_agent_engine = None
+        logger.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
+        planner_agent_engine = None # Cannot proceed
+        logger.warning("Planner agent engine is None due to Vertex AI initialization failure.")
+        return
 
-    if planner_agent_engine is None:
-        logger.warning("Planner agent engine is None after initialization attempt.")
+    planner_resource_name_from_env = os.getenv("AGENTS_PLANNER_RESOURCE_NAME")
+
+    if planner_resource_name_from_env:
+        logger.info(f"Found AGENTS_PLANNER_RESOURCE_NAME: {planner_resource_name_from_env}. Attempting direct connection.")
+        try:
+            planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
+            logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
+            logger.info("Planner agent engine initialized successfully (directly via resource name).")
+            return # Successfully initialized
+        except Exception as e:
+            logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
+            logger.warning("Falling back to listing reasoning engines.")
+            planner_agent_engine = None # Ensure it's None before fallback
     else:
-        logger.info("Planner agent engine initialized successfully.")
+        logger.info("AGENTS_PLANNER_RESOURCE_NAME not set. Will attempt to find Planner Agent by listing engines.")
+
+    # Fallback to listing logic if direct connection failed or env var not set
+    if planner_agent_engine is None:
+        logger.info("Attempting to initialize agent engine by listing (fallback)...")
+        try:
+            # vertexai.init was already called at the start of the function with the specific location.
+            logger.info("Initializing ReasoningEngineServiceClient (fallback)")
+            client = ReasoningEngineServiceClient() # GAPIC client
+
+            # For listing, use "global" as the location part of the parent string.
+            parent_for_list = f"projects/{project_id}/locations/global"
+            logger.info(f"Listing reasoning engines in {parent_for_list} (fallback)")
+            engines = client.list_reasoning_engines(parent=parent_for_list)
+
+            target_engine_display_name = "Planner Agent"
+            found_engine = None
+
+            for engine in engines:
+                logger.info(f"Found engine: {engine.display_name} (ID: {engine.name})")
+                # Ensure the found engine is in the target location, as listing with "global" can return engines from all regions.
+                if engine.display_name == target_engine_display_name and f"/locations/{location}/" in engine.name:
+                    logger.info(f"Engine '{engine.display_name}' matches target display name and is in the target location '{location}'.")
+                    found_engine = engine
+                    break
+                elif engine.display_name == target_engine_display_name:
+                    logger.info(f"Engine '{engine.display_name}' matches target display name but is in a different location: {engine.name.split('/')[3]}. Skipping.")
+
+
+            if found_engine:
+                engine_id_full = found_engine.name # This name includes the specific region
+                logger.info(f"Planner Agent found: {engine_id_full}. Attempting to connect using full name (fallback).")
+                # When instantiating ReasoningEngine with the full resource name, vertexai.init() should have set the correct project/location context,
+                # or the SDK should handle the full name correctly.
+                planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full)
+                logger.info("Successfully connected to Planner Agent (fallback).")
+            else:
+                logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id} and specific location {location} (fallback after listing from global).")
+                planner_agent_engine = None
+        except Exception as e:
+            logger.error(f"Error during fallback agent engine initialization (listing): {e}", exc_info=True)
+            planner_agent_engine = None
+
+    # Final status log
+    if planner_agent_engine is None:
+        logger.warning("Planner agent engine is None after all initialization attempts.")
+    else:
+        logger.info("Planner agent engine initialized successfully (either directly or via fallback).")
 
 # Initialize the agent engine on module load
 COMMON_GOOGLE_CLOUD_PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
@@ -135,7 +165,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             return
 
         for event_idx, event in enumerate(
-            planner_agent_engine.query(input=prompt_message, session_id=user_id)
+            planner_agent_engine.query(query=prompt_message, session_id=user_id)
         ):
             print(f"\n--- Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console

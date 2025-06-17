@@ -40,11 +40,20 @@ class SocialAgent(AgentTaskManager):
     """Builds the LLM agent for the social profile analysis agent."""
     return agent.root_agent
 
-  async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
+  async def query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for social profile analysis."""
-    return await self._runner.run_pipeline(
-        app_name=self._agent.name,
+    response_event_data = None
+    async for event in self._runner.run_async(
+        user_id=self._user_id,
         session_id=self._user_id,
-        inputs={"text_content": query},
-        stream=False,
-    )
+        new_message={"text_content": query}
+    ):
+        response_event_data = event
+        break
+
+    if response_event_data:
+        # Assuming event is or contains the Dict[str, Any] response
+        return response_event_data
+    else:
+        # logger.error("SocialAgent: No response event received from run_async.") # Optional: if logger is set up
+        return {"error": "No response event received from agent execution"}

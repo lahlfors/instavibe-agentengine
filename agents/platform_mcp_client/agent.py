@@ -83,16 +83,26 @@ class PlatformMCPClientServiceAgent:
         )
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
-    async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         if not self._runner or not self._agent:
-            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for async_query.")
+            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for query.")
             return {"error": "Agent not initialized"}
         session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
-        agent_response = await self._runner.run_pipeline(
-            app_name=self._agent.name, session_id=session_id,
-            inputs={"text_content": query}, stream=False, **kwargs
-        )
-        return agent_response
+        response_event_data = None
+        async for event in self._runner.run_async(
+            user_id=self._user_id, # Use self._user_id for the user_id parameter
+            session_id=session_id, # Use the local session_id variable
+            new_message={"text_content": query}
+        ):
+            response_event_data = event
+            break
+
+        if response_event_data:
+            # Assuming event is or contains the Dict[str, Any] response
+            return response_event_data
+        else:
+            # log.error("PlatformMCPClientServiceAgent: No response event received from run_async.") # Optional
+            return {"error": "No response event received from agent execution"}
 
     async def close_async(self): # Optional: for explicit cleanup if needed elsewhere
         if self._mcp_toolset:

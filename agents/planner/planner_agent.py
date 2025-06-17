@@ -40,12 +40,25 @@ class PlannerAgent(AgentTaskManager):
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
 
-  async def async_query(self, query: str, **kwargs) -> Dict[str, Any]:
+  async def query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for planning."""
     # TODO(b/336700618): Implement the actual logic for handling the request.
-    return await self._runner.run_pipeline(
-        app_name=self._agent.name,
+    response_event_data = None
+    async for event in self._runner.run_async(
+        user_id=self._user_id,
         session_id=self._user_id,
-        inputs={"text_content": query},
-        stream=False,
-    )
+        new_message={"text_content": query}
+        # Default run_config has StreamingMode.NONE, so expect one event.
+    ):
+        # Assuming the event itself is the dictionary response or contains the necessary data.
+        response_event_data = event
+        break # Expect only one event in non-streaming mode
+
+    if response_event_data:
+        # Assuming response_event_data is Dict[str, Any] or directly convertible
+        # This matches the original intent of the method's return type.
+        return response_event_data
+    else:
+        # Consider adding logging here if a logger is available in this class
+        # e.g., self.logger.error("PlannerAgent: No response event received from run_async.")
+        return {"error": "No response event received from agent execution"}

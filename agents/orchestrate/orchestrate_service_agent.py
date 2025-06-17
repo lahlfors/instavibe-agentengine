@@ -52,15 +52,22 @@ class OrchestrateServiceAgent:
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
 
-    async def async_query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         """
         Handles the user's request by running the underlying Orchestrate LlmAgent.
         """
-        agent_response = await self._runner.run_pipeline(
-            app_name=self._agent.name,
+        response_event_data = None
+        async for event in self._runner.run_async(
+            user_id=self._user_id,
             session_id=self._user_id,
-            inputs={"text_content": query},
-            stream=False,
-            **kwargs
-        )
-        return agent_response
+            new_message={"text_content": query}
+        ):
+            response_event_data = event
+            break
+
+        if response_event_data:
+            # Assuming event is or contains the Dict[str, Any] response
+            return response_event_data
+        else:
+            # log.error("OrchestrateServiceAgent: No response event received from run_async.") # Optional: if logger is set up
+            return {"error": "No response event received from agent execution"}

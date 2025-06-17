@@ -129,20 +129,25 @@ def deploy_planner_agent(project_id: str, region: str):
         return
 
     # The original print("Deploying Planner Agent...") is now covered by the more specific print above.
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Uninstalling existing {agent_display_name} dependencies...")
-        # Uninstall doesn't need --break-system-packages
-        subprocess.run([sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
-        print("Installing Planner Agent dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/planner",
-        )
-        deploy_planner_main_func(project_id, region, base_dir=".")
-        print("Planner Agent deployed successfully.")
+        # print(f"Uninstalling existing {agent_display_name} dependencies...")
+        # subprocess.run([sys.executable, "-m", "pip", "uninstall", "google-cloud-aiplatform", "google-adk", "-y"], capture_output=True, text=True, cwd="agents/planner")
+        # print("Installing Planner Agent dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "--force-reinstall", "--no-cache-dir", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/planner",
+        # )
+        deployed_agent_resource = deploy_planner_main_func(project_id, region, base_dir=".")
+        if deployed_agent_resource and deployed_agent_resource.name:
+            print(f"Planner Agent deployment process completed. Resource name: {deployed_agent_resource.name}")
+            return deployed_agent_resource.name
+        else:
+            print("Planner Agent deployment process completed, but resource or name is invalid.")
+            return None
     except subprocess.CalledProcessError as e:
         print(f"Error deploying Planner Agent: {e}")
         print(f"Stdout: {e.stdout}")
@@ -175,27 +180,34 @@ def deploy_social_agent(project_id: str, region: str):
         print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Installing {agent_display_name} dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/social",
-        )
-        deploy_social_main_func(project_id, region, base_dir=".")
-        print(f"{agent_display_name} deployed successfully.")
-    except subprocess.CalledProcessError as e:
+        # print(f"Installing {agent_display_name} dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/social",
+        # )
+        deployed_agent_resource = deploy_social_main_func(project_id, region, base_dir=".")
+        if deployed_agent_resource and deployed_agent_resource.name:
+            print(f"{agent_display_name} deployment process completed. Resource name: {deployed_agent_resource.name}")
+            return deployed_agent_resource.name
+        else:
+            print(f"{agent_display_name} deployment process completed, but resource or name is invalid.")
+            return None
+    except subprocess.CalledProcessError as e: # This specific exception might not be hit if deploy_social_main_func handles its own.
         print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
         raise
 
-def deploy_orchestrate_agent(project_id: str, region: str):
+def deploy_orchestrate_agent(project_id: str, region: str, remote_addresses_str: str):
     """Deploys the Orchestrate Agent."""
     agent_display_name = "Orchestrate Agent"
     print(f"Starting deployment process for {agent_display_name} in project {project_id} region {region}...")
+    print(f"  with remote agent addresses: {remote_addresses_str if remote_addresses_str else 'NONE'}")
 
     # Initialize GAPIC client for checking
     client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
@@ -218,18 +230,24 @@ def deploy_orchestrate_agent(project_id: str, region: str):
         print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Installing {agent_display_name} dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/orchestrate",
-        )
-        deploy_orchestrate_main_func(project_id, region, base_dir=".")
-        print(f"{agent_display_name} deployed successfully.")
-    except subprocess.CalledProcessError as e:
+        # print(f"Installing {agent_display_name} dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/orchestrate",
+        # )
+        deployed_agent_resource = deploy_orchestrate_main_func(project_id, region, base_dir=".", dynamic_remote_agent_addresses=remote_addresses_str)
+        if deployed_agent_resource and deployed_agent_resource.name:
+            print(f"{agent_display_name} deployment process completed. Resource name: {deployed_agent_resource.name}")
+            return deployed_agent_resource.name
+        else:
+            print(f"{agent_display_name} deployment process completed, but resource or name is invalid.")
+            return None
+    except subprocess.CalledProcessError as e: # This specific exception might not be hit.
         print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
@@ -320,18 +338,24 @@ def deploy_platform_mcp_client(project_id: str, region: str):
         print(f"Failed to check for existing {agent_display_name} due to an unexpected error: {e}. Skipping deployment.")
         return
 
+    # Manual pip install steps are removed as ADK handles dependencies.
     try:
-        print(f"Installing {agent_display_name} dependencies...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd="agents/platform_mcp_client",
-        )
-        deploy_platform_mcp_client_main_func(project_id, region, base_dir=".")
-        print(f"{agent_display_name} deployed successfully to Project: {project_id}, Region: {region}.")
-    except subprocess.CalledProcessError as e:
+        # print(f"Installing {agent_display_name} dependencies...")
+        # subprocess.run(
+        #     [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
+        #     check=True,
+        #     capture_output=True,
+        #     text=True,
+        #     cwd="agents/platform_mcp_client",
+        # )
+        deployed_agent_resource = deploy_platform_mcp_client_main_func(project_id, region, base_dir=".")
+        if deployed_agent_resource and deployed_agent_resource.name:
+            print(f"{agent_display_name} deployment process completed. Resource name: {deployed_agent_resource.name}")
+            return deployed_agent_resource.name
+        else:
+            print(f"{agent_display_name} deployment process completed, but resource or name is invalid.")
+            return None
+    except subprocess.CalledProcessError as e: # This specific exception might not be hit.
         print(f"Error deploying {agent_display_name}: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
@@ -544,6 +568,12 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
 
+    # Initialize resource name variables
+    planner_resource_name = None
+    social_resource_name = None
+    platform_mcp_client_resource_name = None
+    orchestrate_resource_name = None
+
     print(f"Initializing Vertex AI with project: {project_id}, region: {region}, staging bucket: {staging_bucket_uri}")
     try:
         vertexai.init(
@@ -574,11 +604,43 @@ def main(argv=None):
         raise
 
     if not args.skip_agents:
-        deploy_planner_agent(project_id, region) # Use variables from env
-        deploy_social_agent(project_id, region) # Use variables from env
-        deploy_orchestrate_agent(project_id, region) # Use variables from env
+        print("--- Deploying Individual Agents (Planner, Social) ---")
+        # Assuming deploy_planner_agent and deploy_social_agent are called unless specific skip flags for them are added
+        # For now, they are deployed if skip_agents is false.
+        planner_resource_name = deploy_planner_agent(project_id, region)
+        social_resource_name = deploy_social_agent(project_id, region)
     else:
-        print("Skipping agent deployments.")
+        print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
+
+    # Platform MCP Client has its own skip flag, handle it separately.
+    # It's a dependency for Orchestrator, so deploy it before Orchestrator if not skipped.
+    if not args.skip_platform_mcp_client:
+        print("--- Deploying Platform MCP Client Agent ---")
+        platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
+    else:
+        print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
+
+    # Construct addresses for Orchestrator
+    # This needs to happen after its dependent agents are deployed (or skipped)
+    valid_remote_agent_names = []
+    if planner_resource_name:
+        valid_remote_agent_names.append(planner_resource_name)
+    if social_resource_name:
+        valid_remote_agent_names.append(social_resource_name)
+    if platform_mcp_client_resource_name:
+        valid_remote_agent_names.append(platform_mcp_client_resource_name)
+
+    orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
+    # This print statement was already updated in the previous step.
+    # print(f"Constructed dynamic addresses for Orchestrator: {orchestrator_dynamic_addresses if orchestrator_dynamic_addresses else 'NONE (some dependent agents may have failed to deploy or were skipped)'}")
+
+    # Deploy Orchestrator agent if not skipped by the global agents flag
+    if not args.skip_agents:
+        print("--- Deploying Orchestrate Agent ---")
+        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
+    else:
+        print("Skipping Orchestrate agent deployment due to --skip_agents flag.")
+
 
     if not args.skip_app:
         # Construct env_vars string for Instavibe app
@@ -593,6 +655,15 @@ def main(argv=None):
             f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', '')}",
             f"COMMON_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}"
         ]
+        if planner_resource_name: # Use the variable defined at the top of main
+            instavibe_env_vars_list.append(f"AGENTS_PLANNER_RESOURCE_NAME={planner_resource_name}")
+        if social_resource_name:
+            instavibe_env_vars_list.append(f"AGENTS_SOCIAL_RESOURCE_NAME={social_resource_name}")
+        if platform_mcp_client_resource_name:
+            instavibe_env_vars_list.append(f"AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME={platform_mcp_client_resource_name}")
+        if orchestrate_resource_name:
+            instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
+
         # Filter out vars that were not set in .env to avoid "VARNAME=" or "VARNAME=None"
         instavibe_env_vars_string = ",".join(
             var for var in instavibe_env_vars_list if var.split('=', 1)[1] not in ['None', '']
@@ -601,10 +672,11 @@ def main(argv=None):
     else:
         print("Skipping Instavibe app deployment.")
 
-    if not args.skip_platform_mcp_client:
-        deploy_platform_mcp_client(project_id, region) # Use variables from env
-    else:
-        print("Skipping Platform MCP Client deployment.")
+    # The platform_mcp_client deployment call is now earlier, before orchestrator.
+    # if not args.skip_platform_mcp_client:
+    #     deploy_platform_mcp_client(project_id, region) # Use variables from env
+    # else:
+    #     print("Skipping Platform MCP Client deployment.") # Already handled
 
     if not args.skip_mcp_tool_server:
         # For mcp_tool_server, construct env_vars_string if needed.

@@ -170,25 +170,43 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             print(f"\n--- Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console
             try:
-                content = event.get('content', {})
-                parts = content.get('parts', [])
-                
-                if not parts:
-                    pass # Avoid too much noise for empty events
-                for part_idx, part in enumerate(parts):
-                    if isinstance(part, dict):
-                        text = part.get('text')
-                        if text:
-                            yield {"type": "thought", "data": f"Agent: \"{text}\""}
-                            accumulated_json_str += text
-                        else:
-                            tool_code = part.get('tool_code')
-                            tool_code_output = part.get('tool_code_output')
-                            if tool_code:
-                                yield {"type": "thought", "data": f"Agent is considering using a tool: {tool_code.get('name', 'Unnamed tool')}."}
-                            if tool_code_output:
-                                yield {"type": "thought", "data": f"Agent received output from tool '{tool_code.get('name', 'Unnamed tool')}'."}
-            except Exception as e_inner:
+                if isinstance(event, dict):
+                    # Existing logic for dictionary events
+                    content = event.get('content', {})
+                    parts = content.get('parts', [])
+
+                    if not parts: # Check if parts might be None or empty
+                        # If content itself has 'text', it might be a simple dict response
+                        if content and 'text' in content and isinstance(content['text'], str):
+                             yield {"type": "thought", "data": f"Agent (dict event content text): \"{content['text']}\""}
+                             accumulated_json_str += content['text']
+                        # else: # No parts and no direct text in content
+                        #    pass # Or log empty dict event if necessary
+                    else: # Process parts
+                        for part_idx, part in enumerate(parts):
+                            if isinstance(part, dict):
+                                text = part.get('text')
+                                if text:
+                                    yield {"type": "thought", "data": f"Agent (dict event part text): \"{text}\""}
+                                    accumulated_json_str += text
+                                else:
+                                    tool_code = part.get('tool_code')
+                                    tool_code_output = part.get('tool_code_output')
+                                    if tool_code:
+                                        yield {"type": "thought", "data": f"Agent is considering using a tool: {tool_code.get('name', 'Unnamed tool')}."}
+                                    if tool_code_output:
+                                        yield {"type": "thought", "data": f"Agent received output from tool '{tool_code.get('name', 'Unnamed tool')}'."}
+                elif isinstance(event, str):
+                    # New logic for string events
+                    logger.info(f"Received raw string event from agent query: {event}")
+                    yield {"type": "thought", "data": f"Agent (string event): \"{event}\""}
+                    accumulated_json_str += event
+                else:
+                    # Log/handle other unexpected event types
+                    logger.warning(f"Received event of unexpected type {type(event)} from agent query: {str(event)}")
+                    yield {"type": "thought", "data": f"Agent (unknown event type {type(event)}): {str(event)}"}
+            except Exception as e_inner: # This outer try-except catches errors from the above logic
+                logger.error(f"Error processing agent event part {event_idx} (type: {type(event)}): {e_inner}", exc_info=True)
                 yield {"type": "thought", "data": f"Error processing agent event part {event_idx}: {str(e_inner)}"}
 
     except Exception as e_outer:

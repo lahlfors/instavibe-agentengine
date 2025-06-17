@@ -43,7 +43,7 @@ class PlannerAgent(AgentTaskManager):
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
 
-  async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
+  async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name # Or self._runner.app_name if that's more appropriate from ADK 1.0.0 Runner
 
@@ -96,7 +96,7 @@ class PlannerAgent(AgentTaskManager):
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id, # Use the ID from the obtained session object
-                new_message={"text_content": query_text}
+            new_message={"text_content": query}
             ):
                 response_event_data = event
                 break

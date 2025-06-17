@@ -52,7 +52,7 @@ class OrchestrateServiceAgent:
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
 
-    async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
+    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
 
@@ -94,7 +94,7 @@ class OrchestrateServiceAgent:
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-                new_message={"text_content": query_text}
+                new_message={"text_content": query}
             ):
                 response_event_data = event
                 break

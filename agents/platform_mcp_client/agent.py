@@ -83,7 +83,7 @@ class PlatformMCPClientServiceAgent:
         )
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
-    async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
+    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         # Using module-level 'log' instead of local 'logger'
         # self._agent might be None if _async_init_components hasn't finished or failed.
         if not self._agent:
@@ -146,7 +146,7 @@ class PlatformMCPClientServiceAgent:
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-                new_message={"text_content": query_text}
+                new_message={"text_content": query}
             ):
                 response_event_data = event
                 break

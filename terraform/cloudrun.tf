@@ -98,15 +98,6 @@ resource "google_cloud_run_v2_service" "instavibe_app" {
       # Example of mounting secrets from Google Secret Manager (Recommended for API keys, Flask Secret Key)
       # This requires the Secret Manager API to be enabled and the SA to have access.
       # env {
-      #   name = "API_KEY_BACKEND_OPENAI"
-      #   value_from {
-      #     secret_key_ref {
-      #       secret  = "openai-api-key" # Name of the secret in Secret Manager
-      #       version = "latest"          # Version of the secret
-      #     }
-      #   }
-      # }
-      # env {
       #   name = "API_KEY_BACKEND_GEMINI"
       #   value_from {
       #     secret_key_ref {
@@ -152,23 +143,4 @@ resource "google_cloud_run_v2_service" "instavibe_app" {
 }
 
 # (Optional) Define Secret Manager secrets if you want Terraform to manage them
-# resource "google_secret_manager_secret" "openai_api_key_secret" {
-#   project_id = var.project_id
-#   secret_id  = "openai-api-key" # Corresponds to secret_key_ref above
-#   replication {
-#     automatic = true
-#   }
-# }
-# resource "google_secret_manager_secret_version" "openai_api_key_secret_version" {
-#   secret      = google_secret_manager_secret.openai_api_key_secret.id
-#   secret_data = var.openai_api_key # Value comes from sensitive Terraform variable
-# }
-# resource "google_secret_manager_secret_iam_member" "cloud_run_sa_access_openai_secret" {
-#   project_id = var.project_id
-#   secret_id  = google_secret_manager_secret.openai_api_key_secret.secret_id
-#   role       = "roles/secretmanager.secretAccessor"
-#   member     = "serviceAccount:${google_service_account.instavibe_app_sa.email}"
-# }
-
 # Repeat for gemini_api_key and flask_secret_key if managing them via Secret Manager through Terraform
-```

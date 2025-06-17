@@ -76,13 +76,6 @@ variable "flask_secret_key" {
   # Example: "super-secret-random-string-generated-safely"
 }
 
-variable "openai_api_key" {
-  description = "API key for accessing OpenAI services. This is a sensitive value."
-  type        = string
-  sensitive   = true
-  # No default; provide via secure means (e.g., .tfvars not in VCS, or env var TF_VAR_openai_api_key).
-}
-
 variable "gemini_api_key" {
   description = "API key for accessing Google Gemini services. This is a sensitive value."
   type        = string

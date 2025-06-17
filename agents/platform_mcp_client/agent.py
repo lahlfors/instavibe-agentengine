@@ -88,7 +88,7 @@ class PlatformMCPClientServiceAgent:
             log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for query.")
             return {"error": "Agent not initialized"}
         session_id = kwargs.pop("session_id", self._user_id + "_" + os.urandom(4).hex())
-        agent_response = await self._runner.run_pipeline(
+        agent_response = await self._runner.arun(
             app_name=self._agent.name, session_id=session_id,
             inputs={"text_content": query}, stream=False, **kwargs
         )

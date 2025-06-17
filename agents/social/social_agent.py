@@ -42,7 +42,7 @@ class SocialAgent(AgentTaskManager):
 
   async def query(self, query: str, **kwargs) -> Dict[str, Any]:
     """Handles the user's request for social profile analysis."""
-    return await self._runner.run_pipeline(
+    return await self._runner.arun(
         app_name=self._agent.name,
         session_id=self._user_id,
         inputs={"text_content": query},

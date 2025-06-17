@@ -56,7 +56,7 @@ class OrchestrateServiceAgent:
         """
         Handles the user's request by running the underlying Orchestrate LlmAgent.
         """
-        agent_response = await self._runner.run_pipeline(
+        agent_response = await self._runner.arun(
             app_name=self._agent.name,
             session_id=self._user_id,
             inputs={"text_content": query},

@@ -4,8 +4,7 @@ from dotenv import load_dotenv # To load .env
 from typing import Any, Dict, Optional # Removed AsyncIterable, ensured Any, Dict, Optional
 from google.adk.agents import LoopAgent
 from google.adk.tools.tool_context import ToolContext
-from google.adk.sessions import SessionNotFoundError # Added
-# from google.adk.sessions import Session # Optional for type hint
+from google.adk.sessions import SessionNotFoundError, Session # Assuming these are correct for ADK 1.0.0
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
@@ -45,68 +44,78 @@ class PlannerAgent(AgentTaskManager):
 
   async def query(self, query_text: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
-        app_name = self._agent.name
+        app_name = self._agent.name # Or self._runner.app_name if that's more appropriate from ADK 1.0.0 Runner
 
-        external_session_id = kwargs.get("session_id")
+        # Determine the user_id and desired_session_id for this interaction
+        # ADK 1.0.0 examples use user_id for session context and run_async.
+        # The session_id from kwargs (from instavibe-app) is the user_name.
+        interaction_user_id = str(kwargs.get("session_id", self._user_id)) # Default to agent's user_id if no session_id from app
 
-        interaction_user_id = self._user_id  # Agent's generic user ID by default
-        desired_session_id: str
+        # For InMemorySessionService with ADK 1.0.0, the example shows passing session_id to create_session
+        # This session_id is then used in run_async. Let's use interaction_user_id as the basis for session_id too
+        # if we want the session to be identified by "Alice".
+        # If instavibe-app is providing "Alice" as kwargs["session_id"], then interaction_user_id becomes "Alice".
+        # We'll use this as the session_id for get/create, effectively making session_id = user_id for these calls.
+        desired_session_id_for_service = interaction_user_id
 
-        if external_session_id:
-            interaction_user_id = str(external_session_id) # Use external ID for user context
-            desired_session_id = str(external_session_id) # Use external ID as desired session key
-            logger.info(f"External session_id '{desired_session_id}' provided, setting interaction_user_id to match.")
-        else:
-            # No external session_id, generate a unique one for this interaction.
-            # Keep agent's generic _user_id as the interaction_user_id.
-            desired_session_id = self._user_id + "_" + os.urandom(4).hex()
-            logger.info(f"No external session_id. Generated '{desired_session_id}' for user '{interaction_user_id}'.")
-
-        current_session_obj = None
+        current_session: Optional[Session] = None # Using ADK's Session type hint
         try:
-            logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-            current_session_obj = await self._runner.session_service.get_session(
-                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
+            logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
+            current_session = await self._runner.session_service.get_session(
+                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
             )
-            if current_session_obj:
-                 logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+            if current_session:
+                 logger.info(f"Found existing session: {current_session.id} for user {interaction_user_id}")
         except SessionNotFoundError:
-            logger.info(f"Session {desired_session_id} for user {interaction_user_id} not found by get_session. Will create.")
-            current_session_obj = None
+            logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found. Will create.")
+            current_session = None
         except Exception as e_get:
-            logger.warning(f"Error during get_session for {desired_session_id} (user {interaction_user_id}): {e_get}. Will try to create.")
-            current_session_obj = None
+            logger.warning(f"Error during get_session for {desired_session_id_for_service} (user {interaction_user_id}): {e_get}. Will try to create.")
+            current_session = None
 
-        if current_session_obj is None:
+        if current_session is None:
             try:
-                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id_override='{desired_session_id}'")
-                current_session_obj = await self._runner.session_service.create_session(
-                    app_name=app_name, user_id=interaction_user_id, session_id_override=desired_session_id
+                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}' (acting as override/specific ID)")
+                # ADK 1.0.0 example for InMemorySessionService shows create_session(..., session_id=THE_ID_TO_USE)
+                # This implies 'session_id' param in create_session might act as session_id_override.
+                current_session = await self._runner.session_service.create_session(
+                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
                 )
-                logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+                logger.info(f"Successfully created session: {current_session.id} for user {interaction_user_id}.")
             except Exception as e_create:
-                logger.error(f"Failed to create session for user {interaction_user_id} with desired_id {desired_session_id}: {e_create}", exc_info=True)
+                logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
                 return {"error": f"Session management failure during create: {e_create}"}
 
-        if not current_session_obj:
-            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
+        if not current_session:
+            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
             return {"error": "Failed to get or create a session."}
 
         response_event_data = None
-        async for event in self._runner.run_async(
-            user_id=interaction_user_id,
-            session_id=current_session_obj.id,
-            new_message={"text_content": query_text}
-        ):
-            response_event_data = event
-            break
+        try:
+            async for event in self._runner.run_async(
+                user_id=interaction_user_id,
+                session_id=current_session.id, # Use the ID from the obtained session object
+                new_message={"text_content": query_text}
+            ):
+                response_event_data = event
+                break
+        except Exception as e_run:
+            logger.error(f"Error during run_async for session {current_session.id}: {e_run}", exc_info=True)
+            return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
             if isinstance(response_event_data, dict):
                 return response_event_data
-            else:
-                logger.warning(f"run_async returned event of type {type(response_event_data)} instead of dict for session {current_session_obj.id}: {str(response_event_data)[:200]}")
-                return {"error": "Unexpected event type from agent execution", "event_preview": str(response_event_data)[:100]}
+            # ADK 1.0.0 Event might have .content.parts[0].text or similar for final response
+            elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
+                if response_event_data.content and response_event_data.content.parts:
+                    # This is a common pattern for ADK final responses.
+                    # Assuming the response is text, and needs to be a dict.
+                    # This part is speculative based on typical ADK event structure.
+                    # The actual dict structure might need to be built differently.
+                    return {"output": response_event_data.content.parts[0].text}
+            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session.id}. Content: {str(response_event_data)[:200]}")
+            return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
         else:
-            logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
+            logger.warning(f"No response event received from agent execution for session {current_session.id}.")
             return {"error": "No response event received from agent execution"}

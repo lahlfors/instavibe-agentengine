@@ -62,9 +62,9 @@ class SocialAgent(AgentTaskManager):
 
         current_session_obj = None
         try:
-            # Try to get the session (assuming sync for InMemorySessionService)
+            # Try to get the session
             # logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-            current_session_obj = self._runner.session_service.get_session(
+            current_session_obj = await self._runner.session_service.get_session(
                 app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
             )
             if current_session_obj:
@@ -80,8 +80,8 @@ class SocialAgent(AgentTaskManager):
         if current_session_obj is None:
             try:
                 # logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id_override='{desired_session_id}'")
-                # Create the session (assuming sync for InMemorySessionService)
-                current_session_obj = self._runner.session_service.create_session(
+                # Create the session
+                current_session_obj = await self._runner.session_service.create_session(
                     app_name=app_name, user_id=interaction_user_id, session_id_override=desired_session_id
                 )
                 # logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")

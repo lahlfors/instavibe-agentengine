@@ -1,0 +1,48 @@
+# terraform.tfvars.example
+#
+# Copy this file to terraform.tfvars and fill in your specific values.
+# For sensitive values (like API keys), consider using environment variables
+# (e.g., TF_VAR_openai_api_key="your_key") or a secrets manager instead of
+# storing them directly in the terraform.tfvars file, especially if this file
+# (without .example) is not in .gitignore.
+
+# --- GCP Project and Region ---
+# project_id = "your-gcp-project-id" # Replace with your actual GCP Project ID
+# region     = "us-central1"         # Replace with your preferred GCP region
+
+# --- Spanner Configuration ---
+# spanner_instance_name = "instavibe-spanner-instance"
+# spanner_config_name   = "regional-us-central1" # Should match your region
+# spanner_display_name  = "Instavibe Spanner Instance"
+# spanner_num_nodes     = 1
+# spanner_database_name = "instavibe-db"
+
+# --- Cloud Run Configuration ---
+# instavibe_app_image_url = "gcr.io/your-gcp-project-id/instavibe-app:latest" # Replace with your image URL from CI/CD
+# cloud_run_sa_name       = "instavibe-app-sa"
+# app_container_port      = 8080
+
+# --- Application-Specific Environment Variables ---
+# app_log_level    = "INFO"
+# flask_secret_key = "replace-with-a-very-strong-random-secret-key" # SENSITIVE!
+
+# --- API Keys (SENSITIVE!) ---
+# It's highly recommended to provide these via environment variables (e.g., TF_VAR_openai_api_key)
+# or integrate with a service like Google Secret Manager.
+# openai_api_key = "sk-your-openai-api-key"
+# gemini_api_key = "your-google-gemini-api-key"
+
+# --- Vertex AI and Agent Configuration ---
+# vertex_ai_staging_bucket = "your-gcp-project-id-vertex-ai-staging" # Replace with a unique bucket name
+
+# Agent Resource Names (These must be manually updated after initial agent deployments)
+# planner_agent_resource_name           = "" # e.g., "projects/your-project/locations/your-region/agents/planner-agent-id"
+# social_agent_resource_name            = ""
+# platform_mcp_client_agent_resource_name = ""
+# orchestrate_agent_resource_name         = ""
+
+# --- Control Flags for Phased Deployment ---
+# Set these to true in your terraform.tfvars file sequentially as you complete deployment steps.
+# Refer to README.md for the multi-step deployment process.
+# tool_agents_deployed_and_vars_updated     = false
+# orchestrator_agent_deployed_and_var_updated = false

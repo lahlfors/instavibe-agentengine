@@ -11,6 +11,7 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService # Removed SessionNotFoundError, Session
 from typing import Any, Dict, List, Tuple, Optional
+from google.genai.types import Content, Part # Added import
 
 
 # Load environment variables from the root .env file
@@ -146,7 +147,7 @@ class PlatformMCPClientServiceAgent:
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-                new_message={"text_content": query}
+                new_message=Content(parts=[Part(text=query)], role="user")
             ):
                 response_event_data = event
                 break

@@ -8,7 +8,7 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.genai import types
+from google.genai.types import Content, Part # Modified import
 from common.task_manager import AgentTaskManager
 from . import agent
 import os # For path joining
@@ -84,7 +84,7 @@ class SocialAgent(AgentTaskManager):
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-            new_message={"text_content": query}
+                new_message=Content(parts=[Part(text=query)], role="user")
             ):
                 response_event_data = event
                 break

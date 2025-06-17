@@ -6,6 +6,7 @@ from google.adk.sessions import InMemorySessionService # Removed SessionNotFound
 from typing import Any, Dict, List, Optional
 import os # For path joining
 from dotenv import load_dotenv # To load .env
+from google.genai.types import Content, Part # Added import
 
 # Import HostAgent to create the underlying LlmAgent
 from agents.orchestrate.host_agent import HostAgent
@@ -94,7 +95,7 @@ class OrchestrateServiceAgent:
             async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-                new_message={"text_content": query}
+                new_message=Content(parts=[Part(text=query)], role="user")
             ):
                 response_event_data = event
                 break

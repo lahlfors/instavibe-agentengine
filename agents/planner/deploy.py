@@ -7,7 +7,9 @@ import os
 # import shutil # Handled by ADK
 
 from google.cloud import aiplatform as vertexai # Standard alias
-from vertexai.preview import reasoning_engines # ADK for deployment
+# from vertexai.preview import reasoning_engines # ADK for deployment - Old
+from vertexai.preview.reasoning_engines import AdkApp # For wrapping
+from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngineSpec # GAPIC, removed
@@ -38,7 +40,8 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # has been called, likely in a main deployment script (e.g., deploy_all.py).
     # We remove direct staging_bucket_uri parsing and GCS client instantiation here.
 
-    local_agent = PlannerAgent()
+    local_agent_instance = PlannerAgent()
+    adk_app = AdkApp(agent=local_agent_instance)
 
     requirements_path = os.path.join(base_dir, "agents/planner/requirements.txt")
     if not os.path.exists(requirements_path):
@@ -67,8 +70,8 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # It uses the globally configured staging bucket from vertexai.init().
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
-        remote_agent = reasoning_engines.ReasoningEngine.create(
-            local_agent,  # First positional argument: the agent instance
+        remote_agent = agent_engines.create(
+            adk_app, # Pass the AdkApp instance
             display_name=display_name,
             description=description,
             requirements=requirements_path,
@@ -78,9 +81,10 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
             # staging_bucket_uri can be specified to override global, but usually not needed.
             # gcs_dir_name can also be specified if a custom GCS path within the staging bucket is desired.
             # python_version can be specified if needed, e.g., python_version="3.9"
+            # staging_bucket can be set via vertexai.init() globally
         )
     except Exception as e:
-        print(f"ERROR: ADK reasoning_engines.ReasoningEngine.create() failed: {e}")
+        print(f"ERROR: ADK agent_engines.create() failed: {e}")
         # Consider if specific error handling or re-raising is needed.
         # For example, if google.auth.exceptions.DefaultCredentialsError occurs here,
         # it means vertexai.init() might not have been called or failed.

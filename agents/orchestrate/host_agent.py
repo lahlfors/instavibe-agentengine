@@ -2,6 +2,7 @@ import sys
 import asyncio
 import functools
 import json
+import os # Ensure os is imported
 import uuid
 import threading
 from typing import List, Optional, Callable
@@ -69,20 +70,10 @@ class HostAgent:
     self.agents = '\n'.join(agent_info)
 
   def create_agent(self) -> Agent:
-    project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-    location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-
-    if not project_id:
-        raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT environment variable not set or empty for HostAgent's LlmAgent.")
-    if not location:
-        raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION environment variable not set or empty for HostAgent's LlmAgent.")
-
-    model_config_kwargs = {
-        "project": project_id,
-        "location": location
-    }
+    # project_id, location, and model_config_kwargs are removed as LlmAgent will use
+    # values from vertexai.init() or environment variables.
     return Agent(
-        model="gemini-2.0-flash",
+        model="gemini-1.5-flash-001", # Updated model name
         name="orchestrate_agent",
         instruction=self.root_instruction,
         before_model_callback=self.before_model_callback,
@@ -93,8 +84,8 @@ class HostAgent:
         tools=[
             self.list_remote_agents,
             self.send_task,
-        ],
-        model_kwargs=model_config_kwargs
+        ]
+        # model_kwargs removed
     )
 
   def root_instruction(self, context: ReadonlyContext) -> str:

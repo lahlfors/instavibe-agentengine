@@ -7,7 +7,9 @@ import os
 # import shutil # Handled by ADK
 
 from google.cloud import aiplatform as vertexai # Standard alias
-from vertexai.preview import reasoning_engines # ADK for deployment
+# from vertexai.preview import reasoning_engines # ADK for deployment - Old
+from vertexai.preview.reasoning_engines import AdkApp # For wrapping
+from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngineSpec # GAPIC, removed
@@ -41,9 +43,10 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     # Ensure vertexai.init(project=project_id, location=region, staging_bucket="gs://your-bucket")
     # has been called, likely in a main deployment script (e.g., deploy_all.py).
 
-    local_agent = SocialAgent()
-    if local_agent is None:
+    local_agent_instance = SocialAgent()
+    if local_agent_instance is None: # Check updated variable name
         raise ValueError("SocialAgent instantiation returned None. Check agent initialization.")
+    adk_app = AdkApp(agent=local_agent_instance)
 
     # base_dir is assumed to be the repository root.
     requirements_path = os.path.join(base_dir, "agents/social/requirements.txt")
@@ -65,8 +68,8 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     print(f"  Extra packages: {extra_packages}")
 
     try:
-        remote_agent = reasoning_engines.ReasoningEngine.create(
-            local_agent,  # First positional argument: the agent instance
+        remote_agent = agent_engines.create(
+            adk_app, # Pass the AdkApp instance
             display_name=display_name,
             description=description,
             requirements=requirements_path,
@@ -75,7 +78,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )
     except Exception as e:
-        print(f"ERROR: ADK reasoning_engines.ReasoningEngine.create() failed for Social Agent: {e}")
+        print(f"ERROR: ADK agent_engines.create() failed for Social Agent: {e}")
         raise
 
     print(f"Social Agent (Reasoning Engine) deployment initiated successfully via ADK.")

@@ -21,18 +21,8 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # Get a logger instance
 log = logging.getLogger(__name__)
 
-project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-
-if not project_id:
-    raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT environment variable not set or empty.")
-if not location:
-    raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION environment variable not set or empty.")
-
-model_config_kwargs = {
-    "project": project_id,
-    "location": location
-}
+# project_id, location, and model_config_kwargs are removed as LlmAgent will use
+# values from vertexai.init() or environment variables.
 
 class CheckCondition(BaseAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
@@ -46,21 +36,21 @@ class CheckCondition(BaseAgent):
 
 profile_agent = LlmAgent(
     name="profile_agent",
-    model="gemini-2.0-flash",
+    model="gemini-1.5-flash-001", # Updated model name
     description=(
         "Agent to answer questions about the this person's social profile. User will ask person's profile using their name, make sure to fetch the id before getting other data."
     ),
     instruction=(
         "You are a helpful agent who can answer user questions about this person's social profile."
     ),
-    tools=[get_person_posts,get_person_friends,get_person_id_by_name,get_person_attended_events],
-    model_kwargs=model_config_kwargs
+    tools=[get_person_posts,get_person_friends,get_person_id_by_name,get_person_attended_events]
+    # model_kwargs removed
 )
 
 
 summary_agent = LlmAgent(
     name="summary_agent",
-    model="gemini-2.0-flash",
+    model="gemini-1.5-flash-001", # Updated model name
     description=(
         "Generate a comprehensive social summary as a single, cohesive paragraph. This summary should cover the activities, posts, friend networks, and event participation of one or more individuals. If multiple profiles are analyzed, the paragraph must also identify and integrate any common ground found between them."
     ),
@@ -97,18 +87,18 @@ summary_agent = LlmAgent(
             *   If data for a specific category (posts, friends, events) is missing or sparse for a profile, you may briefly acknowledge this within the narrative if relevant.
                 """
         ),
-    output_key="summary",
-    model_kwargs=model_config_kwargs
+    output_key="summary"
+    # model_kwargs removed
 )
 
 check_agent = LlmAgent(
     name="check_agent",
-    model="gemini-2.0-flash",
+    model="gemini-1.5-flash-001", # Updated model name
     description=(
         "Check if everyone's social profile are summarized and has been generated. Output 'completed' or 'pending'."
     ),
-    output_key="summary_status",
-    model_kwargs=model_config_kwargs
+    output_key="summary_status"
+    # model_kwargs removed
 )
 
 def modify_output_after_agent(callback_context: CallbackContext) -> Optional[types.Content]:

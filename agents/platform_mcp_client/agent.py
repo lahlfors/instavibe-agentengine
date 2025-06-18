@@ -26,22 +26,18 @@ class PlatformMCPClientServiceAgent:
     SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"]
 
     def __init__(self, mcp_server_url: str):
-        self._user_id: str = "platform_mcp_client_service_user"
         self.mcp_server_url = mcp_server_url
-        self._agent: BaseAgent | None = None
-        self._runner: Runner | None = None
-        self._mcp_toolset: MCPToolset | None = None
+        self._user_id: str = "platform_mcp_client_service_user"
+        self._mcp_toolset: Optional[MCPToolset] = None
+        self._agent: Optional[BaseAgent] = None
+        self._runner: Optional[Runner] = None
+        # Removed asyncio.run(self._async_init_components())
 
-        # Apply nest_asyncio before running async code if not already applied module-wide
-        # nest_asyncio.apply() # Consider if this is needed here or once globally
-        try:
-            asyncio.run(self._async_init_components())
-        except Exception as e:
-            log.error(f"Error during PlatformMCPClientServiceAgent async initialization: {e}", exc_info=True)
-            raise
+    async def _ensure_components_initialized_async(self): # Renamed and added guard
+        if self._runner is not None: # Or check self._agent
+            return
 
-    async def _async_init_components(self):
-        log.info(f"PlatformMCPClientServiceAgent: Initializing MCPToolset with URL: {self.mcp_server_url}")
+        log.info(f"PlatformMCPClientServiceAgent: Initializing components with MCP URL: {self.mcp_server_url}")
         self._mcp_toolset = MCPToolset(
             connection_params=SseServerParams(url=self.mcp_server_url, headers={})
         )
@@ -89,10 +85,11 @@ class PlatformMCPClientServiceAgent:
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
     async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        await self._ensure_components_initialized_async()
         # Using module-level 'log' instead of local 'logger'
         # self._agent might be None if _async_init_components hasn't finished or failed.
-        if not self._agent:
-            log.error("PlatformMCPClientServiceAgent: _agent is not initialized. Call _async_init_components first or check for errors during init.")
+        if not self._agent or not self._runner: # Added check for self._runner as well
+            log.error("PlatformMCPClientServiceAgent: Components not initialized after _ensure_components_initialized_async. This should not happen.")
             return {"error": "Agent components not initialized"}
         app_name = self._agent.name
 

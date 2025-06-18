@@ -1,5 +1,6 @@
 import os # For path joining
 import logging # Added
+import asyncio # Added
 from dotenv import load_dotenv # To load .env
 from typing import Any, Dict, Optional # Removed AsyncIterable, ensured Any, Dict, Optional
 from google.adk.agents import LoopAgent
@@ -43,7 +44,7 @@ class PlannerAgent(AgentTaskManager):
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
 
-  async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+  async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name # Or self._runner.app_name if that's more appropriate from ADK 1.0.0 Runner
 
@@ -120,3 +121,9 @@ class PlannerAgent(AgentTaskManager):
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
+
+  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        # If nest_asyncio.apply() is used globally (e.g. in platform_mcp_client_agent.py),
+        # asyncio.run() might behave better if called from an already running loop.
+        # Otherwise, for a typical script or non-nested asyncio context, asyncio.run() is fine.
+        return asyncio.run(self._execute_query_async(query=query, **kwargs))

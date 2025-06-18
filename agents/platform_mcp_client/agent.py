@@ -84,7 +84,7 @@ class PlatformMCPClientServiceAgent:
         )
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
-    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         await self._ensure_components_initialized_async()
         # Using module-level 'log' instead of local 'logger'
         # self._agent might be None if _async_init_components hasn't finished or failed.
@@ -167,6 +167,10 @@ class PlatformMCPClientServiceAgent:
         else:
             log.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
+
+    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        # nest_asyncio.apply() is at module level, so asyncio.run should be okay.
+        return asyncio.run(self._execute_query_async(query=query, **kwargs))
 
     async def close_async(self): # Optional: for explicit cleanup if needed elsewhere
         if self._mcp_toolset:

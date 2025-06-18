@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional # Removed AsyncIterable as it's not used in the new query
 import logging # Added
+import asyncio # Added
 from google.adk.agents import LoopAgent
 from google.adk.tools.tool_context import ToolContext
 # from google.adk.sessions import SessionNotFoundError # Removed
@@ -43,7 +44,7 @@ class SocialAgent(AgentTaskManager):
     """Builds the LLM agent for the social profile analysis agent."""
     return agent.root_agent
 
-  async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+  async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
 
@@ -103,3 +104,6 @@ class SocialAgent(AgentTaskManager):
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
+
+  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        return asyncio.run(self._execute_query_async(query=query, **kwargs))

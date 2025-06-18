@@ -5,6 +5,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService # Removed SessionNotFoundError, Session
 from typing import Any, Dict, List, Optional
 import os # For path joining
+import asyncio # Added
 from dotenv import load_dotenv # To load .env
 from google.genai.types import Content, Part # Added import
 
@@ -53,7 +54,7 @@ class OrchestrateServiceAgent:
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
 
-    async def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
 
@@ -114,3 +115,6 @@ class OrchestrateServiceAgent:
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
+
+    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        return asyncio.run(self._execute_query_async(query=query, **kwargs))

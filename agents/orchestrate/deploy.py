@@ -7,10 +7,12 @@ import os
 # import shutil # Handled by ADK
 
 from google.cloud import aiplatform as vertexai # Standard alias
-from vertexai.preview import reasoning_engines # ADK for deployment
+# from vertexai.preview import reasoning_engines # ADK for deployment - Old
+from vertexai.preview.reasoning_engines import AdkApp # For wrapping
+from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
-# from google.cloud.aiplatform_v1.types import ReasoningEngineSpec # GAPIC, removed
+#
 # from google.cloud import storage # Handled by ADK or not needed directly
 # import google.auth # For google.auth.exceptions
 import logging # For logging
@@ -59,7 +61,8 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
         log.warning("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES is not set from dynamic input or environment. Orchestrator may not connect to remote agents.")
         # Consider if this should be an error or just a warning. For now, warning.
 
-    local_agent = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
+    local_agent_instance = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
+    adk_app = AdkApp(agent=local_agent_instance)
 
     # env_vars_for_deployment has been removed.
     # The agent constructor now receives the necessary configuration directly.
@@ -88,18 +91,18 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
 
 
     try:
-        remote_agent = reasoning_engines.ReasoningEngine.create(
-            local_agent,  # First positional argument: the agent instance
+        remote_agent = agent_engines.create(
+            adk_app,  # Pass the AdkApp instance
             display_name=display_name,
             description=description,
             requirements=requirements_path,
             extra_packages=extra_packages,
-            # env_vars=env_vars_for_deployment, # env_vars parameter removed
+            # env_vars parameter removed as agent takes config via constructor
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )
     except Exception as e:
-        print(f"ERROR: ADK reasoning_engines.ReasoningEngine.create() failed for Orchestrate Agent: {e}")
+        print(f"ERROR: ADK agent_engines.create() failed for Orchestrate Agent: {e}")
         raise
 
     print(f"Orchestrate Agent (Reasoning Engine) deployment initiated successfully via ADK.")

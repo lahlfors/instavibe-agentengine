@@ -1,6 +1,6 @@
 import os # For path joining
 import logging # Added
-import asyncio # Added
+# import asyncio # Removed
 from dotenv import load_dotenv # To load .env
 from typing import Any, Dict, Optional # Removed AsyncIterable, ensured Any, Dict, Optional
 from google.adk.agents import LoopAgent
@@ -44,9 +44,9 @@ class PlannerAgent(AgentTaskManager):
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
 
-  async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Renamed query_text back to query, made sync
         logger = logging.getLogger(__name__)
-        app_name = self._agent.name # Or self._runner.app_name if that's more appropriate from ADK 1.0.0 Runner
+        app_name = self._agent.name
 
         # Determine the user_id and desired_session_id for this interaction
         # ADK 1.0.0 examples use user_id for session context and run_async.
@@ -62,8 +62,9 @@ class PlannerAgent(AgentTaskManager):
 
         current_session_obj: Optional[Any] = None # Changed type hint to Optional[Any] for safety
         try:
-            logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-            current_session_obj = await self._runner.session_service.get_session(
+            # logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
+            # Synchronous call
+            current_session_obj = self._runner.session_service.get_session(
                 app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
             )
             if current_session_obj:
@@ -79,11 +80,14 @@ class PlannerAgent(AgentTaskManager):
 
         if current_session_obj is None:
             try:
-                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}' (acting as override/specific ID)")
-                current_session_obj = await self._runner.session_service.create_session(
+                # logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
+                # Synchronous call, using session_id as override as per user example context
+                current_session_obj = self._runner.session_service.create_session(
                     app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+                    # Note: ADK docs for BaseSessionService.create_session show session_id_override.
+                    # User example for InMemorySessionService shows session_id. Assuming session_id works as override.
                 )
-                logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+                # logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
             except Exception as e_create:
                 logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
                 return {"error": f"Session management failure during create: {e_create}"}
@@ -94,15 +98,16 @@ class PlannerAgent(AgentTaskManager):
 
         response_event_data = None
         try:
-            async for event in self._runner.run_async(
+            # Synchronous runner call and iteration
+            for event in self._runner.run(
                 user_id=interaction_user_id,
-                session_id=current_session_obj.id, # Use the ID from the obtained session object
-                new_message=Content(parts=[Part(text=query)], role="user")
+                session_id=current_session_obj.id,
+                new_message=Content(parts=[Part(text=query)], role="user") # Use query parameter
             ):
                 response_event_data = event
                 break
         except Exception as e_run:
-            logger.error(f"Error during run_async for session {current_session_obj.id}: {e_run}", exc_info=True)
+            # logger.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
@@ -121,9 +126,3 @@ class PlannerAgent(AgentTaskManager):
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
-
-  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
-        # If nest_asyncio.apply() is used globally (e.g. in platform_mcp_client_agent.py),
-        # asyncio.run() might behave better if called from an already running loop.
-        # Otherwise, for a typical script or non-nested asyncio context, asyncio.run() is fine.
-        return asyncio.run(self._execute_query_async(query=query, **kwargs))

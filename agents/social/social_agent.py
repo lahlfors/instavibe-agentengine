@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional # Removed AsyncIterable as it's not used in the new query
 import logging # Added
-import asyncio # Added
+# import asyncio # Removed
 from google.adk.agents import LoopAgent
 from google.adk.tools.tool_context import ToolContext
 # from google.adk.sessions import SessionNotFoundError # Removed
@@ -44,7 +44,7 @@ class SocialAgent(AgentTaskManager):
     """Builds the LLM agent for the social profile analysis agent."""
     return agent.root_agent
 
-  async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
 
@@ -54,7 +54,7 @@ class SocialAgent(AgentTaskManager):
         current_session_obj: Optional[Any] = None # Use Any if Session import is problematic/removed
         try:
             logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-            current_session_obj = await self._runner.session_service.get_session(
+            current_session_obj = self._runner.session_service.get_session( # Synchronous
                 app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
             )
             if current_session_obj:
@@ -67,8 +67,8 @@ class SocialAgent(AgentTaskManager):
 
         if current_session_obj is None:
             try:
-                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}' (acting as override/specific ID)")
-                current_session_obj = await self._runner.session_service.create_session(
+                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
+                current_session_obj = self._runner.session_service.create_session( # Synchronous
                     app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
                 )
                 logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
@@ -82,7 +82,7 @@ class SocialAgent(AgentTaskManager):
 
         response_event_data = None
         try:
-            async for event in self._runner.run_async(
+            for event in self._runner.run( # Synchronous runner call
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
                 new_message=Content(parts=[Part(text=query)], role="user")
@@ -90,7 +90,7 @@ class SocialAgent(AgentTaskManager):
                 response_event_data = event
                 break
         except Exception as e_run:
-            logger.error(f"Error during run_async for session {current_session_obj.id}: {e_run}", exc_info=True)
+            logger.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
@@ -104,6 +104,3 @@ class SocialAgent(AgentTaskManager):
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
-
-  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
-        return asyncio.run(self._execute_query_async(query=query, **kwargs))

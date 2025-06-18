@@ -5,7 +5,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService # Removed SessionNotFoundError, Session
 from typing import Any, Dict, List, Optional
 import os # For path joining
-import asyncio # Added
+# import asyncio # Removed
 from dotenv import load_dotenv # To load .env
 from google.genai.types import Content, Part # Added import
 
@@ -54,8 +54,8 @@ class OrchestrateServiceAgent:
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
 
-    async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
-        logger = logging.getLogger(__name__)
+    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Renamed query_text back to query
+        # Using module-level 'log'
         app_name = self._agent.name
 
         interaction_user_id = str(kwargs.get("session_id", self._user_id))
@@ -63,45 +63,44 @@ class OrchestrateServiceAgent:
 
         current_session_obj: Optional[Any] = None
         try:
-            logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-            current_session_obj = await self._runner.session_service.get_session(
-                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+            log.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
+            current_session_obj = self._runner.session_service.get_session( # Synchronous
+                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
             )
             if current_session_obj:
-                logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+                 log.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
             else:
-                logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found (get_session returned None). Will create.")
+                log.info(f"Session {desired_session_id} for user {interaction_user_id} not found (get_session returned None). Will create.")
         except Exception as e_get:
-            logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Will assume session needs creation.")
+            log.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id}': {e_get}. Will assume session needs creation.")
             current_session_obj = None
 
         if current_session_obj is None:
             try:
-                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}' (acting as override/specific ID)")
-                current_session_obj = await self._runner.session_service.create_session(
-                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+                log.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
+                current_session_obj = self._runner.session_service.create_session( # Synchronous
+                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
                 )
-                logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+                log.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
             except Exception as e_create:
-                logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
+                log.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id}: {e_create}", exc_info=True)
                 return {"error": f"Session management failure during create: {e_create}"}
 
         if not current_session_obj:
-            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
+            log.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
             return {"error": "Failed to get or create a session."}
 
-        # Variable name was agent_response, changing to response_event_data for consistency
-        response_event_data = None
+        response_event_data = None # Was agent_response before
         try:
-            async for event in self._runner.run_async(
+            for event in self._runner.run( # Synchronous runner call
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-                new_message=Content(parts=[Part(text=query)], role="user")
+                new_message=Content(parts=[Part(text=query)], role="user") # Use query parameter
             ):
                 response_event_data = event
                 break
         except Exception as e_run:
-            logger.error(f"Error during run_async for session {current_session_obj.id}: {e_run}", exc_info=True)
+            log.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
@@ -113,8 +112,5 @@ class OrchestrateServiceAgent:
             logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
             return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
         else:
-            logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
+            log.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
-
-    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
-        return asyncio.run(self._execute_query_async(query=query, **kwargs))

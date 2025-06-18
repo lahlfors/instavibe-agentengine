@@ -12,11 +12,14 @@ import logging
 from google.genai import types # For types.Content
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional
+import nest_asyncio
 
 # Load environment variables from the root .env file.
 # This is crucial for LlmAgent instances and any tools (like those from instavibe.py)
 # to pick up necessary configurations (e.g., API keys, project IDs, Spanner details).
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+nest_asyncio.apply()
 
 # Get a logger instance
 log = logging.getLogger(__name__)

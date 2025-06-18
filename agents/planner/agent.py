@@ -3,12 +3,15 @@ from dotenv import load_dotenv
 from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
 # from google.adk.models.google_llm import GoogleLlm # Removed import
 from google.adk.tools import google_search
+import nest_asyncio
 
 # Load environment variables from the root .env file.
 # This is important so that any underlying ADK or Google library calls
 # (e.g., for API keys for google_search, or project/location for Vertex AI)
 # can pick up the correct configuration.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+nest_asyncio.apply()
 
 # project_id, location, and model_config_kwargs are removed as LlmAgent will use
 # values from vertexai.init() or environment variables.

@@ -21,6 +21,19 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # Get a logger instance
 log = logging.getLogger(__name__)
 
+project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+if not project_id:
+    raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT environment variable not set or empty.")
+if not location:
+    raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION environment variable not set or empty.")
+
+model_config_kwargs = {
+    "project": project_id,
+    "location": location
+}
+
 class CheckCondition(BaseAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         #log.info(f"Checking status: {ctx.session.state.get("summary_status", "fail")}")
@@ -41,6 +54,7 @@ profile_agent = LlmAgent(
         "You are a helpful agent who can answer user questions about this person's social profile."
     ),
     tools=[get_person_posts,get_person_friends,get_person_id_by_name,get_person_attended_events],
+    model_kwargs=model_config_kwargs
 )
 
 
@@ -83,7 +97,8 @@ summary_agent = LlmAgent(
             *   If data for a specific category (posts, friends, events) is missing or sparse for a profile, you may briefly acknowledge this within the narrative if relevant.
                 """
         ),
-    output_key="summary"
+    output_key="summary",
+    model_kwargs=model_config_kwargs
 )
 
 check_agent = LlmAgent(
@@ -92,7 +107,8 @@ check_agent = LlmAgent(
     description=(
         "Check if everyone's social profile are summarized and has been generated. Output 'completed' or 'pending'."
     ),
-    output_key="summary_status"
+    output_key="summary_status",
+    model_kwargs=model_config_kwargs
 )
 
 def modify_output_after_agent(callback_context: CallbackContext) -> Optional[types.Content]:

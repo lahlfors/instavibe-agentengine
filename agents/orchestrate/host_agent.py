@@ -69,6 +69,18 @@ class HostAgent:
     self.agents = '\n'.join(agent_info)
 
   def create_agent(self) -> Agent:
+    project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+    if not project_id:
+        raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT environment variable not set or empty for HostAgent's LlmAgent.")
+    if not location:
+        raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION environment variable not set or empty for HostAgent's LlmAgent.")
+
+    model_config_kwargs = {
+        "project": project_id,
+        "location": location
+    }
     return Agent(
         model="gemini-2.0-flash",
         name="orchestrate_agent",
@@ -82,6 +94,7 @@ class HostAgent:
             self.list_remote_agents,
             self.send_task,
         ],
+        model_kwargs=model_config_kwargs
     )
 
   def root_instruction(self, context: ReadonlyContext) -> str:

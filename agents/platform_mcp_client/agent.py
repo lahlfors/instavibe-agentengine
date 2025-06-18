@@ -47,6 +47,19 @@ class PlatformMCPClientServiceAgent:
         )
         # If MCPToolset has an explicit async connect method, call it here.
 
+        project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+        if not project_id:
+            raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT environment variable not set or empty for PlatformMCPClientServiceAgent's LlmAgent.")
+        if not location:
+            raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION environment variable not set or empty for PlatformMCPClientServiceAgent's LlmAgent.")
+
+        model_config_kwargs = {
+            "project": project_id,
+            "location": location
+        }
+
         self._agent = LlmAgent(
             model='gemini-2.0-flash',
             name='platform_mcp_client_agent',
@@ -71,7 +84,8 @@ class PlatformMCPClientServiceAgent:
             - Before executing an action (calling a tool), you can optionally provide a brief summary of what you are about to do (e.g., "Okay, I'll create a post for [author_name] saying '[text]' with a [sentiment] sentiment."). This summary should include the inferred sentiment if applicable, but it should not be phrased as a question seeking validation for the sentiment.
             - Use only the provided tools. Do not try to perform actions outside of their scope.
             """,
-            tools=[self._mcp_toolset]
+            tools=[self._mcp_toolset],
+            model_kwargs=model_config_kwargs
         )
         log.info("PlatformMCPClientServiceAgent: LlmAgent created.")
 

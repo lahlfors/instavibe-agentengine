@@ -9,6 +9,19 @@ from google.adk.tools import google_search
 # can pick up the correct configuration.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
+project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+if not project_id:
+    raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT environment variable not set or empty.")
+if not location:
+    raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION environment variable not set or empty.")
+
+model_config_kwargs = {
+    "project": project_id,
+    "location": location
+}
+
 root_agent = Agent(
     name="location_search_agent",
     model="gemini-2.0-flash",
@@ -47,5 +60,6 @@ root_agent = Agent(
         }
 
     """,
-    tools=[google_search]
+    tools=[google_search],
+    model_kwargs=model_config_kwargs
 )

@@ -36,6 +36,14 @@ from google.cloud import aiplatform
 
 class ApiDisabledError(Exception): pass
 
+def sanitize_env_var_value(value: str) -> str:
+    # Removes content from the first '#' character onwards
+    # Also strips leading/trailing whitespace and then strips potential bounding quotes
+    # that might have been part of the .env value if not handled by python-dotenv.
+    if value is None: # Should not happen if os.getenv has a default, but good practice
+        return ''
+    return value.split('#', 1)[0].strip().strip('"').strip("'")
+
 from agents.planner.deploy import deploy_planner_main_func
 from agents.social.deploy import deploy_social_main_func
 from agents.orchestrate.deploy import deploy_orchestrate_main_func
@@ -644,17 +652,17 @@ def main(argv=None):
 
     if not args.skip_app:
         # Construct env_vars string for Instavibe app
-        instavibe_env_vars_list = [
-            f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
-            f"COMMON_SPANNER_INSTANCE_ID={os.environ.get('COMMON_SPANNER_INSTANCE_ID', '')}",
-            f"COMMON_SPANNER_DATABASE_ID={os.environ.get('COMMON_SPANNER_DATABASE_ID', '')}",
-            f"INSTAVIBE_FLASK_SECRET_KEY={os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', '')}",
-            f"INSTAVIBE_APP_HOST={os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0')}",
-            f"INSTAVIBE_APP_PORT={os.environ.get('INSTAVIBE_APP_PORT', '8080')}",
-            f"INSTAVIBE_GOOGLE_MAPS_API_KEY={os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', '')}",
-            f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', '')}",
-            f"COMMON_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}"
-        ]
+        instavibe_env_vars_list = []
+        instavibe_env_vars_list.append(f"COMMON_GOOGLE_CLOUD_PROJECT={sanitize_env_var_value(os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', ''))}")
+        instavibe_env_vars_list.append(f"COMMON_SPANNER_INSTANCE_ID={sanitize_env_var_value(os.environ.get('COMMON_SPANNER_INSTANCE_ID', ''))}")
+        instavibe_env_vars_list.append(f"COMMON_SPANNER_DATABASE_ID={sanitize_env_var_value(os.environ.get('COMMON_SPANNER_DATABASE_ID', ''))}")
+        instavibe_env_vars_list.append(f"INSTAVIBE_FLASK_SECRET_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', ''))}")
+        instavibe_env_vars_list.append(f"INSTAVIBE_APP_HOST={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0'))}")
+        instavibe_env_vars_list.append(f"INSTAVIBE_APP_PORT={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_PORT', '8080'))}")
+        instavibe_env_vars_list.append(f"INSTAVIBE_GOOGLE_MAPS_API_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', ''))}")
+        instavibe_env_vars_list.append(f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', ''))}")
+        instavibe_env_vars_list.append(f"COMMON_GOOGLE_CLOUD_LOCATION={sanitize_env_var_value(os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', ''))}")
+
         if planner_resource_name: # Use the variable defined at the top of main
             instavibe_env_vars_list.append(f"AGENTS_PLANNER_RESOURCE_NAME={planner_resource_name}")
         if social_resource_name:
@@ -682,14 +690,14 @@ def main(argv=None):
         # For mcp_tool_server, construct env_vars_string if needed.
         # These are examples; the mcp_server.py itself doesn't use many of these directly,
         # but its dependencies or underlying ADK/cloud libraries might.
-        mcp_tool_server_env_vars_list = [
-            f"COMMON_GOOGLE_CLOUD_PROJECT={os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', '')}",
-            f"TOOLS_INSTAVIBE_BASE_URL={os.environ.get('TOOLS_INSTAVIBE_BASE_URL', '')}",
-            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', '')}",
-            f"TOOLS_GOOGLE_CLOUD_LOCATION={os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', '')}",
-            f"TOOLS_GOOGLE_API_KEY={os.environ.get('TOOLS_GOOGLE_API_KEY', '')}",
+        mcp_tool_server_env_vars_list = []
+        mcp_tool_server_env_vars_list.append(f"COMMON_GOOGLE_CLOUD_PROJECT={sanitize_env_var_value(os.environ.get('COMMON_GOOGLE_CLOUD_PROJECT', ''))}")
+        mcp_tool_server_env_vars_list.append(f"TOOLS_INSTAVIBE_BASE_URL={sanitize_env_var_value(os.environ.get('TOOLS_INSTAVIBE_BASE_URL', ''))}")
+        mcp_tool_server_env_vars_list.append(f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', ''))}")
+        mcp_tool_server_env_vars_list.append(f"TOOLS_GOOGLE_CLOUD_LOCATION={sanitize_env_var_value(os.environ.get('COMMON_GOOGLE_CLOUD_LOCATION', ''))}") # Correctly uses COMMON_GOOGLE_CLOUD_LOCATION
+        mcp_tool_server_env_vars_list.append(f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}")
             # Add other TOOLS_ prefixed vars if the mcp_server uses them (e.g., APP_HOST, APP_PORT if they were prefixed)
-        ]
+
         mcp_tool_server_env_vars_string = ",".join(
             var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1] not in ['None', '']
         )

@@ -1,10 +1,10 @@
-google-cloud-aiplatform[adk,agent_engines]==1.96.0 # Added
+google-cloud-aiplatform[adk,agent_engines]==1.96.0
 google-cloud-spanner==3.54.0
 google-genai==1.14.0
 google-adk>=1.0.0,<1.1.0
 python-dotenv==1.0.1
-fastapi==0.115.12 # Compatible with root's >=0.115.0
-urllib3<3,>=1.21.1 # Aligned with root
-a2a_common==0.1.0 # Changed from relative path
+fastapi==0.115.12
+urllib3<3,>=1.21.1
+a2a_common==0.1.0
 deprecated==1.2.18
-pydantic==2.11.7 # Added for consistency
+pydantic==2.11.7

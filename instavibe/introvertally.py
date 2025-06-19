@@ -196,9 +196,11 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
         # The original code was iterating over planner_agent_engine.query(),
         # now we are using .stream() as per the fix for the agent definition.
         # The client code here should expect a stream of events.
-        stream_iterator = planner_agent_engine.stream(input=prompt_message, session_id=user_id)
+        # stream_iterator = planner_agent_engine.stream(input=prompt_message, session_id=user_id) # Incorrect: .stream() not an attribute
+        # Correct way to get a stream is to call the ReasoningEngine object directly.
+        stream_response = planner_agent_engine(input=prompt_message, session_id=user_id)
 
-        for event_idx, event in enumerate(stream_iterator):
+        for event_idx, event in enumerate(stream_response): # Iterate over the direct call result
             print(f"\n--- Stream Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console
             try:
@@ -335,12 +337,17 @@ Provide updates on the progress and confirm completion.
         # We expect the orchestrator to give textual updates or a final confirmation.
 
         # Using .stream() as it's more consistent with ADK agent interactions
-        stream_iterator = orchestrator_agent_engine.stream(
+        # stream_iterator = orchestrator_agent_engine.stream( # Incorrect: .stream() not an attribute
+        #     input=orchestration_request_message,
+        #     session_id=agent_session_user_id # Use the same session ID for context
+        # )
+        # Correct way to get a stream is to call the ReasoningEngine object directly.
+        stream_response = orchestrator_agent_engine(
             input=orchestration_request_message,
-            session_id=agent_session_user_id # Use the same session ID for context
+            session_id=agent_session_user_id
         )
 
-        for event_idx, event in enumerate(stream_iterator):
+        for event_idx, event in enumerate(stream_response): # Iterate over the direct call result
             logger.info(f"\n--- Orchestrator Agent Event {event_idx} Received ---")
             # pprint.pprint(event) # Keep for debugging if necessary, can be verbose
             try:

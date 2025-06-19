@@ -431,66 +431,67 @@ def main(argv=None):
     """
     load_dotenv() # Load .env file from project root
 
-    project_id = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
-    # Using COMMON_GOOGLE_CLOUD_LOCATION as the common region for all deployments in this script.
-    region = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
-    staging_bucket_uri = os.environ.get("COMMON_VERTEX_STAGING_BUCKET")
-    COMMON_SPANNER_INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
-    COMMON_SPANNER_DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID")
+    # Sanitize critical environment variables immediately after loading
+    project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
+    region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))
+    staging_bucket_uri = sanitize_env_var_value(os.environ.get("COMMON_VERTEX_STAGING_BUCKET"))
+    spanner_instance_id = sanitize_env_var_value(os.environ.get("COMMON_SPANNER_INSTANCE_ID")) # Renamed for clarity
+    spanner_database_id = sanitize_env_var_value(os.environ.get("COMMON_SPANNER_DATABASE_ID")) # Renamed for clarity
 
-    if not project_id:
-        raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT not set in .env file")
+    # Validate after sanitization
+    if not project_id: # Checks if empty string after sanitization too
+        raise ValueError("COMMON_GOOGLE_CLOUD_PROJECT not set or is empty in .env file")
     if not region:
-        raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set in .env file")
+        raise ValueError("COMMON_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set or is empty in .env file")
     if not staging_bucket_uri:
-        raise ValueError("COMMON_VERTEX_STAGING_BUCKET not set in .env file")
-    if not COMMON_SPANNER_INSTANCE_ID:
-        raise ValueError("COMMON_SPANNER_INSTANCE_ID not set in .env file")
-    if not COMMON_SPANNER_DATABASE_ID:
-        raise ValueError("COMMON_SPANNER_DATABASE_ID not set in .env file")
+        raise ValueError("COMMON_VERTEX_STAGING_BUCKET not set or is empty in .env file")
+    if not spanner_instance_id:
+        raise ValueError("COMMON_SPANNER_INSTANCE_ID not set or is empty in .env file")
+    if not spanner_database_id:
+        raise ValueError("COMMON_SPANNER_DATABASE_ID not set or is empty in .env file")
 
     # Spanner setup
     print("Starting Spanner setup...")
     instance_exists = False
     try:
-        print(f"Checking if Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' exists in project '{project_id}'...")
+        print(f"Checking if Spanner instance '{spanner_instance_id}' exists in project '{project_id}'...")
         describe_command = [
-            'gcloud', 'spanner', 'instances', 'describe', COMMON_SPANNER_INSTANCE_ID,
+            'gcloud', 'spanner', 'instances', 'describe', spanner_instance_id,
             '--project', project_id
         ]
         result = subprocess.run(describe_command, capture_output=True, text=True, check=False) # check=False to handle non-zero exits
 
         if result.returncode == 0:
-            print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' already exists.")
+            print(f"Spanner instance '{spanner_instance_id}' already exists.")
             instance_exists = True
         elif "NOT_FOUND" in result.stderr or "failed to find" in result.stderr.lower(): # Check for typical not found messages
-            print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' does not exist. Will attempt to create it.")
+            print(f"Spanner instance '{spanner_instance_id}' does not exist. Will attempt to create it.")
             instance_exists = False
         else:
             # An unexpected error occurred
-            print(f"Error describing Spanner instance '{COMMON_SPANNER_INSTANCE_ID}': {result.stderr}")
+            print(f"Error describing Spanner instance '{spanner_instance_id}': {result.stderr}")
             print(f"Stdout: {result.stdout}")
             # Decide whether to raise an error or try to proceed. For now, let's raise.
             raise subprocess.CalledProcessError(result.returncode, describe_command, output=result.stdout, stderr=result.stderr)
 
     except subprocess.CalledProcessError as e:
         # This catches errors from the describe command if check=True was used, or if we re-raise above
-        print(f"An error occurred during Spanner instance check for '{COMMON_SPANNER_INSTANCE_ID}': {e}")
+        print(f"An error occurred during Spanner instance check for '{spanner_instance_id}': {e}")
         print(f"Stdout: {e.output}")
         print(f"Stderr: {e.stderr}")
         print("Halting Spanner setup due to an issue checking instance existence.")
         raise # Re-raise to stop further execution in main()
     except Exception as e:
-        print(f"An unexpected error occurred while checking Spanner instance '{COMMON_SPANNER_INSTANCE_ID}': {e}")
+        print(f"An unexpected error occurred while checking Spanner instance '{spanner_instance_id}': {e}")
         print("Halting Spanner setup due to an unexpected issue checking instance existence.")
         raise # Re-raise to stop further execution in main()
 
     if not instance_exists:
         try:
-            print(f"Creating Spanner instance '{COMMON_SPANNER_INSTANCE_ID}'...")
+            print(f"Creating Spanner instance '{spanner_instance_id}'...")
             subprocess.run(
                 [
-                    "gcloud", "spanner", "instances", "create", COMMON_SPANNER_INSTANCE_ID,
+                    "gcloud", "spanner", "instances", "create", spanner_instance_id,
                     "--config=regional-us-central1", # Ensure this config is appropriate or make it a variable
                     "--description=GraphDB Instance InstaVibe",
                     "--processing-units=100", # Ensure this is appropriate or make it a variable
@@ -499,14 +500,14 @@ def main(argv=None):
                 ],
                 check=True, capture_output=True, text=True
             )
-            print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' created successfully.")
+            print(f"Spanner instance '{spanner_instance_id}' created successfully.")
         except subprocess.CalledProcessError as e:
             # The ALREADY_EXISTS check here is less likely to be hit if the describe logic is robust,
             # but kept as a fallback.
             if "ALREADY_EXISTS" in e.stderr:
-                print(f"Spanner instance '{COMMON_SPANNER_INSTANCE_ID}' already exists (detected during create attempt).")
+                print(f"Spanner instance '{spanner_instance_id}' already exists (detected during create attempt).")
             else:
-                print(f"Error creating Spanner instance '{COMMON_SPANNER_INSTANCE_ID}': {e}")
+                print(f"Error creating Spanner instance '{spanner_instance_id}': {e}")
                 print(f"Stdout: {e.stdout}")
                 print(f"Stderr: {e.stderr}")
                 raise # Re-raise the exception to halt execution
@@ -516,17 +517,17 @@ def main(argv=None):
     try:
         subprocess.run(
             [
-                "gcloud", "spanner", "databases", "create", COMMON_SPANNER_DATABASE_ID,
-                f"--instance={COMMON_SPANNER_INSTANCE_ID}",
+                "gcloud", "spanner", "databases", "create", spanner_database_id,
+                f"--instance={spanner_instance_id}",
                 "--database-dialect=GOOGLE_STANDARD_SQL",
                 "--project", project_id, # Added project_id
             ],
             check=True, capture_output=True, text=True
         )
-        print(f"Spanner database {COMMON_SPANNER_DATABASE_ID} created successfully or already exists.")
+        print(f"Spanner database {spanner_database_id} created successfully or already exists.")
     except subprocess.CalledProcessError as e:
         if "ALREADY_EXISTS" in e.stderr: # Crude check, might need refinement based on actual gcloud output
-            print(f"Spanner database {COMMON_SPANNER_DATABASE_ID} on instance {COMMON_SPANNER_INSTANCE_ID} already exists.")
+            print(f"Spanner database {spanner_database_id} on instance {spanner_instance_id} already exists.")
         else:
             print(f"Error creating Spanner database: {e}")
             print(f"Stdout: {e.stdout}")

@@ -14,13 +14,14 @@ from vertexai.preview import reasoning_engines # Added for direct RE instantiati
 # Initialize logger
 logger = logging.getLogger(__name__)
 
-# Global variable for the agent engine
+# Global variables for agent engines
 planner_agent_engine = None
+orchestrator_agent_engine = None
 
-def init_agent_engine(project_id, location):
-    """Initializes the Vertex AI Agent Engine."""
-    global planner_agent_engine
-    logger.info("Attempting to initialize agent engine...")
+def init_agent_engines(project_id, location): # Renamed to init_agent_engines
+    """Initializes the Vertex AI Agent Engines for Planner and Orchestrator."""
+    global planner_agent_engine, orchestrator_agent_engine
+    logger.info("Attempting to initialize agent engines...")
 
     try:
         # Initialize with the specific location, this is important for when we instantiate
@@ -29,82 +30,109 @@ def init_agent_engine(project_id, location):
         vertexai.init(project=project_id, location=location)
     except Exception as e:
         logger.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
-        planner_agent_engine = None # Cannot proceed
-        logger.warning("Planner agent engine is None due to Vertex AI initialization failure.")
+        planner_agent_engine = None
+        orchestrator_agent_engine = None
+        logger.warning("Planner and Orchestrator agent engines are None due to Vertex AI initialization failure.")
         return
 
+    # Initialize Planner Agent
     planner_resource_name_from_env = os.getenv("AGENTS_PLANNER_RESOURCE_NAME")
-
     if planner_resource_name_from_env:
-        logger.info(f"Found AGENTS_PLANNER_RESOURCE_NAME: {planner_resource_name_from_env}. Attempting direct connection.")
+        logger.info(f"Found AGENTS_PLANNER_RESOURCE_NAME: {planner_resource_name_from_env}. Attempting direct connection to Planner.")
         try:
             planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
             logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
-            logger.info("Planner agent engine initialized successfully (directly via resource name).")
-            return # Successfully initialized
         except Exception as e:
-            logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
-            logger.warning("Falling back to listing reasoning engines.")
-            planner_agent_engine = None # Ensure it's None before fallback
+            logger.error(f"Failed to connect directly to Planner using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
+            planner_agent_engine = None # Ensure it's None on failure
     else:
-        logger.info("AGENTS_PLANNER_RESOURCE_NAME not set. Will attempt to find Planner Agent by listing engines.")
+        logger.info("AGENTS_PLANNER_RESOURCE_NAME not set for Planner. Will attempt to find by listing if needed.")
 
-    # Fallback to listing logic if direct connection failed or env var not set
-    if planner_agent_engine is None:
-        logger.info("Attempting to initialize agent engine by listing (fallback)...")
+    # Initialize Orchestrator Agent
+    orchestrator_resource_name_from_env = os.getenv("AGENTS_ORCHESTRATE_RESOURCE_NAME") # New ENV VAR
+    if orchestrator_resource_name_from_env:
+        logger.info(f"Found AGENTS_ORCHESTRATE_RESOURCE_NAME: {orchestrator_resource_name_from_env}. Attempting direct connection to Orchestrator.")
         try:
-            # vertexai.init was already called at the start of the function with the specific location.
-            logger.info("Initializing ReasoningEngineServiceClient (fallback)")
-            client = ReasoningEngineServiceClient() # GAPIC client
+            orchestrator_agent_engine = reasoning_engines.ReasoningEngine(orchestrator_resource_name_from_env)
+            logger.info(f"Successfully connected to Orchestrator Agent using resource name: {orchestrator_resource_name_from_env}")
+        except Exception as e:
+            logger.error(f"Failed to connect directly to Orchestrator using AGENTS_ORCHESTRATE_RESOURCE_NAME '{orchestrator_resource_name_from_env}': {e}", exc_info=True)
+            orchestrator_agent_engine = None # Ensure it's None on failure
+    else:
+        logger.info("AGENTS_ORCHESTRATE_RESOURCE_NAME not set for Orchestrator. Will attempt to find by listing if needed.")
 
-            # For listing, use "global" as the location part of the parent string.
+    # Fallback to listing logic if direct connection failed or env var not set for either agent
+    # This part attempts to find any agent that wasn't successfully initialized above.
+    agents_to_find_by_listing = []
+    if planner_agent_engine is None and not planner_resource_name_from_env: # Only list if no direct attempt was made or it failed AND no env var
+        agents_to_find_by_listing.append({"name": "Planner Agent", "global_var": "planner_agent_engine"})
+    if orchestrator_agent_engine is None and not orchestrator_resource_name_from_env: # Same for orchestrator
+        agents_to_find_by_listing.append({"name": "Orchestrator Agent", "global_var": "orchestrator_agent_engine"}) # Assuming "Orchestrator Agent" is its display name
+
+    if agents_to_find_by_listing:
+        logger.info(f"Attempting to initialize agents by listing (fallback) for: {', '.join([a['name'] for a in agents_to_find_by_listing])}")
+        try:
+            logger.info("Initializing ReasoningEngineServiceClient for listing (fallback)")
+            client = ReasoningEngineServiceClient()
+
             parent_for_list = f"projects/{project_id}/locations/global"
             logger.info(f"Listing reasoning engines in {parent_for_list} (fallback)")
-            engines = client.list_reasoning_engines(parent=parent_for_list)
+            all_engines_in_project = client.list_reasoning_engines(parent=parent_for_list)
 
-            target_engine_display_name = "Planner Agent"
-            found_engine = None
-
-            for engine in engines:
-                logger.info(f"Found engine: {engine.display_name} (ID: {engine.name})")
-                # Ensure the found engine is in the target location, as listing with "global" can return engines from all regions.
-                if engine.display_name == target_engine_display_name and f"/locations/{location}/" in engine.name:
-                    logger.info(f"Engine '{engine.display_name}' matches target display name and is in the target location '{location}'.")
-                    found_engine = engine
-                    break
-                elif engine.display_name == target_engine_display_name:
-                    logger.info(f"Engine '{engine.display_name}' matches target display name but is in a different location: {engine.name.split('/')[3]}. Skipping.")
+            # Create a dictionary for quick lookup
+            engines_map = {engine.display_name: engine for engine in all_engines_in_project if f"/locations/{location}/" in engine.name}
+            logger.info(f"Found {len(engines_map)} engines in target location '{location}': {list(engines_map.keys())}")
 
 
-            if found_engine:
-                engine_id_full = found_engine.name # This name includes the specific region
-                logger.info(f"Planner Agent found: {engine_id_full}. Attempting to connect using full name (fallback).")
-                # When instantiating ReasoningEngine with the full resource name, vertexai.init() should have set the correct project/location context,
-                # or the SDK should handle the full name correctly.
-                planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full)
-                logger.info("Successfully connected to Planner Agent (fallback).")
-            else:
-                logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id} and specific location {location} (fallback after listing from global).")
-                planner_agent_engine = None
-        except Exception as e:
-            logger.error(f"Error during fallback agent engine initialization (listing): {e}", exc_info=True)
-            planner_agent_engine = None
+            for agent_config in agents_to_find_by_listing:
+                target_display_name = agent_config["name"]
+                engine_var_name = agent_config["global_var"]
 
-    # Final status log
+                found_engine = engines_map.get(target_display_name)
+
+                if found_engine:
+                    engine_id_full = found_engine.name
+                    logger.info(f"{target_display_name} found: {engine_id_full}. Attempting to connect using full name (fallback).")
+                    try:
+                        engine_instance = reasoning_engines.ReasoningEngine(engine_id_full)
+                        globals()[engine_var_name] = engine_instance # Dynamically set planner_agent_engine or orchestrator_agent_engine
+                        logger.info(f"Successfully connected to {target_display_name} (fallback).")
+                    except Exception as e_connect_fallback:
+                        logger.error(f"Failed to connect to {target_display_name} using full name {engine_id_full} during fallback: {e_connect_fallback}", exc_info=True)
+                        globals()[engine_var_name] = None
+                else:
+                    logger.warning(f"{target_display_name} not found in project {project_id} and specific location {location} (fallback after listing).")
+                    globals()[engine_var_name] = None
+
+        except Exception as e_list:
+            logger.error(f"Error during fallback agent engine initialization (listing): {e_list}", exc_info=True)
+            # Ensure agents that were meant to be found by listing are None if listing fails
+            for agent_config in agents_to_find_by_listing:
+                globals()[agent_config["global_var"]] = None
+
+
+    # Final status log for Planner Agent
     if planner_agent_engine is None:
         logger.warning("Planner agent engine is None after all initialization attempts.")
     else:
-        logger.info("Planner agent engine initialized successfully (either directly or via fallback).")
+        logger.info("Planner agent engine initialized successfully.")
 
-# Initialize the agent engine on module load
+    # Final status log for Orchestrator Agent
+    if orchestrator_agent_engine is None:
+        logger.warning("Orchestrator agent engine is None after all initialization attempts.")
+    else:
+        logger.info("Orchestrator agent engine initialized successfully.")
+
+
+# Initialize agent engines on module load
 COMMON_GOOGLE_CLOUD_PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
 COMMON_GOOGLE_CLOUD_LOCATION = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
 
 if COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION:
-    logger.info(f"Attempting to initialize agent engine for project {COMMON_GOOGLE_CLOUD_PROJECT} in {COMMON_GOOGLE_CLOUD_LOCATION}")
-    init_agent_engine(COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION)
+    logger.info(f"Attempting to initialize agent engines for project {COMMON_GOOGLE_CLOUD_PROJECT} in {COMMON_GOOGLE_CLOUD_LOCATION}")
+    init_agent_engines(COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION) # Updated call
 else:
-    logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION environment variables not set. Agent engine will not be initialized.")
+    logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION environment variables not set. Agent engines will not be initialized.")
 
 
 
@@ -260,88 +288,107 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     yield {"type": "thought", "data": f"User performing action: {user_name}"}
     yield {"type": "thought", "data": f"Received Confirmed Plan (event_name): {confirmed_plan.get('event_name', 'N/A')}"}
     yield {"type": "thought", "data": f"Received Invite Message: {edited_invite_message[:100]}..."} # Log a preview
-    yield {"type": "thought", "data": f"Initiating process to post event and invite for {user_name}."}
+    yield {"type": "thought", "data": f"Initiating process to post event and invite for {user_name} via Orchestrator."}
 
-    prompt_message = f"""
-    You are an Orchestrator assistant for the Instavibe platform. User '{user_name}' has finalized an event plan and wants to:
-    1. Create the event on Instavibe.
-    2. Create an invite post for this event on Instavibe.
+    # This is the message to the Orchestrator Agent.
+    # It's less about "You are an Orchestrator" and more "Please orchestrate the following..."
+    orchestration_request_message = f"""
+User '{user_name}' wants to finalize and announce an event. Please orchestrate the following tasks:
 
-    You have tools like `list_remote_agents` to discover available specialized agents and `send_task(agent_name: str, message: str)` to delegate tasks to them.
-    Your primary role is to understand the user's overall goal, identify the necessary steps, select the most appropriate remote agent(s) for those steps, and then send them clear instructions.
+1.  **Create the event on Instavibe.**
+    *   Event Details (from confirmed plan):
+        *   Event Name: "{confirmed_plan.get('event_name', 'Unnamed Event')}"
+        *   Event Description: "{confirmed_plan.get('event_description', 'No description provided.')}"
+        *   Event Date: "{confirmed_plan.get('event_date', 'MISSING_EVENT_DATE_IN_PLAN')}"
+        *   Locations: {json.dumps(confirmed_plan.get('locations_and_activities', []))}
+        *   Attendees: {json.dumps(list(set(confirmed_plan.get('friends_name_list', []) + [user_name])))}
+    *   Instruction: Find a suitable agent and instruct it to create this event with all the provided details.
 
-    Confirmed Plan:
-    ```json
-    {json.dumps(confirmed_plan, indent=2)}
-    ```
+2.  **Create an invite post for this event on Instavibe.**
+    *   Post Details:
+        *   Author: "{user_name}"
+        *   Content: "{edited_invite_message}"
+        *   Associate with event: "{confirmed_plan.get('event_name', 'Unnamed Event')}"
+        *   Sentiment: "positive"
+    *   Instruction: After the event creation is confirmed successful, find a suitable agent and instruct it to create this invite post.
 
-    Invite Message (this is the exact text for the post content):
-    "{edited_invite_message}"
-
-    Your explicit tasks are, in this exact order:
-
-    TASK 1: Create the Event on Instavibe.
-    - First, identify a suitable remote agent that is capable of creating events on the Instavibe platform. You should use your `list_remote_agents` tool if you need to refresh your knowledge of available agents and their capabilities.
-    - Once you have selected an appropriate agent, you MUST use your tool to instruct that agent to create the event.
-    - The `message` you send to the agent for this task should be a clear, natural language instruction. This message MUST include all necessary details for event creation, derived from the "Confirmed Plan" JSON:
-        - Event Name: "{confirmed_plan.get('event_name', 'Unnamed Event')}"
-        - Event Description: "{confirmed_plan.get('event_description', 'No description provided.')}"
-        - Event Date: "{confirmed_plan.get('event_date', 'MISSING_EVENT_DATE_IN_PLAN')}" (ensure this is in a standard date/time format like ISO 8601)
-        - Locations: {json.dumps(confirmed_plan.get('locations_and_activities', []))} (describe these locations clearly to the agent)
-        - Attendees: {json.dumps(list(set(confirmed_plan.get('friends_name_list', []) + [user_name])))} (this list includes the user '{user_name}' and their friends)
-    - Narrate your thought process: which agent you are selecting (or your criteria if you can't name it), and the natural language message you are formulating for the tool to create the event.
-    - After the  tool call is complete, briefly acknowledge its success based on the tool's response.
-
-    TASK 2: Create the Invite Post on Instavibe.
-    - Only after TASK 1 (event creation) is confirmed as  successful, you MUST use your tool again.
-    - The `message` you send to the agent for this task should be a clear, natural language instruction to create a post. This message MUST include:
-        - The author of the post: "{user_name}"
-        - The content of the post: The "Invite Message" provided above ("{edited_invite_message}")
-        - An instruction to associate this post with the event created in TASK 1 (e.g., by referencing its name: "{confirmed_plan.get('event_name', 'Unnamed Event')}").
-        - Indicate the sentiment is "positive" as it's an invitation.
-    - Narrate the natural language message you are formulating for the `send_task` tool to create the post.
-    - After the `send_task` tool call is (simulated as) complete, briefly acknowledge its success.
-
-    IMPORTANT INSTRUCTIONS FOR YOUR BEHAVIOR:
-    - Your primary role here is to orchestrate these two actions by selecting an appropriate remote agent and sending it clear, natural language instructions via your  tool.
-    - Your responses during this process should be a stream of consciousness, primarily narrating your agent selection (if applicable), the formulation of your natural language messages for , and theiroutcomes.
-    - Do NOT output any JSON yourself. Your output must be plain text only, describing your actions.
-    - Conclude with a single, friendly success message confirming that you have (simulated) instructing the remote agent to create both the event and the post. For example: "Alright, I've instructed the appropriate Instavibe agent to create the event '{confirmed_plan.get('event_name', 'Unnamed Event')}' and to make the invite post for {user_name}!"
-
+Please manage the execution of these tasks, including any necessary agent discovery and task delegation.
+Provide updates on the progress and confirm completion.
     """
 
-    yield {"type": "thought", "data": f"Sending posting instructions to agent for {user_name}'s event."}
-    print(f"prompt_message: {prompt_message}") 
+    yield {"type": "thought", "data": f"Sending orchestration request to Orchestrator Agent for {user_name}'s event."}
+    logger.info(f"Orchestration request for {user_name}:\n{orchestration_request_message}")
     
     accumulated_response_text = ""
 
     try:
-        if not planner_agent_engine:
-            yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
+        if not orchestrator_agent_engine: # Check orchestrator_agent_engine
+            logger.error("Orchestrator agent engine is not initialized. Cannot send orchestration request.")
+            yield {"type": "error", "data": {"message": "Orchestrator agent engine not initialized. Cannot process event posting.", "raw_output": ""}}
             return
 
-        for event_idx, event in enumerate(
-            planner_agent_engine.chat(input=prompt_message, session_id=agent_session_user_id) # Assuming chat for follow-up
-        ):
-            print(f"\n--- Post Event - Agent Event {event_idx} Received ---") # Console
-            pprint.pprint(event) # Console
+        # Using .query() for the orchestrator as it might return a single structured response or stream of thoughts.
+        # If OrchestratorServiceAgent's query() is streaming, this loop will process it.
+        # If it's a single dict, this loop will run once.
+        # The key is that OrchestratorServiceAgent.query() should be compatible with this.
+        # For ADK agents, response is typically a stream of events.
+        # We expect the orchestrator to give textual updates or a final confirmation.
+
+        # Using .stream() as it's more consistent with ADK agent interactions
+        stream_iterator = orchestrator_agent_engine.stream(
+            input=orchestration_request_message,
+            session_id=agent_session_user_id # Use the same session ID for context
+        )
+
+        for event_idx, event in enumerate(stream_iterator):
+            logger.info(f"\n--- Orchestrator Agent Event {event_idx} Received ---")
+            # pprint.pprint(event) # Keep for debugging if necessary, can be verbose
             try:
-                content = event.get('content', {})
-                parts = content.get('parts', [])
-                for part_idx, part in enumerate(parts):
-                    if isinstance(part, dict):
-                        text = part.get('text')
-                        if text:
-                            yield {"type": "thought", "data": f"Agent: \"{text}\""}
-                            accumulated_response_text += text
-                        # We don't expect tool calls here for this simulation
+                if isinstance(event, dict):
+                    content = event.get('content', {})
+                    parts = content.get('parts', [])
+                    if not parts and content and 'text' in content and isinstance(content['text'], str): # Simple dict response
+                        text = content['text']
+                        yield {"type": "thought", "data": f"Orchestrator (dict event content text): \"{text}\""}
+                        accumulated_response_text += text
+                    else:
+                        for part_idx, part in enumerate(parts):
+                            if isinstance(part, dict):
+                                text = part.get('text')
+                                if text:
+                                    yield {"type": "thought", "data": f"Orchestrator: \"{text}\""}
+                                    accumulated_response_text += text
+                                # Orchestrator might also log tool calls it makes, handle if necessary
+                                tool_code = part.get('tool_code')
+                                tool_code_output = part.get('tool_code_output')
+                                if tool_code:
+                                    yield {"type": "thought", "data": f"Orchestrator is using a tool: {tool_code.get('name', 'Unnamed tool')}."}
+                                if tool_code_output:
+                                    # Output from tools like send_task might be complex. For now, just log its presence.
+                                    # tool_output_text = tool_code_output.get('output', {}).get('text', '[No text in tool output]')
+                                    # yield {"type": "thought", "data": f"Orchestrator received output from tool '{tool_code.get('name', 'Unnamed tool')}': {tool_output_text}"}
+                                    yield {"type": "thought", "data": f"Orchestrator received output from tool '{tool_code.get('name', 'Unnamed tool')}'."}
+
+                elif isinstance(event, str): # If the agent yields raw strings
+                    yield {"type": "thought", "data": f"Orchestrator (raw string): \"{event}\""}
+                    accumulated_response_text += event
+                else:
+                    logger.warning(f"Received event of unexpected type {type(event)} from orchestrator: {str(event)}")
+                    yield {"type": "thought", "data": f"Orchestrator (unknown event type {type(event)}): {str(event)}"}
+
             except Exception as e_inner:
-                yield {"type": "thought", "data": f"Error processing agent event part {event_idx} during posting: {str(e_inner)}"}
+                logger.error(f"Error processing orchestrator agent event part {event_idx} (type: {type(event)}): {e_inner}", exc_info=True)
+                yield {"type": "thought", "data": f"Error processing orchestrator agent event part {event_idx}: {str(e_inner)}"}
+
 
     except Exception as e_outer:
-        yield {"type": "thought", "data": f"Critical error during agent stream query for posting: {str(e_outer)}"}
-        yield {"type": "error", "data": {"message": f"Error during agent interaction for posting: {str(e_outer)}", "raw_output": accumulated_response_text}}
-        return # Stop generation if there's a major error
+        logger.error(f"Critical error during orchestrator agent stream query: {e_outer}", exc_info=True)
+        yield {"type": "thought", "data": f"Critical error during orchestrator agent interaction: {str(e_outer)}"}
+        yield {"type": "error", "data": {"message": f"Error during orchestrator agent interaction: {str(e_outer)}", "raw_output": accumulated_response_text}}
+        return
 
-    yield {"type": "thought", "data": f"--- End of Agent Response Stream for Posting ---"}
-    yield {"type": "posting_finished", "data": {"success": True, "message": "Agent has finished processing the event and post creation."}}
+    yield {"type": "thought", "data": f"--- End of Orchestrator Agent Response Stream ---"}
+    # The final message from the orchestrator should indicate success/failure.
+    # We might need a more structured way for the orchestrator to signal completion.
+    # For now, we assume the accumulated_response_text contains the confirmation.
+    yield {"type": "posting_finished", "data": {"success": True, "message": accumulated_response_text or "Orchestrator has finished processing the event and post creation."}}

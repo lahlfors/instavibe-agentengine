@@ -1,6 +1,7 @@
 import os # For path joining
 import logging # Added
-# import asyncio # Removed
+import asyncio # Added
+import nest_asyncio # Added
 from dotenv import load_dotenv # To load .env
 from typing import Any, Dict, Optional # Removed AsyncIterable, ensured Any, Dict, Optional
 from google.adk.agents import LoopAgent
@@ -20,6 +21,9 @@ from . import agent
 # is used or tested in a context where agent.py wasn't the first import,
 # the environment is still correctly configured.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+# Apply nest_asyncio to allow asyncio.run() within an existing event loop (e.g., server)
+nest_asyncio.apply()
 
 class PlannerAgent(AgentTaskManager):
   """An agent to help user planning a night out with its desire location."""
@@ -97,32 +101,47 @@ class PlannerAgent(AgentTaskManager):
             return {"error": "Failed to get or create a session."}
 
         response_event_data = None
-        try:
-            # Synchronous runner call and iteration
-            for event in self._runner.run(
+
+        async def _execute_run_and_get_first_event():
+            """Helper async function to run the agent and get the first event."""
+            # Assuming self._runner.run is an async generator or returns an async iterable
+            async for event in self._runner.run(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
-                new_message=Content(parts=[Part(text=query)], role="user") # Use query parameter
+                new_message=Content(parts=[Part(text=query)], role="user")
             ):
-                response_event_data = event
-                break
+                return event # Return the first event yielded by the runner
+            return None # Should not happen if agent always yields at least one event before finishing
+
+        try:
+            # Run the async helper function using asyncio.run()
+            response_event_data = asyncio.run(_execute_run_and_get_first_event())
         except Exception as e_run:
-            # logger.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
+            logger.error(f"Error during asyncio.run(_execute_run_and_get_first_event) for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
             if isinstance(response_event_data, dict):
+                # If the event itself is already the dict response we want
                 return response_event_data
-            # ADK 1.0.0 Event might have .content.parts[0].text or similar for final response
-            elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
-                if response_event_data.content and response_event_data.content.parts:
-                    # This is a common pattern for ADK final responses.
-                    # Assuming the response is text, and needs to be a dict.
-                    # This part is speculative based on typical ADK event structure.
-                    # The actual dict structure might need to be built differently.
-                    return {"output": response_event_data.content.parts[0].text}
-            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
-            return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
+            # Check if it's an ADK Event object and extract content if it's the final response
+            # This part needs to align with how ADK Event objects are structured.
+            # The previous code checked for is_final_response(), content, and parts.
+            # This structure might vary based on ADK version and agent type (LoopAgent vs LlmAgent directly).
+            # For now, let's assume the event might be a dict or needs conversion from an ADK event object.
+            # If it's not a dict, we need to know its structure to convert it.
+            # For simplicity, if it's not a dict, we'll log and return it as is,
+            # which might need further refinement based on actual event structure.
+            # Example for ADK event (this is a guess, adapt to actual Event structure):
+            if hasattr(response_event_data, 'content') and response_event_data.content and \
+               hasattr(response_event_data.content, 'parts') and response_event_data.content.parts and \
+               hasattr(response_event_data.content.parts[0], 'text'):
+                return {"output": response_event_data.content.parts[0].text}
+
+            logger.warning(f"Runner returned event of type {type(response_event_data)} that was not a dict and not directly convertible: {str(response_event_data)[:200]}")
+            # If we don't know how to convert it, returning it as is or an error might be necessary.
+            # Let's try to return its string representation within a dict for now.
+            return {"raw_event_data": str(response_event_data)}
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}

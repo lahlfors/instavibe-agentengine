@@ -164,10 +164,14 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 
-        for event_idx, event in enumerate(
-            planner_agent_engine.query(query=prompt_message, session_id=user_id)
-        ):
-            print(f"\n--- Event {event_idx} Received ---") # Console
+        # Ensure planner_agent_engine.stream returns an iterable/async iterable
+        # The original code was iterating over planner_agent_engine.query(),
+        # now we are using .stream() as per the fix for the agent definition.
+        # The client code here should expect a stream of events.
+        stream_iterator = planner_agent_engine.stream(input=prompt_message, session_id=user_id)
+
+        for event_idx, event in enumerate(stream_iterator):
+            print(f"\n--- Stream Event {event_idx} Received ---") # Console
             pprint.pprint(event) # Console
             try:
                 if isinstance(event, dict):

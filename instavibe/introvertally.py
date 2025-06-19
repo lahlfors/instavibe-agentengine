@@ -164,53 +164,41 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 
-        # Using .stream_query() based on user's latest snippet.
-        # stream_mode="values" is used as per the snippet.
-        # The event structure from this mode needs to be observed.
-        stream_iterator = planner_agent_engine.stream_query(input=prompt_message, session_id=user_id, stream_mode="values")
+        # Using .stream_query() based on user's latest snippet (June 19th).
+        # Input format changed to {"query": prompt_message}.
+        # stream_mode argument removed.
+        # Event processing loop adapted to new snippet's logic.
+        stream_iterator = planner_agent_engine.stream_query(input={"query": prompt_message}, session_id=user_id)
 
-        for event_idx, event in enumerate(stream_iterator):
-            print(f"\n--- Stream Event {event_idx} Received (from .stream_query(stream_mode=\"values\") call) ---") # Console
-            pprint.pprint(event) # Console
+        for chunk_idx, chunk in enumerate(stream_iterator):
+            print(f"\n--- Stream Chunk {chunk_idx} Received (from .stream_query call) ---") # Console
+            pprint.pprint(chunk) # Console
+            text_to_accumulate = None
             try:
-                if isinstance(event, dict):
-                    content = event.get('content', {})
-                    parts = content.get('parts', [])
-                    if not parts:
-                        if content and 'text' in content and isinstance(content['text'], str):
-                             yield {"type": "thought", "data": f"Agent (dict event content text): \"{content['text']}\""}
-                             accumulated_json_str += content['text']
-                    else:
-                        for part_idx, part in enumerate(parts):
-                            if isinstance(part, dict):
-                                text = part.get('text')
-                                if text:
-                                    yield {"type": "thought", "data": f"Agent (dict event part text): \"{text}\""}
-                                    accumulated_json_str += text
-                                else:
-                                    tool_code = part.get('tool_code')
-                                    tool_code_output = part.get('tool_code_output')
-                                    if tool_code:
-                                        yield {"type": "thought", "data": f"Agent is considering using a tool: {tool_code.get('name', 'Unnamed tool')}."}
-                                    if tool_code_output:
-                                        yield {"type": "thought", "data": f"Agent received output from tool '{tool_code.get('name', 'Unnamed tool')}'."}
-                elif isinstance(event, str):
-                    logger.info(f"Received raw string event from agent query: {event}")
-                    yield {"type": "thought", "data": f"Agent (string event): \"{event}\""}
-                    accumulated_json_str += event
-                else:
-                    logger.warning(f"Received event of unexpected type {type(event)} from agent query: {str(event)}")
-                    yield {"type": "thought", "data": f"Agent (unknown event type {type(event)}): {str(event)}"}
+                if isinstance(chunk, dict) and "response" in chunk:
+                    text_to_accumulate = chunk["response"]
+                    yield {"type": "thought", "data": f"Agent (chunk 'response' key): \"{text_to_accumulate}\""}
+                elif isinstance(chunk, str): # If the chunk itself is the string (less likely with dict structure but good fallback)
+                    text_to_accumulate = chunk
+                    yield {"type": "thought", "data": f"Agent (string chunk): \"{text_to_accumulate}\""}
+                else: # Fallback for unexpected chunk structure, stringify it
+                    text_to_accumulate = str(chunk)
+                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent query: {text_to_accumulate}")
+                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)}): {text_to_accumulate}"}
+
+                if text_to_accumulate:
+                    accumulated_json_str += text_to_accumulate
+
             except Exception as e_inner:
-                logger.error(f"Error processing agent event part {event_idx} (type: {type(event)}): {e_inner}", exc_info=True)
-                yield {"type": "thought", "data": f"Error processing agent event part {event_idx}: {str(e_inner)}"}
+                logger.error(f"Error processing agent chunk {chunk_idx} (type: {type(chunk)}): {e_inner}", exc_info=True)
+                yield {"type": "thought", "data": f"Error processing agent chunk {chunk_idx}: {str(e_inner)}"}
 
     except Exception as e_outer:
-        yield {"type": "thought", "data": f"Critical error during agent query/iteration: {str(e_outer)}"} # Adjusted message
+        yield {"type": "thought", "data": f"Critical error during agent stream_query: {str(e_outer)}"}
         yield {"type": "error", "data": {"message": f"Error during agent interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
         return # Stop generation
     
-    yield {"type": "thought", "data": f"--- End of Agent Response Processing (after .query call) ---"}
+    yield {"type": "thought", "data": f"--- End of Agent Response Processing (after .stream_query call) ---"}
 
     # Attempt to extract JSON if it's wrapped in markdown
     if "```json" in accumulated_json_str:
@@ -312,32 +300,40 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
             return
 
-        # Using .stream_query() based on user's latest snippet for post_plan_event as well.
-        # Using planner_agent_engine and prompt_message as orchestrator_agent_engine
+        # Using .stream_query() based on user's latest snippet (June 19th).
+        # Input format changed to {"query": prompt_message}.
+        # stream_mode argument removed. class_method not added for now.
+        # Event processing loop adapted to new snippet's logic.
+        # Still using planner_agent_engine and prompt_message as orchestrator_agent_engine
         # and orchestration_request_message are not defined in this file's scope.
-        # stream_mode="values" is used as per the snippet.
-        stream_iterator_post = planner_agent_engine.stream_query(input=prompt_message, session_id=agent_session_user_id, stream_mode="values")
+        stream_iterator_post = planner_agent_engine.stream_query(input={"query": prompt_message}, session_id=agent_session_user_id)
 
-        for event_idx, event in enumerate(stream_iterator_post):
-            print(f"\n--- Post Event - Agent Event {event_idx} Received (from .stream_query(stream_mode=\"values\") call) ---") # Console
-            pprint.pprint(event) # Console
+        for chunk_idx, chunk in enumerate(stream_iterator_post):
+            print(f"\n--- Post Event - Agent Chunk {chunk_idx} Received (from .stream_query call) ---") # Console
+            pprint.pprint(chunk) # Console
+            text_to_accumulate = None
             try:
-                content = event.get('content', {})
-                parts = content.get('parts', [])
-                for part_idx, part in enumerate(parts):
-                    if isinstance(part, dict):
-                        text = part.get('text')
-                        if text:
-                            yield {"type": "thought", "data": f"Agent: \"{text}\""}
-                            accumulated_response_text += text
-                        # We don't expect tool calls here for this simulation
+                if isinstance(chunk, dict) and "response" in chunk:
+                    text_to_accumulate = chunk["response"]
+                    yield {"type": "thought", "data": f"Agent (chunk 'response' key): \"{text_to_accumulate}\""}
+                elif isinstance(chunk, str):
+                    text_to_accumulate = chunk
+                    yield {"type": "thought", "data": f"Agent (string chunk): \"{text_to_accumulate}\""}
+                else:
+                    text_to_accumulate = str(chunk)
+                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent query for post: {text_to_accumulate}")
+                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)} for post): {text_to_accumulate}"}
+
+                if text_to_accumulate:
+                    accumulated_response_text += text_to_accumulate
+
             except Exception as e_inner:
-                yield {"type": "thought", "data": f"Error processing agent event part {event_idx} during posting: {str(e_inner)}"}
+                yield {"type": "thought", "data": f"Error processing agent chunk {chunk_idx} during posting: {str(e_inner)}"}
 
     except Exception as e_outer:
-        yield {"type": "thought", "data": f"Critical error during agent stream query for posting: {str(e_outer)}"}
+        yield {"type": "thought", "data": f"Critical error during agent stream_query for posting: {str(e_outer)}"}
         yield {"type": "error", "data": {"message": f"Error during agent interaction for posting: {str(e_outer)}", "raw_output": accumulated_response_text}}
         return # Stop generation if there's a major error
 
-    yield {"type": "thought", "data": f"--- End of Agent Response Stream for Posting ---"}
+    yield {"type": "thought", "data": f"--- End of Agent Response Processing for Posting (after .stream_query call) ---"}
     yield {"type": "posting_finished", "data": {"success": True, "message": "Agent has finished processing the event and post creation."}}

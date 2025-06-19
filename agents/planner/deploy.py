@@ -16,6 +16,7 @@ from vertexai import agent_engines # For the new create method
 # from google.cloud import storage # Handled by ADK or not needed directly
 # import google.auth # For google.auth.exceptions, potentially still needed if vertexai.init() fails early
 from dotenv import load_dotenv # For loading .env file
+import logging # Added
 
 from agents.planner.planner_agent import PlannerAgent
 
@@ -25,6 +26,8 @@ from agents.planner.planner_agent import PlannerAgent
 # are configured from the root .env.
 # Keep load_dotenv for now, as PlannerAgent or other setup might use it.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+log = logging.getLogger(__name__) # Added
 
 def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     """
@@ -43,9 +46,45 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     local_agent_instance = PlannerAgent()
     adk_app = AdkApp(agent=local_agent_instance)
 
+    # base_dir is the repository root.
     requirements_path = os.path.join(base_dir, "agents/planner/requirements.txt")
-    if not os.path.exists(requirements_path):
-        raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
+    requirements_list = []
+    if os.path.exists(requirements_path):
+        with open(requirements_path, "r") as f:
+            requirements_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    else:
+        # Log a warning if not found, but proceed with empty list as ADK might allow this
+        # or base image might be sufficient for some agents.
+        # However, for this agent, requirements are likely crucial.
+        log.warning(f"Requirements file not found: {requirements_path}. Proceeding with an empty requirements list.")
+        # Consider raising an error if requirements are essential:
+        # raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
+
+    # Ensure nest_asyncio is present with the correct version constraint
+    # This matches the logic in platform_mcp_client/deploy.py
+    nest_asyncio_req_line = "nest_asyncio>=1.5.0,<2.0.0" # ADK often needs this for its async ops
+    found_nest_asyncio = False
+    for i, req in enumerate(requirements_list):
+        if req.startswith("nest_asyncio"):
+            # If found, ensure it matches the desired constraint.
+            # The planner's requirements.txt already has nest_asyncio==1.6.0, which satisfies this.
+            # This logic is more about ensuring a general constraint if it were different or missing.
+            # For now, if it's specified as nest_asyncio==1.6.0, this block might not alter it,
+            # but if it was, e.g., nest_asyncio==1.4.0, it would update it.
+            # To be precise like platform_mcp_client, we could enforce the exact string if different.
+            # Let's assume if it starts with "nest_asyncio" and is in requirements.txt, it's the one we want (1.6.0).
+            # The logic from platform_mcp_client was more about adding it if missing or updating if version was too old.
+            # Given planner's reqs.txt has 1.6.0, this should be fine.
+            # For consistency with platform_mcp_client, let's ensure the line matches if found, or add if not.
+            if req != nest_asyncio_req_line:
+                log.info(f"Updating nest_asyncio requirement from '{req}' to '{nest_asyncio_req_line}' in {requirements_path} (for deployment list)")
+                requirements_list[i] = nest_asyncio_req_line
+            found_nest_asyncio = True
+            break
+    if not found_nest_asyncio:
+        log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {display_name} deployment.")
+        requirements_list.append(nest_asyncio_req_line)
+
 
     # Define paths for extra_packages relative to base_dir
     # base_dir is the repository root.
@@ -63,7 +102,8 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
 
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
-    print(f"  Requirements file: {requirements_path}")
+    print(f"  Requirements file (source): {requirements_path}") # Log original source
+    print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
     print(f"  Extra packages: {extra_packages}")
 
     # The ADK's create() function handles packaging and uploading.
@@ -74,7 +114,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
             adk_app, # Pass the AdkApp instance
             display_name=display_name,
             description=description,
-            requirements=requirements_path,
+            requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

@@ -41,7 +41,7 @@ def init_agent_engine(project_id, location):
             planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
             logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
             logger.info("Planner agent engine initialized successfully (directly via resource name).")
-            return # Successfully initialized
+            return
         except Exception as e:
             logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
             logger.warning("Falling back to listing reasoning engines.")

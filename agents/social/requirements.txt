@@ -1,4 +1,4 @@
-google-cloud-aiplatform[adk,agent_engines]==1.96.0
+google-cloud-aiplatform[adk,agent_engines]==1.97.0
 google-cloud-spanner==3.54.0
 google-genai==1.14.0
 google-adk>=1.0.0,<1.1.0

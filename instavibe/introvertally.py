@@ -164,29 +164,23 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 
-        # Ensure planner_agent_engine.stream returns an iterable/async iterable
-        # The original code was iterating over planner_agent_engine.query(),
-        # now we are using .stream() as per the fix for the agent definition.
-        # The client code here should expect a stream of events.
-        stream_iterator = planner_agent_engine.stream(input=prompt_message, session_id=user_id)
+        # Using .stream_query() based on user's latest snippet.
+        # stream_mode="values" is used as per the snippet.
+        # The event structure from this mode needs to be observed.
+        stream_iterator = planner_agent_engine.stream_query(input=prompt_message, session_id=user_id, stream_mode="values")
 
         for event_idx, event in enumerate(stream_iterator):
-            print(f"\n--- Stream Event {event_idx} Received ---") # Console
+            print(f"\n--- Stream Event {event_idx} Received (from .stream_query(stream_mode=\"values\") call) ---") # Console
             pprint.pprint(event) # Console
             try:
                 if isinstance(event, dict):
-                    # Existing logic for dictionary events
                     content = event.get('content', {})
                     parts = content.get('parts', [])
-
-                    if not parts: # Check if parts might be None or empty
-                        # If content itself has 'text', it might be a simple dict response
+                    if not parts:
                         if content and 'text' in content and isinstance(content['text'], str):
                              yield {"type": "thought", "data": f"Agent (dict event content text): \"{content['text']}\""}
                              accumulated_json_str += content['text']
-                        # else: # No parts and no direct text in content
-                        #    pass # Or log empty dict event if necessary
-                    else: # Process parts
+                    else:
                         for part_idx, part in enumerate(parts):
                             if isinstance(part, dict):
                                 text = part.get('text')
@@ -201,24 +195,22 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
                                     if tool_code_output:
                                         yield {"type": "thought", "data": f"Agent received output from tool '{tool_code.get('name', 'Unnamed tool')}'."}
                 elif isinstance(event, str):
-                    # New logic for string events
                     logger.info(f"Received raw string event from agent query: {event}")
                     yield {"type": "thought", "data": f"Agent (string event): \"{event}\""}
                     accumulated_json_str += event
                 else:
-                    # Log/handle other unexpected event types
                     logger.warning(f"Received event of unexpected type {type(event)} from agent query: {str(event)}")
                     yield {"type": "thought", "data": f"Agent (unknown event type {type(event)}): {str(event)}"}
-            except Exception as e_inner: # This outer try-except catches errors from the above logic
+            except Exception as e_inner:
                 logger.error(f"Error processing agent event part {event_idx} (type: {type(event)}): {e_inner}", exc_info=True)
                 yield {"type": "thought", "data": f"Error processing agent event part {event_idx}: {str(e_inner)}"}
 
     except Exception as e_outer:
-        yield {"type": "thought", "data": f"Critical error during agent stream query: {str(e_outer)}"}
+        yield {"type": "thought", "data": f"Critical error during agent query/iteration: {str(e_outer)}"} # Adjusted message
         yield {"type": "error", "data": {"message": f"Error during agent interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
         return # Stop generation
     
-    yield {"type": "thought", "data": f"--- End of Agent Response Stream ---"}
+    yield {"type": "thought", "data": f"--- End of Agent Response Processing (after .query call) ---"}
 
     # Attempt to extract JSON if it's wrapped in markdown
     if "```json" in accumulated_json_str:
@@ -316,14 +308,18 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     accumulated_response_text = ""
 
     try:
-        if not planner_agent_engine:
+        if not planner_agent_engine: # Still using planner_agent_engine as orchestrator_agent_engine is not defined
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
             return
 
-        for event_idx, event in enumerate(
-            planner_agent_engine.chat(input=prompt_message, session_id=agent_session_user_id) # Assuming chat for follow-up
-        ):
-            print(f"\n--- Post Event - Agent Event {event_idx} Received ---") # Console
+        # Using .stream_query() based on user's latest snippet for post_plan_event as well.
+        # Using planner_agent_engine and prompt_message as orchestrator_agent_engine
+        # and orchestration_request_message are not defined in this file's scope.
+        # stream_mode="values" is used as per the snippet.
+        stream_iterator_post = planner_agent_engine.stream_query(input=prompt_message, session_id=agent_session_user_id, stream_mode="values")
+
+        for event_idx, event in enumerate(stream_iterator_post):
+            print(f"\n--- Post Event - Agent Event {event_idx} Received (from .stream_query(stream_mode=\"values\") call) ---") # Console
             pprint.pprint(event) # Console
             try:
                 content = event.get('content', {})

@@ -18,7 +18,8 @@ from vertexai import agent_engines # For the new create method
 from dotenv import load_dotenv # For loading .env file
 import logging # Added
 
-from agents.planner.planner_agent import PlannerAgent
+# from agents.planner.planner_agent import PlannerAgent # No longer deploying this wrapper directly
+from agents.planner import agent as planner_main_agent_module # Import the module containing root_agent
 
 # Load environment variables from the root .env file
 # This ensures that any implicit environment variable reads by underlying
@@ -43,7 +44,10 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # has been called, likely in a main deployment script (e.g., deploy_all.py).
     # We remove direct staging_bucket_uri parsing and GCS client instantiation here.
 
-    local_agent_instance = PlannerAgent()
+    # local_agent_instance = PlannerAgent() # Old: Deployed the wrapper
+    local_agent_instance = planner_main_agent_module.root_agent # New: Deploy the LlmAgent
+    if local_agent_instance is None:
+        raise ValueError("Error: The root_agent in agents.planner.agent is None. Ensure it's initialized.")
     adk_app = AdkApp(agent=local_agent_instance)
 
     # base_dir is the repository root.

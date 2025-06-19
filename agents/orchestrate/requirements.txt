@@ -1,13 +1,10 @@
 # Core dependencies for Vertex AI Agent Engine deployment
-google-cloud-aiplatform
+google-cloud-aiplatform[adk,agent_engines]==1.96.0 # Updated and specified extras
 python-dotenv==1.0.1
 
 # Local shared library for agent communication
-# This relative path assumes that during deployment to Vertex AI,
-# the 'app' directory is available one level up from 'orchestrate'.
-# This might need adjustment depending on how Vertex AI handles packaging.
-# For local development, this works if PYTHONPATH is set correctly or if using editable installs.
-agents/a2a_common-0.1.0-py3-none-any.whl
+a2a_common==0.1.0 # Changed from relative path
 google-adk>=1.0.0,<1.1.0
 deprecated==1.2.18
 nest_asyncio==1.6.0
+pydantic==2.11.7 # Added for consistency

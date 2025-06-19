@@ -4,8 +4,8 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
 import logging
 import os
-import nest_asyncio # Import nest_asyncio
-from google.adk.agents import BaseAgent # Add BaseAgent
+import nest_asyncio
+from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
@@ -30,12 +30,7 @@ class PlatformMCPClientServiceAgent:
         self._mcp_toolset: Optional[MCPToolset] = None
         self._agent: Optional[BaseAgent] = None
         self._runner: Optional[Runner] = None
-        try:
-            # Ensure components are initialized during construction
-            asyncio.run(self._ensure_components_initialized_async())
-        except Exception as e:
-            log.error(f"Error during PlatformMCPClientServiceAgent synchronous __init__ calling _ensure_components_initialized_async: {e}", exc_info=True)
-            raise
+        # Removed asyncio.run for lazy initialization
 
     async def _ensure_components_initialized_async(self):
         if self._runner is not None:
@@ -83,13 +78,14 @@ class PlatformMCPClientServiceAgent:
         )
         log.info("PlatformMCPClientServiceAgent: Runner created.")
 
-    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def _execute_query_async(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        await self._ensure_components_initialized_async()
+
         if not self._runner or not self._agent:
-            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized for query. Initialization in __init__ might have failed.")
-            return {"error": "Agent not initialized"}
+            log.error("PlatformMCPClientServiceAgent: Agent/Runner not initialized properly.")
+            return {"error": "Agent components not initialized"}
 
         app_name = self._agent.name
-
         external_session_id = kwargs.get("session_id")
         interaction_user_id = self._user_id
         desired_session_id: str
@@ -105,7 +101,7 @@ class PlatformMCPClientServiceAgent:
         current_session_obj: Optional[Any] = None
         try:
             log.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-            current_session_obj = self._runner.session_service.get_session(
+            current_session_obj = await self._runner.session_service.get_session(
                 app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
             )
             if current_session_obj:
@@ -118,13 +114,13 @@ class PlatformMCPClientServiceAgent:
 
         if current_session_obj is None:
             try:
-                log.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-                current_session_obj = self._runner.session_service.create_session(
-                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
+                log.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id_override='{desired_session_id}'")
+                current_session_obj = await self._runner.session_service.create_session(
+                    app_name=app_name, user_id=interaction_user_id, session_id_override=desired_session_id
                 )
                 log.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
             except Exception as e_create:
-                log.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id}: {e_create}", exc_info=True)
+                log.error(f"Failed to create session for user {interaction_user_id} with session_id_override {desired_session_id}: {e_create}", exc_info=True)
                 return {"error": f"Session management failure during create: {e_create}"}
 
         if not current_session_obj:
@@ -133,7 +129,7 @@ class PlatformMCPClientServiceAgent:
 
         response_event_data = None
         try:
-            for event in self._runner.run(
+            async for event in self._runner.run_async(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
                 new_message=Content(parts=[Part(text=query)], role="user")
@@ -141,7 +137,7 @@ class PlatformMCPClientServiceAgent:
                 response_event_data = event
                 break
         except Exception as e_run:
-            log.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
+            log.error(f"Error during run_async for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
@@ -150,11 +146,14 @@ class PlatformMCPClientServiceAgent:
             elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
                 if response_event_data.content and response_event_data.content.parts and response_event_data.content.parts[0].text:
                     return {"output": response_event_data.content.parts[0].text}
-            log.warning(f"run returned event of type {type(response_event_data)} instead of dict for session {current_session_obj.id}: {str(response_event_data)[:200]}")
-            return {"error": "Unexpected event type from agent execution", "event_preview": str(response_event_data)[:100]}
+            log.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
+            return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
         else:
             log.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
+
+    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        return asyncio.run(self._execute_query_async(query=query, **kwargs))
 
     async def close_async(self):
         if self._mcp_toolset:
@@ -177,7 +176,6 @@ def initialize_global_agent():
             raise ValueError("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL not set for PlatformMCPClientServiceAgent.")
 
         try:
-            # __init__ will now call _ensure_components_initialized_async via asyncio.run
             root_agent = PlatformMCPClientServiceAgent(mcp_server_url=mcp_url)
             log.info("PlatformMCPClientServiceAgent initialized successfully and assigned to agent.root_agent.")
         except Exception as e:

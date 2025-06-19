@@ -5,6 +5,6 @@ google-adk>=1.0.0,<1.1.0
 python-dotenv==1.0.1
 fastapi==0.115.12
 urllib3<3,>=1.21.1
-a2a_common-0.1.0-py3-none-any.whl
+agents/a2a_common-0.1.0-py3-none-any.whl
 deprecated==1.2.18
 pydantic==2.11.7

@@ -11,11 +11,26 @@ from google.cloud.aiplatform_v1.services.reasoning_engine_service import Reasoni
 from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
+import sys # For sys.exit()
+# google.cloud.aiplatform is already imported as vertexai
+
 # Initialize logger
 logger = logging.getLogger(__name__)
 
 # Global variable for the agent engine
 planner_agent_engine = None
+
+def run_debug_and_exit_v2(engine_object):
+    """Prints SDK version, dir(), help() for the engine object and exits."""
+    print("\n--- DEBUGGING VERTEX AI SDK ---")
+    # Ensure google.cloud.aiplatform is available to get __version__
+    # It's imported as vertexai, so use that.
+    print(f"Loaded google-cloud-aiplatform version: {vertexai.__version__}")
+    print("\nAvailable methods on ReasoningEngine object:")
+    print(dir(engine_object))
+    print("\n\n--- FULL HELP DOCUMENTATION ---")
+    help(engine_object)
+    sys.exit("Exiting after debug inspection.")
 
 def init_agent_engine(project_id, location):
     """Initializes the Vertex AI Agent Engine."""
@@ -41,6 +56,7 @@ def init_agent_engine(project_id, location):
             planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
             logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
             logger.info("Planner agent engine initialized successfully (directly via resource name).")
+            run_debug_and_exit_v2(planner_agent_engine) # DEBUG AND EXIT
             return
         except Exception as e:
             logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
@@ -83,6 +99,7 @@ def init_agent_engine(project_id, location):
                 # or the SDK should handle the full name correctly.
                 planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full)
                 logger.info("Successfully connected to Planner Agent (fallback).")
+                run_debug_and_exit_v2(planner_agent_engine) # DEBUG AND EXIT
             else:
                 logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id} and specific location {location} (fallback after listing from global).")
                 planner_agent_engine = None

@@ -6,7 +6,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from agents.common.task_manager import AgentWithTaskManager # Corrected import
+from a2a_common.task_manager import AgentWithTaskManager # Changed to a2a_common
 from platform_mcp_client import agent
 import os # For path joining
 from dotenv import load_dotenv # To load .env

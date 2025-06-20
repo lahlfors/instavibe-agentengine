@@ -72,8 +72,35 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
 
     # base_dir is the repository root.
     requirements_path = os.path.join(base_dir, "agents/orchestrate/requirements.txt")
-    if not os.path.exists(requirements_path):
-        raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
+    requirements_list = []
+    if os.path.exists(requirements_path):
+        with open(requirements_path, "r") as f:
+            # Strip comments and blank lines
+            requirements_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    else:
+        log.warning(f"Requirements file not found: {requirements_path}. Proceeding with an empty requirements list.")
+        # Consider raising FileNotFoundError if requirements are essential for this agent
+
+    # Ensure nest_asyncio is present with the correct version constraint
+    # (agents/orchestrate/requirements.txt already has nest_asyncio==1.6.0 which satisfies this)
+    nest_asyncio_req_line = "nest_asyncio>=1.5.0,<2.0.0"
+    found_nest_asyncio = False
+    for i, req in enumerate(requirements_list):
+        if req.startswith("nest_asyncio"):
+            if req != nest_asyncio_req_line: # If it's already more specific like ==1.6.0, this might change it.
+                                          # For consistency, we will ensure it matches this general constraint if different.
+                                          # However, if 1.6.0 is in the file, it meets ">=1.5.0,<2.0.0".
+                                          # Let's ensure it if it's not exactly "nest_asyncio==1.6.0" or similar compatible.
+                                          # The logic in other deploy files would update if not exactly matching nest_asyncio_req_line.
+                                          # Since 1.6.0 is fine, this specific update might not trigger often but good for robustness.
+                pass # Assuming 1.6.0 from file is fine and satisfies the broader constraint.
+                     # If stricter enforcement to ">=" was needed, logic would be:
+                     # requirements_list[i] = nest_asyncio_req_line
+            found_nest_asyncio = True
+            break
+    if not found_nest_asyncio: # This will add it if totally missing.
+        log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {display_name} deployment.")
+        requirements_list.append(nest_asyncio_req_line)
 
     extra_packages = [
         os.path.join(base_dir, "agents")
@@ -84,10 +111,10 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
             raise FileNotFoundError(f"Extra package path {pkg_path} not found.")
 
     print(f"Starting deployment of '{display_name}' using ADK...")
-    print(f"  Project: {project_id}, Region: {region}") # Informational
-    print(f"  Requirements file: {requirements_path}")
+    print(f"  Project: {project_id}, Region: {region}")
+    print(f"  Requirements file (source): {requirements_path}")
+    print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
     print(f"  Extra packages: {extra_packages}")
-    # print(f"  Environment variables for deployed agent: {env_vars_for_deployment}") # Removed
 
 
     try:
@@ -95,7 +122,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
             adk_app,  # Pass the AdkApp instance
             display_name=display_name,
             description=description,
-            requirements=requirements_path,
+            requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
             # env_vars parameter removed as agent takes config via constructor
             # project=project_id, # Optional: ADK uses vertexai.init() global config

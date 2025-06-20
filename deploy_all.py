@@ -160,64 +160,115 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
 
 
-def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instavibe-app", env_vars_string: str | None = None):
-    print(f"Starting deployment process for Cloud Run service '{image_name}' in project {project_id} region {region}...")
-    # For Cloud Run, updates are handled by gcloud run deploy if the service exists.
-    # No explicit deletion needed unless a clean slate is strictly required for other reasons.
-    # if check_cloud_run_service_exists(service_name=image_name, project_id=project_id, region=region):
-    # print(f"Skipping deployment of Cloud Run service '{image_name}' as it already exists.")
-    # return
+def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity
+    """Deploys the Instavibe app to Cloud Run, attempting to enable Kaniko and using --no-cache."""
+    print(f"--- Deploying Instavibe App ({image_name_param}) ---")
 
-    print(f"Proceeding with deployment (or update) of Cloud Run service '{image_name}'.")
+    # 1. Set the gcloud configuration to use the Kaniko cache.
+    print("Step 1: Attempting to enable Kaniko cache for Google Cloud Build...")
     try:
-        print(f"Building Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["gcloud", "builds", "submit", "--tag", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}", ".", "--project", project_id, "--no-cache"],
-            check=True, capture_output=True, text=True, cwd="instavibe/",
+            ["gcloud", "config", "set", "builds/use_kaniko", "True", "--project", project_id],
+            check=True, capture_output=True, text=True
         )
-        print(f"Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully (with --no-cache).")
+        print("Kaniko cache enabled successfully for project.")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
+    # 2. Build the Docker image with --no-cache
+    # Construct the full image tag
+    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
+    print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build...")
+    try:
+        build_command = [
+            "gcloud", "builds", "submit", "instavibe", # Source path from repo root
+            "--tag", image_tag,
+            "--project", project_id,
+            "--no-cache"
+        ]
+        subprocess.run(
+            build_command,
+            check=True, capture_output=True, text=True
+            # cwd is not needed as "instavibe" is specified as source for gcloud builds submit
+        )
+        print(f"Successfully built image: {image_tag}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error building Instavibe App image: {e.stderr}")
+        # print full error details
+        print(f"Stdout: {e.stdout}")
+        raise
+
+    # 3. Deploy the newly built image to Cloud Run
+    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
+    try:
         deploy_command = [
-            "gcloud", "run", "deploy", image_name,
-            "--image", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}",
-            "--platform", "managed", "--region", region, "--project", project_id, "--allow-unauthenticated",
+            "gcloud", "run", "deploy", image_name_param, # Service name
+            "--image", image_tag, # Full image path
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--allow-unauthenticated",
         ]
         if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
 
         print(f"Deploying Instavibe App to Cloud Run in {region} with env vars: {env_vars_string if env_vars_string else 'Defaults from Dockerfile/service'}")
         subprocess.run(deploy_command, check=True, capture_output=True, text=True)
-        print(f"Instavibe App {image_name} deployed successfully to Cloud Run in {region}.")
+        print(f"Instavibe App {image_name_param} deployed successfully to Cloud Run in {region}.")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying Instavibe App: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        print(f"Error deploying Instavibe App to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
         raise
 
-def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-tool-server", env_vars_string: str | None = None):
-    print(f"Starting deployment process for Cloud Run service '{image_name}' in project {project_id} region {region}...")
-    # if check_cloud_run_service_exists(service_name=image_name, project_id=project_id, region=region):
-    # print(f"Skipping deployment of Cloud Run service '{image_name}' as it already exists.")
-    # return
+def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str = "mcp-tool-server", env_vars_string: str | None = None):
+    """Deploys the MCP Tool Server to Cloud Run, attempting to enable Kaniko and using --no-cache."""
+    print(f"--- Deploying MCP Tool Server ({image_name_param}) ---")
 
-    print(f"Proceeding with deployment (or update) of Cloud Run service '{image_name}'.")
+    # 1. Attempt to set the gcloud configuration to use the Kaniko cache (harmless if already set).
+    print("Step 1: Ensuring Kaniko cache is enabled for Google Cloud Build...")
     try:
-        print(f"Building MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["gcloud", "builds", "submit", "--tag", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}", ".", "--project", project_id, "--no-cache"],
-            check=True, capture_output=True, text=True, cwd="tools/instavibe/",
+            ["gcloud", "config", "set", "builds/use_kaniko", "True", "--project", project_id],
+            check=True, capture_output=True, text=True
         )
-        print(f"MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully (with --no-cache).")
+        print("Kaniko cache configuration check/set complete for project.")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Could not set Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
+    # 2. Build the Docker image with --no-cache
+    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
+    print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
+    try:
+        build_command = [
+            "gcloud", "builds", "submit", "tools/instavibe", # Source path from repo root
+            "--tag", image_tag,
+            "--project", project_id,
+            "--no-cache"
+        ]
+        subprocess.run(
+            build_command,
+            check=True, capture_output=True, text=True
+            # cwd is not needed as "tools/instavibe" is the source path argument
+        )
+        print(f"Successfully built image: {image_tag}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error building MCP Tool Server image: {e.stderr}")
+        print(f"Stdout: {e.stdout}") # Also print stdout for more context
+        raise
+
+    # 3. Deploy the newly built image to Cloud Run
+    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
+    try:
         deploy_command = [
-            "gcloud", "run", "deploy", image_name,
-            "--image", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}",
+            "gcloud", "run", "deploy", image_name_param,
+            "--image", image_tag,
             "--platform", "managed", "--region", region, "--project", project_id, "--allow-unauthenticated",
         ]
         if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
 
         print(f"Deploying MCP Tool Server to Cloud Run in {region} {'with env vars: ' + env_vars_string if env_vars_string else 'without specific env vars for --set-env-vars'}")
         subprocess.run(deploy_command, check=True, capture_output=True, text=True)
-        print(f"MCP Tool Server {image_name} deployed successfully to Cloud Run in {region}.")
+        print(f"MCP Tool Server {image_name_param} deployed successfully to Cloud Run in {region}.")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying MCP Tool Server: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        print(f"Error deploying MCP Tool Server to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
         raise
 
 def main(argv=None):

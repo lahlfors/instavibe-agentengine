@@ -26,6 +26,9 @@ from agents.social.social_agent import SocialAgent
 # Keep load_dotenv for now.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
+import logging # Added
+log = logging.getLogger(__name__) # Added
+
 def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     """
     Deploys the Social Agent as a Vertex AI Reasoning Engine using the ADK.
@@ -50,8 +53,26 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
 
     # base_dir is assumed to be the repository root.
     requirements_path = os.path.join(base_dir, "agents/social/requirements.txt")
-    if not os.path.exists(requirements_path):
-        raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
+    requirements_list = []
+    if os.path.exists(requirements_path):
+        with open(requirements_path, "r") as f:
+            requirements_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    else:
+        log.warning(f"Requirements file not found: {requirements_path}. Proceeding with an empty requirements list.")
+
+    nest_asyncio_req_line = "nest_asyncio>=1.5.0,<2.0.0"
+    found_nest_asyncio = False
+    # Check if nest_asyncio is in agents/social/requirements.txt (it's not currently, so this will add it)
+    for i, req in enumerate(requirements_list):
+        if req.startswith("nest_asyncio"):
+            if req != nest_asyncio_req_line:
+                log.info(f"Updating nest_asyncio requirement from '{req}' to '{nest_asyncio_req_line}' in {requirements_path} (for deployment list)")
+                requirements_list[i] = nest_asyncio_req_line
+            found_nest_asyncio = True
+            break
+    if not found_nest_asyncio:
+        log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {display_name} deployment.")
+        requirements_list.append(nest_asyncio_req_line)
 
     extra_packages = [
         os.path.join(base_dir, "agents")
@@ -63,8 +84,9 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
             raise FileNotFoundError(f"Extra package path {pkg_path} not found.")
 
     print(f"Starting deployment of '{display_name}' using ADK...")
-    print(f"  Project: {project_id}, Region: {region}") # project_id and region are for info, ADK uses vertexai.init() config
-    print(f"  Requirements file: {requirements_path}")
+    print(f"  Project: {project_id}, Region: {region}")
+    print(f"  Requirements file (source): {requirements_path}")
+    print(f"  Processed requirements list (for deployment): {requirements_list}")
     print(f"  Extra packages: {extra_packages}")
 
     try:
@@ -72,7 +94,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
             adk_app, # Pass the AdkApp instance
             display_name=display_name,
             description=description,
-            requirements=requirements_path,
+            requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

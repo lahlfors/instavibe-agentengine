@@ -1,10 +1,9 @@
 google-cloud-aiplatform[adk,agent_engines]==1.97.0
-google-cloud-spanner==3.54.0
-google-genai==1.14.0
+google-cloud-spanner>=3.54.0
+google-genai>=1.14.0
 google-adk>=1.0.0,<1.1.0
-python-dotenv==1.0.1
-fastapi==0.115.12
+python-dotenv>=1.0.0
+fastapi>=0.115.12
 urllib3<3,>=1.21.1
-agents/a2a_common-0.1.0-py3-none-any.whl
-deprecated==1.2.18
-pydantic==2.11.7
+deprecated>=1.2.0
+cloudpickle>=3.0.0

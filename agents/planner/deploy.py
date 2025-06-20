@@ -110,6 +110,19 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
     print(f"  Extra packages: {extra_packages}")
 
+    # Prepare environment variables for the deployed agent
+    env_vars_for_deployment = {
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
+        "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
+        # AGENTS_PLANNER_AGENT_NAME is set via agent.AGENT_NAME
+        # AGENTS_PLANNER_MODEL_NAME is set via agent.MODEL_NAME
+        # API keys for tools like google_search should be picked up if root .env is loaded by agent.py
+    }
+    env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
+    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
+
     # The ADK's create() function handles packaging and uploading.
     # It uses the globally configured staging bucket from vertexai.init().
     # project and location are also typically set by vertexai.init() but can be overridden.
@@ -120,6 +133,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
             description=description,
             requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
+            environment_variables=env_vars_for_deployment, # Pass the env vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
             # staging_bucket_uri can be specified to override global, but usually not needed.

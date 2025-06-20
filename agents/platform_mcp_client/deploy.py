@@ -77,6 +77,18 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     print(f"  Processed requirements list (for deployment): {requirements_list}")
     print(f"  Extra packages: {extra_packages}")
 
+    # Prepare environment variables for the deployed agent
+    env_vars_for_deployment = {
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
+        "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
+        "TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL": os.environ.get("TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL", "")
+        # Add other necessary env vars for Platform MCP Client
+    }
+    env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
+    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
+
     try:
         remote_agent = agent_engines.create(
             adk_app,  # Pass the AdkApp instance
@@ -84,6 +96,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
             description=description,
             requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
+            environment_variables=env_vars_for_deployment, # Pass the env vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )

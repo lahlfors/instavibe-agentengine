@@ -116,6 +116,20 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
     print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
     print(f"  Extra packages: {extra_packages}")
 
+    # Prepare environment variables for the deployed agent
+    # OrchestrateServiceAgent itself takes remote_agent_addresses_str via constructor.
+    # These env vars would be for other clients or services it might use.
+    env_vars_for_deployment = {
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
+        "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
+        # AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES is handled by passing to constructor,
+        # but if the agent code also tries to read it from env, it should be the same.
+        "AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES": remote_agent_addresses_str
+    }
+    env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
+    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
 
     try:
         remote_agent = agent_engines.create(
@@ -124,7 +138,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
             description=description,
             requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
-            # env_vars parameter removed as agent takes config via constructor
+            environment_variables=env_vars_for_deployment, # Pass the env vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )

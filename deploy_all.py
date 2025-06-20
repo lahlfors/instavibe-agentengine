@@ -2,6 +2,7 @@ import subprocess
 import argparse
 import sys
 import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__))) # Add repo root to path
 from dotenv import load_dotenv
 from google.cloud import aiplatform as vertexai
 from google.cloud.aiplatform_v1.services import reasoning_engine_service

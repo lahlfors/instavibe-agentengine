@@ -20,17 +20,14 @@ logger = logging.getLogger(__name__)
 # Global variable for the agent engine
 planner_agent_engine = None
 
-def run_debug_and_exit_v2(engine_object):
-    """Prints SDK version, dir(), help() for the engine object and exits."""
-    print("\n--- DEBUGGING VERTEX AI SDK ---")
-    # Ensure google.cloud.aiplatform is available to get __version__
-    # It's imported as vertexai, so use that.
-    print(f"Loaded google-cloud-aiplatform version: {vertexai.__version__}")
-    print("\nAvailable methods on ReasoningEngine object:")
+def run_definitive_debug_and_exit(engine_object):
+    """Prints SDK version, dir() for the engine object and exits."""
+    print("\n--- DEBUGGING LlmAgent ReasoningEngine INSTANCE ---")
+    print(f"SDK Version: {vertexai.__version__}") # vertexai is google.cloud.aiplatform
+    print("\nAvailable methods on this LlmAgent instance:")
     print(dir(engine_object))
-    print("\n\n--- FULL HELP DOCUMENTATION ---")
-    help(engine_object)
-    sys.exit("Exiting after debug inspection.")
+    # help(engine_object) # Not in user's latest debug snippet
+    sys.exit("--> Exiting after inspecting the live agent object. <--")
 
 def init_agent_engine(project_id, location):
     """Initializes the Vertex AI Agent Engine."""
@@ -56,7 +53,7 @@ def init_agent_engine(project_id, location):
             planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
             logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
             logger.info("Planner agent engine initialized successfully (directly via resource name).")
-            run_debug_and_exit_v2(planner_agent_engine) # DEBUG AND EXIT
+            run_definitive_debug_and_exit(planner_agent_engine) # DEBUG AND EXIT
             return
         except Exception as e:
             logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
@@ -99,7 +96,7 @@ def init_agent_engine(project_id, location):
                 # or the SDK should handle the full name correctly.
                 planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full)
                 logger.info("Successfully connected to Planner Agent (fallback).")
-                run_debug_and_exit_v2(planner_agent_engine) # DEBUG AND EXIT
+                run_definitive_debug_and_exit(planner_agent_engine) # DEBUG AND EXIT
             else:
                 logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id} and specific location {location} (fallback after listing from global).")
                 planner_agent_engine = None
@@ -181,10 +178,8 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 
-        # Using .stream_query() based on user's latest snippet (June 19th).
-        # Input format changed to {"query": prompt_message}.
-        # stream_mode argument removed.
-        # Event processing loop adapted to new snippet's logic.
+        # Reverted to .stream_query(input={"query": ...}) and chunk["response"] processing
+        # as per state before user's "Final Action Plan" to use .query(input={"prompt":...})
         stream_iterator = planner_agent_engine.stream_query(input={"query": prompt_message}, session_id=user_id)
 
         for chunk_idx, chunk in enumerate(stream_iterator):
@@ -195,10 +190,10 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
                 if isinstance(chunk, dict) and "response" in chunk:
                     text_to_accumulate = chunk["response"]
                     yield {"type": "thought", "data": f"Agent (chunk 'response' key): \"{text_to_accumulate}\""}
-                elif isinstance(chunk, str): # If the chunk itself is the string (less likely with dict structure but good fallback)
+                elif isinstance(chunk, str):
                     text_to_accumulate = chunk
                     yield {"type": "thought", "data": f"Agent (string chunk): \"{text_to_accumulate}\""}
-                else: # Fallback for unexpected chunk structure, stringify it
+                else:
                     text_to_accumulate = str(chunk)
                     logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent query: {text_to_accumulate}")
                     yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)}): {text_to_accumulate}"}
@@ -317,10 +312,8 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
             return
 
-        # Using .stream_query() based on user's latest snippet (June 19th).
-        # Input format changed to {"query": prompt_message}.
-        # stream_mode argument removed. class_method not added for now.
-        # Event processing loop adapted to new snippet's logic.
+        # Reverted to .stream_query(input={"query": ...}) and chunk["response"] processing
+        # as per state before user's "Final Action Plan" to use .query(input={"prompt":...})
         # Still using planner_agent_engine and prompt_message as orchestrator_agent_engine
         # and orchestration_request_message are not defined in this file's scope.
         stream_iterator_post = planner_agent_engine.stream_query(input={"query": prompt_message}, session_id=agent_session_user_id)

@@ -10,7 +10,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part # Modified import
-from a2a_common.task_manager import AgentTaskManager # Changed to a2a_common
+from common.task_manager import AgentTaskManager # Reverted to common
 from . import agent
 import os # For path joining
 from dotenv import load_dotenv # To load .env

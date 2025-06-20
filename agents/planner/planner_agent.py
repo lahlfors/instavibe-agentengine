@@ -13,7 +13,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part # Modified import
-from common.task_manager import AgentTaskManager
+from agents.common.task_manager import AgentTaskManager # Corrected import
 from . import agent
 
 # Load environment variables from the root .env file.

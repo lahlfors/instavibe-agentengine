@@ -11,7 +11,6 @@ from google.cloud.aiplatform_v1.services.reasoning_engine_service import Reasoni
 from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
-import sys # For sys.exit()
 # google.cloud.aiplatform is already imported as vertexai
 
 # Initialize logger
@@ -19,15 +18,6 @@ logger = logging.getLogger(__name__)
 
 # Global variable for the agent engine
 planner_agent_engine = None
-
-def run_definitive_debug_and_exit(engine_object):
-    """Prints SDK version, dir() for the engine object and exits."""
-    print("\n--- DEBUGGING LlmAgent ReasoningEngine INSTANCE ---")
-    print(f"SDK Version: {vertexai.__version__}") # vertexai is google.cloud.aiplatform
-    print("\nAvailable methods on this LlmAgent instance:")
-    print(dir(engine_object))
-    # help(engine_object) # Not in user's latest debug snippet
-    sys.exit("--> Exiting after inspecting the live agent object. <--")
 
 def init_agent_engine(project_id, location):
     """Initializes the Vertex AI Agent Engine."""
@@ -53,7 +43,6 @@ def init_agent_engine(project_id, location):
             planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
             logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
             logger.info("Planner agent engine initialized successfully (directly via resource name).")
-            run_definitive_debug_and_exit(planner_agent_engine) # DEBUG AND EXIT
             return
         except Exception as e:
             logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
@@ -96,7 +85,6 @@ def init_agent_engine(project_id, location):
                 # or the SDK should handle the full name correctly.
                 planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full)
                 logger.info("Successfully connected to Planner Agent (fallback).")
-                run_definitive_debug_and_exit(planner_agent_engine) # DEBUG AND EXIT
             else:
                 logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id} and specific location {location} (fallback after listing from global).")
                 planner_agent_engine = None
@@ -178,13 +166,19 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 
-        # Reverted to .stream_query(input={"query": ...}) and chunk["response"] processing
-        # as per state before user's "Final Action Plan" to use .query(input={"prompt":...})
-        stream_iterator = planner_agent_engine.stream_query(input={"query": prompt_message}, session_id=user_id)
+        # User's latest plan (after SDK version issue identified): Use .stream_query(query=...)
+        # The loop should process based on how stream_query yields (likely dicts with "response" or direct strings)
 
-        for chunk_idx, chunk in enumerate(stream_iterator):
-            print(f"\n--- Stream Chunk {chunk_idx} Received (from .stream_query call) ---") # Console
-            pprint.pprint(chunk) # Console
+        # This is the correct method for the upgraded SDK (>=1.97.0) as per user.
+        # Note: session_id is omitted as per user's latest snippet for stream_query.
+        stream_iterator = planner_agent_engine.stream_query(
+            query=prompt_message  # Use 'query=' as the keyword argument
+        )
+        yield {"type": "thought", "data": f"--- Agent Response Stream Starting (using .stream_query(query=...)) ---"}
+
+        for chunk_idx, chunk in enumerate(stream_iterator): # Changed event_idx, event to chunk_idx, chunk
+            print(f"\n--- Stream Chunk {chunk_idx} Received (from .stream_query call) ---")
+            pprint.pprint(chunk)
             text_to_accumulate = None
             try:
                 if isinstance(chunk, dict) and "response" in chunk:
@@ -195,8 +189,8 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
                     yield {"type": "thought", "data": f"Agent (string chunk): \"{text_to_accumulate}\""}
                 else:
                     text_to_accumulate = str(chunk)
-                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent query: {text_to_accumulate}")
-                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)}): {text_to_accumulate}"}
+                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent stream_query: {text_to_accumulate}")
+                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)} from stream_query): {text_to_accumulate}"}
 
                 if text_to_accumulate:
                     accumulated_json_str += text_to_accumulate
@@ -205,8 +199,13 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
                 logger.error(f"Error processing agent chunk {chunk_idx} (type: {type(chunk)}): {e_inner}", exc_info=True)
                 yield {"type": "thought", "data": f"Error processing agent chunk {chunk_idx}: {str(e_inner)}"}
 
-    except Exception as e_outer:
-        yield {"type": "thought", "data": f"Critical error during agent stream_query: {str(e_outer)}"}
+    except AttributeError as e_attr: # Specific catch for missing method
+        yield {"type": "thought", "data": f"Critical error: Method not found on ReasoningEngine object. Error: {str(e_attr)}"}
+        logger.error(f"Method not found. SDK version might be older than 1.97.0 or method name is incorrect. Error: {e_attr}", exc_info=True)
+        yield {"type": "error", "data": {"message": f"Agent interaction error (method not found): {str(e_attr)}", "raw_output": accumulated_json_str }}
+        return
+    except Exception as e_outer: # Catch other potential errors
+        yield {"type": "thought", "data": f"Critical error during agent stream_query call or iteration: {str(e_outer)}"}
         yield {"type": "error", "data": {"message": f"Error during agent interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
         return # Stop generation
     
@@ -312,27 +311,29 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
             yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
             return
 
-        # Reverted to .stream_query(input={"query": ...}) and chunk["response"] processing
-        # as per state before user's "Final Action Plan" to use .query(input={"prompt":...})
-        # Still using planner_agent_engine and prompt_message as orchestrator_agent_engine
-        # and orchestration_request_message are not defined in this file's scope.
-        stream_iterator_post = planner_agent_engine.stream_query(input={"query": prompt_message}, session_id=agent_session_user_id)
+        # User's latest plan (after SDK version issue identified): Use .stream_query(query=...)
+        # Still using planner_agent_engine and prompt_message due to scope.
+        # Note: session_id is omitted as per user's latest snippet for stream_query.
+        stream_iterator_post = planner_agent_engine.stream_query(
+            query=prompt_message  # Use 'query=' as the keyword argument
+        )
+        yield {"type": "thought", "data": f"--- Agent Response Stream Starting for Posting (using .stream_query(query=...)) ---"}
 
         for chunk_idx, chunk in enumerate(stream_iterator_post):
-            print(f"\n--- Post Event - Agent Chunk {chunk_idx} Received (from .stream_query call) ---") # Console
-            pprint.pprint(chunk) # Console
+            print(f"\n--- Post Event - Agent Chunk {chunk_idx} Received (from .stream_query call) ---")
+            pprint.pprint(chunk)
             text_to_accumulate = None
             try:
                 if isinstance(chunk, dict) and "response" in chunk:
                     text_to_accumulate = chunk["response"]
-                    yield {"type": "thought", "data": f"Agent (chunk 'response' key): \"{text_to_accumulate}\""}
+                    yield {"type": "thought", "data": f"Agent (chunk 'response' key for post): \"{text_to_accumulate}\""}
                 elif isinstance(chunk, str):
                     text_to_accumulate = chunk
-                    yield {"type": "thought", "data": f"Agent (string chunk): \"{text_to_accumulate}\""}
+                    yield {"type": "thought", "data": f"Agent (string chunk for post): \"{text_to_accumulate}\""}
                 else:
                     text_to_accumulate = str(chunk)
-                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent query for post: {text_to_accumulate}")
-                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)} for post): {text_to_accumulate}"}
+                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent stream_query for post: {text_to_accumulate}")
+                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)} from stream_query for post): {text_to_accumulate}"}
 
                 if text_to_accumulate:
                     accumulated_response_text += text_to_accumulate
@@ -340,8 +341,13 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
             except Exception as e_inner:
                 yield {"type": "thought", "data": f"Error processing agent chunk {chunk_idx} during posting: {str(e_inner)}"}
 
-    except Exception as e_outer:
-        yield {"type": "thought", "data": f"Critical error during agent stream_query for posting: {str(e_outer)}"}
+    except AttributeError as e_attr: # Specific catch for missing method
+        yield {"type": "thought", "data": f"Critical error during posting: Method not found on ReasoningEngine object. Error: {str(e_attr)}"}
+        logger.error(f"Method not found for posting. SDK version might be older than 1.97.0 or method name is incorrect. Error: {e_attr}", exc_info=True)
+        yield {"type": "error", "data": {"message": f"Agent interaction error for posting (method not found): {str(e_attr)}", "raw_output": accumulated_response_text }}
+        return
+    except Exception as e_outer: # Catch other potential errors
+        yield {"type": "thought", "data": f"Critical error during agent stream_query call or iteration for posting: {str(e_outer)}"}
         yield {"type": "error", "data": {"message": f"Error during agent interaction for posting: {str(e_outer)}", "raw_output": accumulated_response_text}}
         return # Stop generation if there's a major error
 

@@ -1,3 +1,14 @@
+import sys
+import google.cloud.aiplatform
+
+# --- START: Agent Environment Debugging Code ---
+# This code will run when the agent container starts on Vertex AI.
+print("--- AGENT SERVER-SIDE ENVIRONMENT CHECK ---")
+print(f"Python Version Used by Agent: {sys.version}")
+print(f"Agent's google-cloud-aiplatform SDK Version: {google.cloud.aiplatform.__version__}")
+print("--- AGENT INITIALIZATION CONTINUING ---")
+# --- END: Agent Environment Debugging Code ---
+
 import os
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity

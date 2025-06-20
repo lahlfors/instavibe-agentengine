@@ -172,10 +172,10 @@ def deploy_instavibe_app(project_id: str, region: str, image_name: str = "instav
     try:
         print(f"Building Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["gcloud", "builds", "submit", "--tag", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}", ".", "--project", project_id],
+            ["gcloud", "builds", "submit", "--tag", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}", ".", "--project", project_id, "--no-cache"],
             check=True, capture_output=True, text=True, cwd="instavibe/",
         )
-        print(f"Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully.")
+        print(f"Instavibe App Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully (with --no-cache).")
 
         deploy_command = [
             "gcloud", "run", "deploy", image_name,
@@ -201,10 +201,10 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name: str = "mcp-
     try:
         print(f"Building MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} using Google Cloud Build...")
         subprocess.run(
-            ["gcloud", "builds", "submit", "--tag", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}", ".", "--project", project_id],
+            ["gcloud", "builds", "submit", "--tag", f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name}", ".", "--project", project_id, "--no-cache"],
             check=True, capture_output=True, text=True, cwd="tools/instavibe/",
         )
-        print(f"MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully.")
+        print(f"MCP Tool Server Docker image us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name} built and pushed successfully (with --no-cache).")
 
         deploy_command = [
             "gcloud", "run", "deploy", image_name,

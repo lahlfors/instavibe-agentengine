@@ -65,16 +65,17 @@ def delete_reasoning_engine_if_exists(gapic_client: reasoning_engine_service.Rea
     """Deletes the reasoning engine if it exists."""
     existing_engine = check_reasoning_engine_exists(gapic_client, parent_path, display_name)
     if existing_engine:
-        print(f"Attempting to delete existing Reasoning Engine '{display_name}' ({existing_engine.name})...")
+        print(f"Attempting to delete existing Reasoning Engine '{display_name}' ({existing_engine.name}) with force=True...")
         try:
-            delete_operation = gapic_client.delete_reasoning_engine(name=existing_engine.name)
-            print(f"Deletion initiated for {existing_engine.name}. Waiting up to 180s for completion...")
+            # Add force=True to the delete call
+            delete_operation = gapic_client.delete_reasoning_engine(name=existing_engine.name, force=True)
+            print(f"Force deletion initiated for {existing_engine.name}. Waiting up to 180s for completion...")
             delete_operation.result(timeout=180)
-            print(f"Successfully deleted existing Reasoning Engine '{existing_engine.name}'.")
+            print(f"Successfully force-deleted existing Reasoning Engine '{existing_engine.name}'.")
             # Add a small delay to allow backend to fully process deletion
             time.sleep(10)
         except Exception as del_e:
-            print(f"ERROR: Failed to delete existing Reasoning Engine '{existing_engine.name}': {del_e}. Manual deletion might be required.")
+            print(f"ERROR: Failed to force-delete existing Reasoning Engine '{existing_engine.name}': {del_e}. Manual deletion might be required.")
             raise # Re-raise to halt further deployment of this specific agent
 
 def check_cloud_run_service_exists(service_name: str, project_id: str, region: str) -> bool:

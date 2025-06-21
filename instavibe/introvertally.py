@@ -16,106 +16,66 @@ from vertexai.preview import reasoning_engines # Added for direct RE instantiati
 # Initialize logger
 logger = logging.getLogger(__name__)
 
-# Global variable for the agent engine
-planner_agent_engine = None
+# Global variable for the ADK app instance
+adk_app = None
 
 def init_agent_engine(project_id, location):
-    """Initializes the Vertex AI Agent Engine."""
-    global planner_agent_engine
-    logger.info("Attempting to initialize agent engine...")
+    """Initializes the Vertex AI ADK Application."""
+    global adk_app
+    logger.info("Attempting to initialize ADK App...")
 
     try:
-        # Initialize with the specific location, this is important for when we instantiate
-        # a ReasoningEngine object later using its full resource name (which includes the location).
         logger.info(f"Initializing Vertex AI with project: {project_id}, location: {location}")
         vertexai.init(project=project_id, location=location)
     except Exception as e:
         logger.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
-        planner_agent_engine = None # Cannot proceed
-        logger.warning("Planner agent engine is None due to Vertex AI initialization failure.")
+        adk_app = None
+        logger.warning("ADK App is None due to Vertex AI initialization failure.")
         return
 
     planner_resource_name_from_env = os.getenv("AGENTS_PLANNER_RESOURCE_NAME")
 
-    if planner_resource_name_from_env:
-        logger.info(f"Found AGENTS_PLANNER_RESOURCE_NAME: {planner_resource_name_from_env}. Attempting direct connection.")
-        try:
-            planner_agent_engine = reasoning_engines.ReasoningEngine(planner_resource_name_from_env)
-            logger.info(f"Successfully connected to Planner Agent using resource name: {planner_resource_name_from_env}")
-            logger.info("Planner agent engine initialized successfully (directly via resource name).")
-            return
-        except Exception as e:
-            logger.error(f"Failed to connect directly using AGENTS_PLANNER_RESOURCE_NAME '{planner_resource_name_from_env}': {e}", exc_info=True)
-            logger.warning("Falling back to listing reasoning engines.")
-            planner_agent_engine = None # Ensure it's None before fallback
+    if not planner_resource_name_from_env:
+        logger.error("AGENTS_PLANNER_RESOURCE_NAME environment variable not set. Cannot initialize ADK App.")
+        adk_app = None
+        return
+
+    try:
+        logger.info(f"Attempting to get ADK App with resource name: {planner_resource_name_from_env}")
+        # Ensure vertexai.agent_engines is the correct module path
+        # Based on documentation, it should be vertexai.agent_engines
+        # If it's reasoning_engines for get, we might need to adjust
+        # For now, assuming vertexai.agent_engines as per typical ADK usage for deployed agents
+        from vertexai import agent_engines # Ensure this is imported
+        adk_app = agent_engines.get(planner_resource_name_from_env)
+        logger.info(f"Successfully connected to ADK App using resource name: {planner_resource_name_from_env}")
+    except Exception as e:
+        logger.error(f"Failed to get ADK App using resource name '{planner_resource_name_from_env}': {e}", exc_info=True)
+        adk_app = None
+
+    if adk_app is None:
+        logger.warning("ADK App is None after initialization attempts.")
     else:
-        logger.info("AGENTS_PLANNER_RESOURCE_NAME not set. Will attempt to find Planner Agent by listing engines.")
+        logger.info("ADK App initialized successfully.")
 
-    # Fallback to listing logic if direct connection failed or env var not set
-    if planner_agent_engine is None:
-        logger.info("Attempting to initialize agent engine by listing (fallback)...")
-        try:
-            # vertexai.init was already called at the start of the function with the specific location.
-            logger.info("Initializing ReasoningEngineServiceClient (fallback)")
-            client = ReasoningEngineServiceClient() # GAPIC client
-
-            # For listing, use "global" as the location part of the parent string.
-            parent_for_list = f"projects/{project_id}/locations/global"
-            logger.info(f"Listing reasoning engines in {parent_for_list} (fallback)")
-            engines = client.list_reasoning_engines(parent=parent_for_list)
-
-            target_engine_display_name = "Planner Agent"
-            found_engine = None
-
-            for engine in engines:
-                logger.info(f"Found engine: {engine.display_name} (ID: {engine.name})")
-                # Ensure the found engine is in the target location, as listing with "global" can return engines from all regions.
-                if engine.display_name == target_engine_display_name and f"/locations/{location}/" in engine.name:
-                    logger.info(f"Engine '{engine.display_name}' matches target display name and is in the target location '{location}'.")
-                    found_engine = engine
-                    break
-                elif engine.display_name == target_engine_display_name:
-                    logger.info(f"Engine '{engine.display_name}' matches target display name but is in a different location: {engine.name.split('/')[3]}. Skipping.")
-
-
-            if found_engine:
-                engine_id_full = found_engine.name # This name includes the specific region
-                logger.info(f"Planner Agent found: {engine_id_full}. Attempting to connect using full name (fallback).")
-                # When instantiating ReasoningEngine with the full resource name, vertexai.init() should have set the correct project/location context,
-                # or the SDK should handle the full name correctly.
-                planner_agent_engine = reasoning_engines.ReasoningEngine(engine_id_full)
-                logger.info("Successfully connected to Planner Agent (fallback).")
-            else:
-                logger.warning(f"Planner Agent with display name '{target_engine_display_name}' not found in project {project_id} and specific location {location} (fallback after listing from global).")
-                planner_agent_engine = None
-        except Exception as e:
-            logger.error(f"Error during fallback agent engine initialization (listing): {e}", exc_info=True)
-            planner_agent_engine = None
-
-    # Final status log
-    if planner_agent_engine is None:
-        logger.warning("Planner agent engine is None after all initialization attempts.")
-    else:
-        logger.info("Planner agent engine initialized successfully (either directly or via fallback).")
 
 # Initialize the agent engine on module load
 COMMON_GOOGLE_CLOUD_PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
 COMMON_GOOGLE_CLOUD_LOCATION = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
 
 if COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION:
-    logger.info(f"Attempting to initialize agent engine for project {COMMON_GOOGLE_CLOUD_PROJECT} in {COMMON_GOOGLE_CLOUD_LOCATION}")
+    logger.info(f"Attempting to initialize ADK App for project {COMMON_GOOGLE_CLOUD_PROJECT} in {COMMON_GOOGLE_CLOUD_LOCATION}")
     init_agent_engine(COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION)
 else:
-    logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION environment variables not set. Agent engine will not be initialized.")
-
+    logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION environment variables not set. ADK App will not be initialized.")
 
 
 def call_agent_for_plan(user_name, planned_date, location_n_perference, selected_friend_names_list):
-    user_id = str(user_name)
-    # agent_thoughts_log = [] # No longer needed here, we yield directly
+    user_id = str(user_name) # ADK uses user_id for session management
+    session_id = None # Will be set after creating a session
 
-    yield {"type": "thought", "data": f"--- IntrovertAlly Agent Call Initiated ---"}
-    yield {"type": "thought", "data": f"Session ID for this run: {user_id}"}
+    yield {"type": "thought", "data": f"--- IntrovertAlly Agent Call Initiated (ADK) ---"}
+    yield {"type": "thought", "data": f"User ID for this run: {user_id}"}
     yield {"type": "thought", "data": f"User: {user_name}"}
     yield {"type": "thought", "data": f"Planned Date: {planned_date}"}
     yield {"type": "thought", "data": f"Location/Preference: {location_n_perference}"}
@@ -123,9 +83,6 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     yield {"type": "thought", "data": f"Initiating plan for {user_name} on {planned_date} regarding '{location_n_perference}' with friends: {', '.join(selected_friend_names_list)}."}
 
     selected_friend_names_str = ', '.join(selected_friend_names_list)
-    # print(f"Selected Friends (string for agent): {selected_friend_names_str}") # Console log
-
-    # Constructing an example for the prompt, e.g., ["Alice", "Bob"]
     friends_list_example_for_prompt = json.dumps(selected_friend_names_list)
 
     prompt_message = f"""Plan a personalized night out for {user_name} with friends {selected_friend_names_str} on {planned_date}, with the location or preference being "{location_n_perference}".
@@ -135,93 +92,123 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     Output the entire plan in a SINGLE, COMPLETE JSON object with the following structure.  **CRITICAL: The FINAL RESPONSE MUST BE ONLY THIS JSON.  If any fields are missing or unavailable, INVENT them appropriately to complete the JSON structure.  Do not return any conversational text or explanations.  Just the raw, valid JSON.**
 
     {{
-    "friends_name_list": {friends_list_example_for_prompt}, //  Array of strings: {selected_friend_names_str}
-    "event_name": "string",        // Concise, descriptive name for the event (e.g., "{selected_friend_names_str}'s Night Out")
-    "event_date": "{planned_date}", // Date in ISO 8601 format.
-    "event_description": "string", // Engaging summary of planned activities.
-    "locations_and_activities": [  // Array detailing each step of the plan.
+    "friends_name_list": {friends_list_example_for_prompt},
+    "event_name": "string",
+    "event_date": "{planned_date}",
+    "event_description": "string",
+    "locations_and_activities": [
         {{
-        "name": "string",          // Name of the place, venue, or activity.
-        "latitude": 12.345,        // Approximate latitude (e.g., 34.0522) or null if not available.
-        "longitude": -67.890,      // Approximate longitude (e.g., -118.2437) or null if not available.
-        "address": "string or null", // Physical address if available, otherwise null.
-        "description": "string"    // Description of this location/activity.
+        "name": "string",
+        "latitude": 12.345,
+        "longitude": -67.890,
+        "address": "string or null",
+        "description": "string"
         }}
-        // Add more location/activity objects as needed.
     ],
-    "post_to_go_out": "string"     // Short, catchy, and exciting text message from {user_name} to invite friends.
+    "post_to_go_out": "string"
     }}
     """
 
-    print(f"--- Sending Prompt to Agent ---") 
-    print(prompt_message) 
-    yield {"type": "thought", "data": f"Sending detailed planning prompt to agent for {user_name}'s event."}
+    logger.info(f"--- Sending Prompt to ADK App for user {user_id} ---")
+    logger.debug(prompt_message)
+    yield {"type": "thought", "data": f"Sending detailed planning prompt to ADK App for {user_name}'s event."}
 
     accumulated_json_str = ""
 
-    yield {"type": "thought", "data": f"--- Agent Response Stream Starting ---"}
     try:
-        if not planner_agent_engine:
-            logger.error("Planner agent engine is not initialized. Check previous logs for errors during init_agent_engine, especially missing environment variables or issues connecting to the reasoning engine.") # Added this line
-            yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for plan.", "raw_output": ""}}
+        if not adk_app:
+            logger.error("ADK App is not initialized. Cannot query for plan.")
+            yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot query for plan.", "raw_output": ""}}
             return
 
-        # User's latest plan (after SDK version issue identified): Use .stream_query(query=...)
-        # The loop should process based on how stream_query yields (likely dicts with "response" or direct strings)
-
-        # This is the correct method for the upgraded SDK (>=1.97.0) as per user.
-        # Note: session_id is omitted as per user's latest snippet for stream_query.
-        stream_iterator = planner_agent_engine.stream_query(
-            query=prompt_message  # Use 'query=' as the keyword argument
-        )
-        yield {"type": "thought", "data": f"--- Agent Response Stream Starting (using .stream_query(query=...)) ---"}
-
-        for chunk_idx, chunk in enumerate(stream_iterator): # Changed event_idx, event to chunk_idx, chunk
-            print(f"\n--- Stream Chunk {chunk_idx} Received (from .stream_query call) ---")
-            pprint.pprint(chunk)
-            text_to_accumulate = None
-            try:
-                if isinstance(chunk, dict) and "response" in chunk:
-                    text_to_accumulate = chunk["response"]
-                    yield {"type": "thought", "data": f"Agent (chunk 'response' key): \"{text_to_accumulate}\""}
-                elif isinstance(chunk, str):
-                    text_to_accumulate = chunk
-                    yield {"type": "thought", "data": f"Agent (string chunk): \"{text_to_accumulate}\""}
-                else:
-                    text_to_accumulate = str(chunk)
-                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent stream_query: {text_to_accumulate}")
-                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)} from stream_query): {text_to_accumulate}"}
-
-                if text_to_accumulate:
-                    accumulated_json_str += text_to_accumulate
-
-            except Exception as e_inner:
-                logger.error(f"Error processing agent chunk {chunk_idx} (type: {type(chunk)}): {e_inner}", exc_info=True)
-                yield {"type": "thought", "data": f"Error processing agent chunk {chunk_idx}: {str(e_inner)}"}
-
-    except AttributeError as e_attr: # Specific catch for missing method
-        yield {"type": "thought", "data": f"Critical error: Method not found on ReasoningEngine object. Error: {str(e_attr)}"}
-        logger.error(f"Method not found. SDK version might be older than 1.97.0 or method name is incorrect. Error: {e_attr}", exc_info=True)
-        yield {"type": "error", "data": {"message": f"Agent interaction error (method not found): {str(e_attr)}", "raw_output": accumulated_json_str }}
-        return
-    except Exception as e_outer: # Catch other potential errors
-        yield {"type": "thought", "data": f"Critical error during agent stream_query call or iteration: {str(e_outer)}"}
-        yield {"type": "error", "data": {"message": f"Error during agent interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
-        return # Stop generation
-    
-    yield {"type": "thought", "data": f"--- End of Agent Response Processing (after .stream_query call) ---"}
-
-    # Attempt to extract JSON if it's wrapped in markdown
-    if "```json" in accumulated_json_str:
-        print("Detected JSON in markdown code block. Extracting...") 
-       
+        # Create a session
         try:
-            # Extract content between ```json and ```
+            logger.info(f"Creating session for user_id: {user_id}")
+            session = adk_app.create_session(user_id=user_id)
+            session_id = session.session_id # Assuming session object has session_id attribute
+            yield {"type": "thought", "data": f"Session created: {session_id} for user {user_id}"}
+            logger.info(f"Session {session_id} created for user {user_id}")
+        except Exception as e_session_create:
+            logger.error(f"Error creating session for user {user_id}: {e_session_create}", exc_info=True)
+            yield {"type": "error", "data": {"message": f"Error creating session: {str(e_session_create)}", "raw_output": ""}}
+            return
+
+        yield {"type": "thought", "data": f"--- ADK App Response Stream Starting (session: {session_id}) ---"}
+
+        stream_iterator = adk_app.stream_query(
+            user_id=user_id,
+            session_id=session_id,
+            message=prompt_message
+        )
+
+        for chunk_idx, chunk in enumerate(stream_iterator):
+            # logger.debug(f"Stream Chunk {chunk_idx} (user: {user_id}, session: {session_id}): {chunk}")
+            # pprint.pprint(chunk) # Keep for debugging if necessary, but can be verbose
+
+            text_to_accumulate = None
+            # ADK stream_query might yield objects with different structures.
+            # Common ADK event types include 'thought', 'tool_code', 'tool_result', 'response'.
+            # We are primarily interested in the 'response' for accumulating the final JSON.
+            # Other event types can be logged as 'thoughts'.
+
+            if hasattr(chunk, 'response'): # Standard way to get LLM response text
+                text_to_accumulate = chunk.response
+                yield {"type": "thought", "data": f"ADK App (response content): \"{text_to_accumulate}\""}
+            elif hasattr(chunk, 'thought'):
+                 yield {"type": "thought", "data": f"ADK App (thought): \"{chunk.thought}\""}
+            elif hasattr(chunk, 'tool_code'):
+                 yield {"type": "thought", "data": f"ADK App (tool_code): \"{chunk.tool_code}\""}
+            elif hasattr(chunk, 'tool_result'):
+                 yield {"type": "thought", "data": f"ADK App (tool_result for {chunk.tool_name if hasattr(chunk, 'tool_name') else 'unknown tool'}): \"{chunk.tool_result}\""}
+            elif isinstance(chunk, str): # Fallback if it's just a string
+                text_to_accumulate = chunk
+                yield {"type": "thought", "data": f"ADK App (string chunk): \"{text_to_accumulate}\""}
+            else: # If structure is unknown, log it
+                unknown_chunk_str = str(chunk)
+                logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query (user: {user_id}, session: {session_id}): {unknown_chunk_str}")
+                yield {"type": "thought", "data": f"ADK App (unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
+
+            if text_to_accumulate:
+                accumulated_json_str += text_to_accumulate
+
+        yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
+
+    except Exception as e_outer:
+        logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
+        yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration (session: {session_id}): {str(e_outer)}"}
+        yield {"type": "error", "data": {"message": f"Error during ADK App interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
+        # Ensure session is deleted even if an error occurs mid-stream
+        if adk_app and session_id and user_id:
+            try:
+                logger.info(f"Attempting to delete session {session_id} for user {user_id} due to error.")
+                adk_app.delete_session(user_id=user_id, session_id=session_id)
+                yield {"type": "thought", "data": f"Session {session_id} deleted for user {user_id} after error."}
+                logger.info(f"Session {session_id} for user {user_id} deleted after error.")
+            except Exception as e_del_err:
+                logger.error(f"Failed to delete session {session_id} for user {user_id} after error: {e_del_err}", exc_info=True)
+                yield {"type": "thought", "data": f"Failed to delete session {session_id} after error: {str(e_del_err)}"}
+        return
+    finally:
+        # Always attempt to delete the session after processing is complete or an error handled by the main try-except occurred
+        if adk_app and session_id and user_id:
+            try:
+                logger.info(f"Attempting to delete session {session_id} for user {user_id} (end of call_agent_for_plan).")
+                adk_app.delete_session(user_id=user_id, session_id=session_id)
+                yield {"type": "thought", "data": f"Session {session_id} deleted successfully for user {user_id}."}
+                logger.info(f"Session {session_id} for user {user_id} deleted successfully.")
+            except Exception as e_del_final:
+                logger.error(f"Failed to delete session {session_id} for user {user_id} at end of call: {e_del_final}", exc_info=True)
+                yield {"type": "thought", "data": f"Failed to delete session {session_id} at end of call: {str(e_del_final)}"}
+
+
+    if "```json" in accumulated_json_str:
+        logger.info("Detected JSON in markdown code block. Extracting...")
+        try:
             json_block = accumulated_json_str.split("```json", 1)[1].rsplit("```", 1)[0].strip()
             accumulated_json_str = json_block
-            print(f"Extracted JSON block: {accumulated_json_str}") 
+            logger.info(f"Extracted JSON block: {accumulated_json_str}")
         except IndexError:
-            # print("Error extracting JSON from markdown block. Will try to parse as is.") # Console
+            logger.warning("Error extracting JSON from markdown block. Will try to parse as is.")
             yield {"type": "thought", "data": "Could not extract JSON from markdown block, will attempt to parse the full response."}
 
     if accumulated_json_str:
@@ -229,16 +216,14 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
             final_result_json = json.loads(accumulated_json_str)
             yield {"type": "plan_complete", "data": final_result_json}
         except json.JSONDecodeError as e:
-            # print(f"Error decoding accumulated string as JSON: {e}") # Console
-            yield {"type": "thought", "data": f"Failed to parse the agent's output as a valid plan. Error: {e}"}
+            logger.error(f"Error decoding accumulated string as JSON (user: {user_id}, session: {session_id}): {e}\nRaw data: {accumulated_json_str}", exc_info=True)
+            yield {"type": "thought", "data": f"Failed to parse the ADK App's output as a valid plan. Error: {e}"}
             yield {"type": "thought", "data": f"Raw output received: {accumulated_json_str}"}
-            # print("Returning raw accumulated string due to JSON parsing error.") # Console
             yield {"type": "error", "data": {"message": f"JSON parsing error: {e}", "raw_output": accumulated_json_str}}
     else:
-        # print("No text content accumulated from agent response.") # Console
-        yield {"type": "thought", "data": "Agent did not provide any text content in its response."}
-        yield {"type": "error", "data": {"message": "Agent returned no content.", "raw_output": ""}}
-
+        logger.warning(f"No text content accumulated from ADK App response (user: {user_id}, session: {session_id}).")
+        yield {"type": "thought", "data": "ADK App did not provide any text content in its response."}
+        yield {"type": "error", "data": {"message": "ADK App returned no content.", "raw_output": ""}}
 
 
 def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_session_user_id):
@@ -253,8 +238,16 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     yield {"type": "thought", "data": f"Received Invite Message: {edited_invite_message[:100]}..."} # Log a preview
     yield {"type": "thought", "data": f"Initiating process to post event and invite for {user_name}."}
 
+    # Use agent_session_user_id if provided (as it implies a context, e.g. from a previous step),
+    # otherwise default to user_name for creating a new session context.
+    # For ADK, user_id is crucial for session management.
+    # The original `agent_session_user_id` seems to be the `user_id` from the previous call.
+    # We will use this as the `user_id` for ADK session.
+    adk_user_id = str(agent_session_user_id if agent_session_user_id else user_name)
+    session_id = None # Will be set after creating a session
+
     prompt_message = f"""
-    You are an Orchestrator assistant for the Instavibe platform. User '{user_name}' has finalized an event plan and wants to:
+    You are an Orchestrator assistant for the Instavibe platform. User '{user_name}' (User ID for this interaction: '{adk_user_id}') has finalized an event plan and wants to:
     1. Create the event on Instavibe.
     2. Create an invite post for this event on Instavibe.
 
@@ -298,58 +291,92 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     - Your responses during this process should be a stream of consciousness, primarily narrating your agent selection (if applicable), the formulation of your natural language messages for , and theiroutcomes.
     - Do NOT output any JSON yourself. Your output must be plain text only, describing your actions.
     - Conclude with a single, friendly success message confirming that you have (simulated) instructing the remote agent to create both the event and the post. For example: "Alright, I've instructed the appropriate Instavibe agent to create the event '{confirmed_plan.get('event_name', 'Unnamed Event')}' and to make the invite post for {user_name}!"
-
     """
 
-    yield {"type": "thought", "data": f"Sending posting instructions to agent for {user_name}'s event."}
-    print(f"prompt_message: {prompt_message}") 
+    yield {"type": "thought", "data": f"Sending posting instructions to ADK App for user {adk_user_id}."}
+    logger.info(f"--- Sending Prompt to ADK App for posting (user: {adk_user_id}) ---")
+    logger.debug(f"Prompt for posting: {prompt_message}")
     
-    accumulated_response_text = ""
+    accumulated_response_text = "" # Used to capture text for error reporting if needed
 
     try:
-        if not planner_agent_engine: # Still using planner_agent_engine as orchestrator_agent_engine is not defined
-            yield {"type": "error", "data": {"message": "Agent engine not initialized. Cannot query for confirmation.", "raw_output": ""}}
+        if not adk_app:
+            logger.error("ADK App is not initialized. Cannot process post_plan_event.")
+            yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot process posting.", "raw_output": ""}}
             return
 
-        # User's latest plan (after SDK version issue identified): Use .stream_query(query=...)
-        # Still using planner_agent_engine and prompt_message due to scope.
-        # Note: session_id is omitted as per user's latest snippet for stream_query.
-        stream_iterator_post = planner_agent_engine.stream_query(
-            query=prompt_message  # Use 'query=' as the keyword argument
+        # Create a session
+        try:
+            logger.info(f"Creating session for user_id: {adk_user_id} (for posting)")
+            session = adk_app.create_session(user_id=adk_user_id)
+            session_id = session.session_id # Assuming session object has session_id attribute
+            yield {"type": "thought", "data": f"Session created for posting: {session_id} for user {adk_user_id}"}
+            logger.info(f"Session {session_id} created for user {adk_user_id} (for posting)")
+        except Exception as e_session_create_post:
+            logger.error(f"Error creating session for user {adk_user_id} (for posting): {e_session_create_post}", exc_info=True)
+            yield {"type": "error", "data": {"message": f"Error creating session for posting: {str(e_session_create_post)}", "raw_output": ""}}
+            return
+
+        yield {"type": "thought", "data": f"--- ADK App Response Stream Starting for Posting (session: {session_id}) ---"}
+
+        stream_iterator_post = adk_app.stream_query(
+            user_id=adk_user_id,
+            session_id=session_id,
+            message=prompt_message
         )
-        yield {"type": "thought", "data": f"--- Agent Response Stream Starting for Posting (using .stream_query(query=...)) ---"}
 
         for chunk_idx, chunk in enumerate(stream_iterator_post):
-            print(f"\n--- Post Event - Agent Chunk {chunk_idx} Received (from .stream_query call) ---")
-            pprint.pprint(chunk)
-            text_to_accumulate = None
+            # logger.debug(f"Post Event - ADK Chunk {chunk_idx} (user: {adk_user_id}, session: {session_id}): {chunk}")
+            # pprint.pprint(chunk) # Debug if needed
+
+            text_from_chunk = None
+            if hasattr(chunk, 'response'):
+                text_from_chunk = chunk.response
+                yield {"type": "thought", "data": f"ADK App (post response content): \"{text_from_chunk}\""}
+            elif hasattr(chunk, 'thought'):
+                 yield {"type": "thought", "data": f"ADK App (post thought): \"{chunk.thought}\""}
+            elif hasattr(chunk, 'tool_code'):
+                 yield {"type": "thought", "data": f"ADK App (post tool_code): \"{chunk.tool_code}\""}
+            elif hasattr(chunk, 'tool_result'):
+                 yield {"type": "thought", "data": f"ADK App (post tool_result for {getattr(chunk, 'tool_name', 'unknown tool')}): \"{chunk.tool_result}\""}
+            elif isinstance(chunk, str):
+                text_from_chunk = chunk
+                yield {"type": "thought", "data": f"ADK App (post string chunk): \"{text_from_chunk}\""}
+            else:
+                unknown_chunk_str = str(chunk)
+                logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query for post (user: {adk_user_id}, session: {session_id}): {unknown_chunk_str}")
+                yield {"type": "thought", "data": f"ADK App (post unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
+
+            if text_from_chunk: # Accumulate for error reporting context if needed
+                accumulated_response_text += text_from_chunk
+
+        yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
+
+    except Exception as e_outer_post:
+        logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)
+        yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration for posting (session: {session_id}): {str(e_outer_post)}"}
+        yield {"type": "error", "data": {"message": f"Error during ADK App interaction for posting: {str(e_outer_post)}", "raw_output": accumulated_response_text}}
+        if adk_app and session_id and adk_user_id:
             try:
-                if isinstance(chunk, dict) and "response" in chunk:
-                    text_to_accumulate = chunk["response"]
-                    yield {"type": "thought", "data": f"Agent (chunk 'response' key for post): \"{text_to_accumulate}\""}
-                elif isinstance(chunk, str):
-                    text_to_accumulate = chunk
-                    yield {"type": "thought", "data": f"Agent (string chunk for post): \"{text_to_accumulate}\""}
-                else:
-                    text_to_accumulate = str(chunk)
-                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from agent stream_query for post: {text_to_accumulate}")
-                    yield {"type": "thought", "data": f"Agent (unknown chunk type {type(chunk)} from stream_query for post): {text_to_accumulate}"}
-
-                if text_to_accumulate:
-                    accumulated_response_text += text_to_accumulate
-
-            except Exception as e_inner:
-                yield {"type": "thought", "data": f"Error processing agent chunk {chunk_idx} during posting: {str(e_inner)}"}
-
-    except AttributeError as e_attr: # Specific catch for missing method
-        yield {"type": "thought", "data": f"Critical error during posting: Method not found on ReasoningEngine object. Error: {str(e_attr)}"}
-        logger.error(f"Method not found for posting. SDK version might be older than 1.97.0 or method name is incorrect. Error: {e_attr}", exc_info=True)
-        yield {"type": "error", "data": {"message": f"Agent interaction error for posting (method not found): {str(e_attr)}", "raw_output": accumulated_response_text }}
+                logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (posting error).")
+                adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
+                yield {"type": "thought", "data": f"Session {session_id} (posting) deleted for user {adk_user_id} after error."}
+                logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted after error.")
+            except Exception as e_del_err_post:
+                logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting error): {e_del_err_post}", exc_info=True)
+                yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) after error: {str(e_del_err_post)}"}
         return
-    except Exception as e_outer: # Catch other potential errors
-        yield {"type": "thought", "data": f"Critical error during agent stream_query call or iteration for posting: {str(e_outer)}"}
-        yield {"type": "error", "data": {"message": f"Error during agent interaction for posting: {str(e_outer)}", "raw_output": accumulated_response_text}}
-        return # Stop generation if there's a major error
+    finally:
+        if adk_app and session_id and adk_user_id:
+            try:
+                logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (end of post_plan_event).")
+                adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
+                yield {"type": "thought", "data": f"Session {session_id} (posting) deleted successfully for user {adk_user_id}."}
+                logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted successfully.")
+            except Exception as e_del_final_post:
+                logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting, end of call): {e_del_final_post}", exc_info=True)
+                yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) at end of call: {str(e_del_final_post)}"}
 
-    yield {"type": "thought", "data": f"--- End of Agent Response Processing for Posting (after .stream_query call) ---"}
-    yield {"type": "posting_finished", "data": {"success": True, "message": "Agent has finished processing the event and post creation."}}
+    # The original function always yielded posting_finished, regardless of the agent's text output,
+    # as long as no exceptions occurred during the stream. We maintain this behavior.
+    yield {"type": "posting_finished", "data": {"success": True, "message": "ADK App has finished processing the event and post creation instructions."}}

@@ -96,7 +96,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
             description=description,
             requirements=requirements_list, # Pass the processed list
             extra_packages=extra_packages,
-            environment_variables=env_vars_for_deployment, # Pass the env vars
+            env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )

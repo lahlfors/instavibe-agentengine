@@ -48,7 +48,31 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     local_agent_instance = planner_main_agent_module.root_agent # New: Deploy the LlmAgent
     if local_agent_instance is None:
         raise ValueError("Error: The root_agent in agents.planner.agent is None. Ensure it's initialized.")
-    adk_app = AdkApp(agent=local_agent_instance)
+
+
+
+    # --- SIMPLIFICATION: Remove SpannerSessionServiceBuilder logic, rely on default VertexAiSessionService ---
+    # The default VertexAiSessionService is expected to be used by the deployed agent.
+    # We will ensure its necessary environment variables are set.
+    log.info("Planner Agent: Configuring AdkApp to use default session service. Spanner config will be passed via environment variables.")
+    adk_app_to_deploy = AdkApp(agent=local_agent_instance)
+
+    spanner_instance_id_for_agent = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
+    spanner_database_id_for_agent = os.environ.get("COMMON_SPANNER_DATABASE_ID")
+
+    # Prepare environment variables for the deployed agent.
+    # These will be available to the agent's runtime environment.
+    # The ADK's default VertexAiSessionService will pick these up if it's designed to look for them.
+    env_vars_for_deployment = {
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
+        "COMMON_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
+        # Adding ADK_SESSION_ prefixed versions as well, as the default service might prefer these.
+        "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
+        "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
+    }
+    # --- END SIMPLIFICATION ---
 
     # base_dir is the repository root.
     requirements_path = os.path.join(base_dir, "agents/planner/requirements.txt")
@@ -120,6 +144,13 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         # AGENTS_PLANNER_MODEL_NAME is set via agent.MODEL_NAME
         # API keys for tools like google_search should be picked up if root .env is loaded by agent.py
     }
+    # If SpannerSessionServiceBuilder was NOT successfully configured,
+    # ensure ADK_SESSION_SPANNER_... env vars are set for the agent's runtime.
+    if not session_builder_configured and spanner_instance_id_for_agent and spanner_database_id_for_agent:
+        log.info("Planner Agent: Adding ADK_SESSION_SPANNER... env vars as fallback for default VertexAiSessionService.")
+        env_vars_for_deployment["ADK_SESSION_SPANNER_INSTANCE_ID"] = spanner_instance_id_for_agent
+        env_vars_for_deployment["ADK_SESSION_SPANNER_DATABASE_ID"] = spanner_database_id_for_agent
+
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
 
@@ -128,7 +159,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
         remote_agent = agent_engines.create(
-            adk_app, # Pass the AdkApp instance
+            adk_app_to_deploy, # MODIFIED: Use the potentially re-configured adk_app_to_deploy
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list

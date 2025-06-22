@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__))) # Add repo root t
 from dotenv import load_dotenv
 from google.cloud import aiplatform as vertexai
 from google.cloud.aiplatform_v1.services import reasoning_engine_service
-from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # For type hint
+from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest # MODIFIED: Added DeleteReasoningEngineRequest
 from google.api_core import exceptions as api_exceptions
 import time
 
@@ -67,8 +67,9 @@ def delete_reasoning_engine_if_exists(gapic_client: reasoning_engine_service.Rea
     if existing_engine:
         print(f"Attempting to delete existing Reasoning Engine '{display_name}' ({existing_engine.name}) with force=True...")
         try:
-            # Add force=True to the delete call
-            delete_operation = gapic_client.delete_reasoning_engine(name=existing_engine.name, force=True)
+            # MODIFIED: Use DeleteReasoningEngineRequest to pass force=True
+            request = DeleteReasoningEngineRequest(name=existing_engine.name, force=True)
+            delete_operation = gapic_client.delete_reasoning_engine(request=request)
             print(f"Force deletion initiated for {existing_engine.name}. Waiting up to 180s for completion...")
             delete_operation.result(timeout=180)
             print(f"Successfully force-deleted existing Reasoning Engine '{existing_engine.name}'.")
@@ -135,17 +136,53 @@ def deploy_agent_with_forced_update(
 
         deployed_agent_resource = deploy_main_func(**deploy_args)
 
-        if deployed_agent_resource and deployed_agent_resource.name:
-            print(f"{agent_display_name} deployment process completed. Resource name: {deployed_agent_resource.name}")
-            return deployed_agent_resource.name
-        else:
-            print(f"{agent_display_name} deployment process completed, but resource or name is invalid.")
-            return None
+        if deployed_agent_resource and hasattr(deployed_agent_resource, 'name') and deployed_agent_resource.name:
+            raw_name_from_sdk = deployed_agent_resource.name
+            if callable(raw_name_from_sdk): # Should not happen for .name attribute but defensive
+                print(f"WARNING: {agent_display_name} - deployed_agent_resource.name is callable. Calling it.")
+                raw_name_from_sdk = raw_name_from_sdk()
+
+            # Ensure raw_name_from_sdk is a string before doing string operations
+            if not isinstance(raw_name_from_sdk, str):
+                print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is not a string (type: {type(raw_name_from_sdk)}). Value: {raw_name_from_sdk}")
+                name_to_return = None # Cannot form full name
+            elif raw_name_from_sdk.startswith("projects/"):
+                print(f"{agent_display_name} deployment returned full resource name: {raw_name_from_sdk}")
+                name_to_return = raw_name_from_sdk
+            elif raw_name_from_sdk.isdigit(): # It's likely just the ID
+                print(f"{agent_display_name} deployment returned ID: {raw_name_from_sdk}. Constructing full resource name.")
+                name_to_return = f"projects/{project_id}/locations/{region}/reasoningEngines/{raw_name_from_sdk}"
+                print(f"{agent_display_name} - Constructed full resource name: {name_to_return}")
+            else: # Unexpected format
+                print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is in an unexpected format: '{raw_name_from_sdk}'. Cannot determine full resource name.")
+                name_to_return = None # Cannot form full name
+
+            if name_to_return:
+                print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: '{name_to_return}' (type: {type(name_to_return)})")
+                return name_to_return
+            else: # Fall through if name_to_return ended up being None due to errors above
+                print(f"{agent_display_name} deployment process resulted in an invalid name. See previous ERRORs.")
+                # No change needed for the DIAGNOSTIC_TRACE lines below as they will explain the None return
+        # This else block handles cases where deployed_agent_resource is None or .name is missing/empty initially
+        print(f"{agent_display_name} deployment process completed, but resource or its '.name' attribute is invalid/empty initially.")
+        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} - deployed_agent_resource: {deployed_agent_resource}") # DIAGNOSTIC_TRACE
+        if deployed_agent_resource:
+            print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource attributes: {dir(deployed_agent_resource)}") # DIAGNOSTIC_TRACE
+            if not hasattr(deployed_agent_resource, 'name'):
+                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource exists but has no 'name' attribute.") # DIAGNOSTIC_TRACE
+            elif not deployed_agent_resource.name: # Check if .name is empty or None
+                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource has an empty or None 'name' attribute: '{deployed_agent_resource.name}'") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: None") # DIAGNOSTIC_TRACE
+        return None # Explicitly returning None
     except Exception as e:
         print(f"Error deploying {agent_display_name}: {e}")
+        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} re-raising exception, WILL RETURN None implicitly if not caught by caller.") # DIAGNOSTIC_TRACE
         # Re-raise to indicate failure to the main script
         raise
-    return None # Should be unreachable if an error occurs and is re-raised.
+    # This final return None should be unreachable if the try/except logic is exhaustive.
+    # If it's reached, it means an unexpected control flow.
+    print(f"DEBUG: deploy_agent_with_forced_update for {agent_display_name} reached unexpected final return None.") # DIAGNOSTIC
+    return None
 
 # Specific deployment functions using the generic helper
 def deploy_planner_agent(project_id: str, region: str):
@@ -380,22 +417,32 @@ def main(argv=None):
     if not args.skip_agents:
         print("--- Deploying Individual Agents (Planner, Social) ---")
         planner_resource_name = deploy_planner_agent(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})") # DIAGNOSTIC_TRACE
         social_resource_name = deploy_social_agent(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})") # DIAGNOSTIC_TRACE
     else:
         print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
 
     if not args.skip_platform_mcp_client: # Not skipped by --skip_agents, has its own flag
         print("--- Deploying Platform MCP Client Agent ---")
         platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})") # DIAGNOSTIC_TRACE
     else:
         print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
 
-    valid_remote_agent_names = [name for name in [planner_resource_name, social_resource_name, platform_mcp_client_resource_name] if name]
+    # DIAGNOSTIC_TRACE: Log contents of valid_remote_agent_names before join
+    temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
+    print(f"DIAGNOSTIC_TRACE: main() - Names for orchestrator_dynamic_addresses before filtering: {temp_remote_names_for_debug}")
+    valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
+    print(f"DIAGNOSTIC_TRACE: main() - Valid names for orchestrator_dynamic_addresses after filtering: {valid_remote_agent_names}")
     orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
+    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'") # DIAGNOSTIC_TRACE
+
 
     if not args.skip_agents: # Orchestrator is skipped if all agents are skipped
         print("--- Deploying Orchestrate Agent ---")
         orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})") # DIAGNOSTIC_TRACE
     else:
         print("Skipping Orchestrate agent deployment due to --skip_agents flag.")
 
@@ -417,6 +464,7 @@ def main(argv=None):
         if orchestrate_resource_name: instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
 
         instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1]) # Ensure value is not empty
+        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'") # ADDED FOR DEBUGGING
         deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
         print("Skipping Instavibe app deployment.")
@@ -430,6 +478,7 @@ def main(argv=None):
             f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}"
         ]
         mcp_tool_server_env_vars_string = ",".join(var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1])
+        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'") # ADDED FOR DEBUGGING
         deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
     else:
         print("Skipping MCP Tool Server deployment.")

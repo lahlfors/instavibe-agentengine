@@ -74,6 +74,10 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     }
     # --- END SIMPLIFICATION ---
 
+    # Filter out any keys that have None or empty string values from the env_vars_for_deployment
+    env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v is not None and v != ""}
+    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
+
     # base_dir is the repository root.
     requirements_path = os.path.join(base_dir, "agents/planner/requirements.txt")
     requirements_list = []
@@ -133,26 +137,8 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     print(f"  Requirements file (source): {requirements_path}") # Log original source
     print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
     print(f"  Extra packages: {extra_packages}")
-
-    # Prepare environment variables for the deployed agent
-    env_vars_for_deployment = {
-        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
-        "COMMON_GOOGLE_CLOUD_LOCATION": region,
-        "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
-        "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
-        # AGENTS_PLANNER_AGENT_NAME is set via agent.AGENT_NAME
-        # AGENTS_PLANNER_MODEL_NAME is set via agent.MODEL_NAME
-        # API keys for tools like google_search should be picked up if root .env is loaded by agent.py
-    }
-    # If SpannerSessionServiceBuilder was NOT successfully configured,
-    # ensure ADK_SESSION_SPANNER_... env vars are set for the agent's runtime.
-    if not session_builder_configured and spanner_instance_id_for_agent and spanner_database_id_for_agent:
-        log.info("Planner Agent: Adding ADK_SESSION_SPANNER... env vars as fallback for default VertexAiSessionService.")
-        env_vars_for_deployment["ADK_SESSION_SPANNER_INSTANCE_ID"] = spanner_instance_id_for_agent
-        env_vars_for_deployment["ADK_SESSION_SPANNER_DATABASE_ID"] = spanner_database_id_for_agent
-
-    env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
-    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
+    # env_vars_for_deployment is already prepared and filtered above.
+    # The print statement for it is also already done.
 
     # The ADK's create() function handles packaging and uploading.
     # It uses the globally configured staging bucket from vertexai.init().

@@ -54,23 +54,22 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # --- SIMPLIFICATION: Remove SpannerSessionServiceBuilder logic, rely on default VertexAiSessionService ---
     # The default VertexAiSessionService is expected to be used by the deployed agent.
     # We will ensure its necessary environment variables are set.
-    log.info("Planner Agent: Configuring AdkApp to use default session service. Spanner config will be passed via environment variables.")
+    log.info("Planner Agent: Configuring AdkApp. This agent does not use Spanner, so Spanner-specific environment variables are omitted.")
     adk_app_to_deploy = AdkApp(agent=local_agent_instance)
 
-    spanner_instance_id_for_agent = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
-    spanner_database_id_for_agent = os.environ.get("COMMON_SPANNER_DATABASE_ID")
+    # spanner_instance_id_for_agent = os.environ.get("COMMON_SPANNER_INSTANCE_ID") # Not used by this agent
+    # spanner_database_id_for_agent = os.environ.get("COMMON_SPANNER_DATABASE_ID") # Not used by this agent
 
     # Prepare environment variables for the deployed agent.
     # These will be available to the agent's runtime environment.
-    # The ADK's default VertexAiSessionService will pick these up if it's designed to look for them.
     env_vars_for_deployment = {
         "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
         "COMMON_GOOGLE_CLOUD_LOCATION": region,
-        "COMMON_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
-        "COMMON_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
-        # Adding ADK_SESSION_ prefixed versions as well, as the default service might prefer these.
-        "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
-        "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
+        # Spanner-specific variables removed as this agent does not use Spanner.
+        # "COMMON_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
+        # "COMMON_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
+        # "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
+        # "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
     }
     # --- END SIMPLIFICATION ---
 

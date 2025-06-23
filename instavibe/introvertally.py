@@ -125,7 +125,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
         try:
             logger.info(f"Creating session for user_id: {user_id}")
             session = adk_app.create_session(user_id=user_id)
-            session_id = session.session_id # Assuming session object has session_id attribute
+            session_id = session['id'] # Changed to access 'id' key from dict
             yield {"type": "thought", "data": f"Session created: {session_id} for user {user_id}"}
             logger.info(f"Session {session_id} created for user {user_id}")
         except Exception as e_session_create:
@@ -309,7 +309,7 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
         try:
             logger.info(f"Creating session for user_id: {adk_user_id} (for posting)")
             session = adk_app.create_session(user_id=adk_user_id)
-            session_id = session.session_id # Assuming session object has session_id attribute
+            session_id = session['id'] # Changed to access 'id' key from dict
             yield {"type": "thought", "data": f"Session created for posting: {session_id} for user {adk_user_id}"}
             logger.info(f"Session {session_id} created for user {adk_user_id} (for posting)")
         except Exception as e_session_create_post:

@@ -153,7 +153,14 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
 
             if hasattr(chunk, 'response'): # Standard way to get LLM response text
                 text_to_accumulate = chunk.response
-                yield {"type": "thought", "data": f"ADK App (response content): \"{text_to_accumulate}\""}
+                yield {"type": "thought", "data": f"ADK App (response content via .response): \"{text_to_accumulate}\""}
+            elif isinstance(chunk, dict) and \
+                 chunk.get('content') and \
+                 isinstance(chunk['content'].get('parts'), list) and \
+                 len(chunk['content']['parts']) > 0 and \
+                 isinstance(chunk['content']['parts'][0].get('text'), str):
+                text_to_accumulate = chunk['content']['parts'][0]['text']
+                yield {"type": "thought", "data": f"ADK App (response content via dict): \"{text_to_accumulate}\""}
             elif hasattr(chunk, 'thought'):
                  yield {"type": "thought", "data": f"ADK App (thought): \"{chunk.thought}\""}
             elif hasattr(chunk, 'tool_code'):
@@ -332,7 +339,14 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
             text_from_chunk = None
             if hasattr(chunk, 'response'):
                 text_from_chunk = chunk.response
-                yield {"type": "thought", "data": f"ADK App (post response content): \"{text_from_chunk}\""}
+                yield {"type": "thought", "data": f"ADK App (post response content via .response): \"{text_from_chunk}\""}
+            elif isinstance(chunk, dict) and \
+                 chunk.get('content') and \
+                 isinstance(chunk['content'].get('parts'), list) and \
+                 len(chunk['content']['parts']) > 0 and \
+                 isinstance(chunk['content']['parts'][0].get('text'), str):
+                text_from_chunk = chunk['content']['parts'][0]['text']
+                yield {"type": "thought", "data": f"ADK App (post response content via dict): \"{text_from_chunk}\""}
             elif hasattr(chunk, 'thought'):
                  yield {"type": "thought", "data": f"ADK App (post thought): \"{chunk.thought}\""}
             elif hasattr(chunk, 'tool_code'):

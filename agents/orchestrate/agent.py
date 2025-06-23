@@ -4,7 +4,7 @@ import os # Import os to read environment variables
 from dotenv import load_dotenv
 from google.genai import types
 from google.adk.agents import BaseAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset # Removed SseServerParams
 import logging 
 import nest_asyncio # Import nest_asyncio
 import atexit

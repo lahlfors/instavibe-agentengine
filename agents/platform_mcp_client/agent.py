@@ -1,7 +1,7 @@
 import asyncio
 from dotenv import load_dotenv
 from google.adk.agents.llm_agent import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseServerParams
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams # Updated SseServerParams
 import logging
 import os
 import nest_asyncio
@@ -38,7 +38,7 @@ class PlatformMCPClientServiceAgent:
 
         log.info(f"PlatformMCPClientServiceAgent: Initializing components with MCP URL: {self.mcp_server_url}")
         self._mcp_toolset = MCPToolset(
-            connection_params=SseServerParams(url=self.mcp_server_url, headers={})
+            connection_params=SseConnectionParams(url=self.mcp_server_url, headers={}) # Updated SseServerParams
         )
 
         self._agent = LlmAgent(

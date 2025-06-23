@@ -1,5 +1,5 @@
 google-cloud-aiplatform[adk,agent_engines]==1.98.0
-google-adk>=1.0.0,<1.1.0
+google-adk==1.4.2
 python-dateutil>=2.9.0.post0
 deprecated>=1.2.0
 python-dotenv>=1.0.0

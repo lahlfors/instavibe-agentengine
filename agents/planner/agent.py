@@ -25,7 +25,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # values from vertexai.init() or environment variables.
 
 # Define model name string - ensure this is the desired model
-MODEL_NAME = "gemini-1.5-flash-001"
+MODEL_NAME = "gemini-2.0-flash-001" # Updated deprecated model
 AGENT_NAME = "location_search_agent" # Consistent name from before
 AGENT_INSTRUCTION = """
 

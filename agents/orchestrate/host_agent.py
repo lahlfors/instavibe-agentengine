@@ -73,7 +73,7 @@ class HostAgent:
     # project_id, location, and model_config_kwargs are removed as LlmAgent will use
     # values from vertexai.init() or environment variables.
     return Agent(
-        model="gemini-1.5-flash-001", # Updated model name
+        model="gemini-2.0-flash-001", # Updated model name
         name="orchestrate_agent",
         instruction=self.root_instruction,
         before_model_callback=self.before_model_callback,

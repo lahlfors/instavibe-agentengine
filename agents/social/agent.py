@@ -36,7 +36,7 @@ class CheckCondition(BaseAgent):
 
 profile_agent = LlmAgent(
     name="profile_agent",
-    model="gemini-1.5-flash-001", # Updated model name
+    model="gemini-2.0-flash-001", # Updated model name
     description=(
         "Agent to answer questions about the this person's social profile. User will ask person's profile using their name, make sure to fetch the id before getting other data."
     ),
@@ -50,7 +50,7 @@ profile_agent = LlmAgent(
 
 summary_agent = LlmAgent(
     name="summary_agent",
-    model="gemini-1.5-flash-001", # Updated model name
+    model="gemini-2.0-flash-001", # Updated model name
     description=(
         "Generate a comprehensive social summary as a single, cohesive paragraph. This summary should cover the activities, posts, friend networks, and event participation of one or more individuals. If multiple profiles are analyzed, the paragraph must also identify and integrate any common ground found between them."
     ),
@@ -93,7 +93,7 @@ summary_agent = LlmAgent(
 
 check_agent = LlmAgent(
     name="check_agent",
-    model="gemini-1.5-flash-001", # Updated model name
+    model="gemini-2.0-flash-001", # Updated model name
     description=(
         "Check if everyone's social profile are summarized and has been generated. Output 'completed' or 'pending'."
     ),

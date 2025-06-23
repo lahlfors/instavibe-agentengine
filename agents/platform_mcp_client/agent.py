@@ -42,7 +42,7 @@ class PlatformMCPClientServiceAgent:
         )
 
         self._agent = LlmAgent(
-            model='gemini-1.5-flash-001',
+            model='gemini-2.0-flash-001',
             name='platform_mcp_client_agent',
             instruction="""
             You are a friendly and efficient assistant for the Instavibe social app.

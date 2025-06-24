@@ -21,8 +21,8 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from agents.app.utils.logging_setup import setup_google_cloud_logging
 from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
 
-from opentelemetry import propagators # Added
-from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
+from opentelemetry import propagate # Corrected import
+from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator # Corrected class name
 from opentelemetry.propagators.composite import CompositePropagator # Added
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
 
@@ -34,10 +34,10 @@ SERVICE_NAME = "platform-mcp-client-agent"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
-propagators.set_global_textmap_propagator(
+propagate.set_global_textmap( # Corrected API usage to set_global_textmap
     CompositePropagator([
         TraceContextTextMapPropagator(),
-        GcpCloudTraceFormatPropagator(),
+        CloudTraceFormatPropagator(), # Corrected class name usage
     ])
 )
 

@@ -12,20 +12,38 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
 from typing import Any, Dict, List, Tuple, Optional
 from google.genai.types import Content, Part
-from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
-from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
+from opentelemetry import trace # Added
+from opentelemetry.sdk.trace import TracerProvider # Added
+from opentelemetry.sdk.trace.export import BatchSpanProcessor # Added
+from opentelemetry.instrumentation.logging import LoggingInstrumentor # Added
+from agents.app.utils.logging_setup import setup_google_cloud_logging
+from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # Changed from setup_global_tracer
 
-# Initialize OpenTelemetry Tracer Provider first
-# Use a specific service name for traces and logs in GCP
-SERVICE_NAME = "platform-mcp-client-agent"
-setup_global_tracer(service_name=SERVICE_NAME)
-
-# Then setup logging
-LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
-setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
-
-# Load environment variables from the root .env file
+# Define service name for observability
+# Load environment variables from the root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+SERVICE_NAME = "platform-mcp-client-agent"
+LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+
+# 1. Initialize OpenTelemetry Tracer Provider
+# GOOGLE_CLOUD_PROJECT should be available from environment after dotenv load
+provider = TracerProvider()
+processor = BatchSpanProcessor(
+    CloudTraceLoggingSpanExporter(
+        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
+        service_name=SERVICE_NAME # Pass SERVICE_NAME here
+    )
+)
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+
+# 2. Instrument logging for OpenTelemetry
+# This should be done after tracer provider is set and before app logging is configured.
+LoggingInstrumentor().instrument(set_logging_format=True)
+
+# 3. Then setup Google Cloud logging
+setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
 
 # Get logger AFTER setup
 log = logging.getLogger(__name__)

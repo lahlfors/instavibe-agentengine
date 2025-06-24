@@ -16,36 +16,35 @@ from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
 # from google.adk.models.google_llm import GoogleLlm # Removed import
 from google.adk.tools import google_search
 
-from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
-from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
+from dotenv import load_dotenv
+from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
+# from google.adk.models.google_llm import GoogleLlm # Removed import
+from google.adk.tools import google_search
 
-# Initialize OpenTelemetry Tracer Provider first
-# Use a specific service name for traces and logs in GCP
+# Logging and tracing are now handled by the base AgentEngineApp.
+# We still need a logger for this specific module.
+# And SERVICE_NAME for context if needed, or for environment variable for AgentEngineApp.
+
 SERVICE_NAME = "planner-agent"
-setup_global_tracer(service_name=SERVICE_NAME)
+# This environment variable can be picked up by AgentEngineApp if it's set before AgentEngineApp.set_up() is called.
+# This is relevant for Step 2 of the plan (service-specific names).
+os.environ["AGENT_SERVICE_NAME"] = SERVICE_NAME
 
-# Then setup logging
-LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
-setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
-
-# Initialize logger at the module level AFTER setup
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) # Get logger after base setup
 
 # Load environment variables from the root .env file.
-# This is important so that any underlying ADK or Google library calls
-# (e.g., for API keys for google_search, or project/location for Vertex AI)
-# can pick up the correct configuration.
-logger.info("Loading environment variables for planner agent definition...")
+logger.info(f"Loading .env variables for {SERVICE_NAME}...")
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-logger.info("Environment variables loaded.")
+logger.info(".env variables loaded.")
 
 # project_id, location, and model_config_kwargs are removed as LlmAgent will use
 # values from vertexai.init() or environment variables.
 
 # Define model name string - ensure this is the desired model
 MODEL_NAME = "gemini-2.0-flash-001" # Updated deprecated model
-AGENT_NAME = "location_search_agent" # Consistent name from before
-logger.info(f"Defining Planner ADK Agent: Name='{AGENT_NAME}', Model='{MODEL_NAME}'")
+# AGENT_NAME is the name for the ADK Agent instance, SERVICE_NAME is for observability
+ADK_AGENT_NAME = "location_search_agent"
+logger.info(f"Defining Planner ADK Agent: Name='{ADK_AGENT_NAME}', Model='{MODEL_NAME}', Service Context: '{SERVICE_NAME}'")
 
 AGENT_INSTRUCTION = """
 

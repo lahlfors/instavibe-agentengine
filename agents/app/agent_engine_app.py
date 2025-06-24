@@ -28,10 +28,13 @@ import google.api_core.exceptions # For specific exception handling
 from google.cloud import logging as google_cloud_logging
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider, export
+from opentelemetry.instrumentation.logging import LoggingInstrumentor # Added
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
+
 from app.utils.gcs import create_bucket_if_not_exists
 from app.utils.tracing import CloudTraceLoggingSpanExporter
+from app.utils.logging_setup import setup_google_cloud_logging # Added
 from app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
@@ -40,21 +43,50 @@ from vertexai.preview.reasoning_engines import AdkApp
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+# SERVICE_NAME will be defined by each agent, but have a fallback for base.
+# This will be properly addressed in step 2 of the plan.
+AGENT_SERVICE_NAME = os.environ.get("AGENT_SERVICE_NAME", "base-agent-engine")
+
 
 class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Set up logging and tracing for the agent engine app."""
         super().set_up()
-        logging_client = google_cloud_logging.Client()
-        self.logger = logging_client.logger(__name__)
+
+        # 1. Setup OpenTelemetry TracerProvider
+        # GOOGLE_CLOUD_PROJECT should be available from environment
+        # AGENT_SERVICE_NAME is expected to be set by the specific agent's module loading
+        # (e.g., os.environ["AGENT_SERVICE_NAME"] = "planner-agent" in planner/agent.py)
+        # Default to "base-agent-engine" if not set by specific agent.
+        current_service_name = os.environ.get("AGENT_SERVICE_NAME", "base-agent-engine")
+
         provider = TracerProvider()
         processor = export.BatchSpanProcessor(
             CloudTraceLoggingSpanExporter(
-                project_id=GOOGLE_CLOUD_PROJECT
+                project_id=GOOGLE_CLOUD_PROJECT, # Explicitly pass project_id
+                service_name=current_service_name # Pass service_name to exporter
             )
         )
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
+
+        # 2. Instrument logging for OpenTelemetry
+        # This should be done after tracer provider is set and before app logging is configured.
+        LoggingInstrumentor().instrument(set_logging_format=True)
+
+        # 3. Setup Google Cloud Logging
+        log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
+        setup_google_cloud_logging(
+            log_level=log_level,
+            service_name=current_service_name # Pass specific service_name
+        )
+
+        # Initialize a logger for this class instance *after* logging is configured
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(
+            f"AgentEngineApp setup complete for service: '{current_service_name}'. Tracer, LoggingInstrumentor, and Cloud Logging configured."
+        )
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""

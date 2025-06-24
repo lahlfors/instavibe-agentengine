@@ -10,31 +10,56 @@ import uuid
 import traceback
 from dateutil import parser
 from ally_routes import ally_bp
-import logging # Added
-from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
-from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
+import logging
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.instrumentation.flask import FlaskInstrumentor # Added for Flask
+from agents.app.utils.logging_setup import setup_google_cloud_logging
+from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
 
-# Initialize OpenTelemetry Tracer Provider first
-# Use a specific service name for traces and logs in GCP
+# Load environment variables from root .env file first.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+# Define service name for observability
 SERVICE_NAME = "instavibe-app"
-setup_global_tracer(service_name=SERVICE_NAME)
-
-# Then setup logging for the whole application
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
-# Note: Flask's default logger will also use this setup if called early.
+
+# 1. Initialize OpenTelemetry TracerProvider
+provider = TracerProvider()
+processor = BatchSpanProcessor(
+    CloudTraceLoggingSpanExporter(
+        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
+        service_name=SERVICE_NAME # Pass SERVICE_NAME here
+    )
+)
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+
+# 2. Instrument logging for OpenTelemetry
+LoggingInstrumentor().instrument(set_logging_format=True)
+
+# 3. Setup Google Cloud logging for the application
+# This will configure the root logger. Flask's app.logger will inherit this.
 setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
 
-# Get a logger for this module AFTER setup
+# Get a logger for this module AFTER global logging setup
 logger = logging.getLogger(__name__)
+logger.info(f"'{SERVICE_NAME}' base logging and OTel provider initialized.")
 
 app = Flask(__name__)
-# Load environment variables from root .env file
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
-logger.info("Environment variables loaded for Instavibe app.")
+
+# 4. Instrument Flask app with OpenTelemetry
+# This should be done after TracerProvider setup and Flask app instantiation.
+FlaskInstrumentor().instrument_app(app)
+logger.info("Flask app instrumented with OpenTelemetry.")
+
+logger.info("Environment variables (re-confirming) loaded for Instavibe app.") # .env already loaded
 
 app.secret_key = os.environ.get("INSTAVIBE_FLASK_SECRET_KEY", "a_default_secret_key_for_dev")
 app.register_blueprint(ally_bp)
-logger.info("Flask app initialized and Ally blueprint registered.")
+logger.info("Flask app basic setup complete and Ally blueprint registered.")
 
 # --- Spanner Configuration ---
 INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
@@ -740,7 +765,7 @@ def add_event_api():
         # Ensure it's aware (fromisoformat usually handles this if tz is present)
         if event_date.tzinfo is None or event_date.tzinfo.utcoffset(event_date) is None:
              # If input was naive, assume UTC as a sensible default
-             print(f"Warning: Received naive datetime string '{event_date_str}'. Assuming UTC.")
+             logger.warning(f"Received naive datetime string '{event_date_str}'. Assuming UTC.")
              event_date = event_date.replace(tzinfo=timezone.utc)
         else:
              # Convert to UTC if it had a different offset

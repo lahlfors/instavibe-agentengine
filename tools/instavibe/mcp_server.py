@@ -3,10 +3,14 @@ import asyncio
 import json
 import uvicorn
 import os
-import logging # Added
+import logging
 from dotenv import load_dotenv
-from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
-from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
+from opentelemetry import trace # Added
+from opentelemetry.sdk.trace import TracerProvider # Added
+from opentelemetry.sdk.trace.export import BatchSpanProcessor # Added
+from opentelemetry.instrumentation.logging import LoggingInstrumentor # Added
+from agents.app.utils.logging_setup import setup_google_cloud_logging
+from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # Changed
 
 from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
@@ -23,24 +27,33 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 from instavibe import create_event,create_post # instavibe.py also needs logging setup
 
-# Initialize OpenTelemetry Tracer Provider first
-# Use a specific service name for traces and logs in GCP
-SERVICE_NAME = "tools-mcp-server"
-setup_global_tracer(service_name=SERVICE_NAME)
+# Load environment variables from the root .env file first.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-# Then setup logging
+# Define service name for observability
+SERVICE_NAME = "tools-mcp-server"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+
+# 1. Initialize OpenTelemetry Tracer Provider
+provider = TracerProvider()
+processor = BatchSpanProcessor(
+    CloudTraceLoggingSpanExporter(
+        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
+        service_name=SERVICE_NAME # Pass SERVICE_NAME here
+    )
+)
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+
+# 2. Instrument logging for OpenTelemetry
+LoggingInstrumentor().instrument(set_logging_format=True)
+
+# 3. Then setup Google Cloud logging
 setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
 
 # Get logger AFTER setup
 logger = logging.getLogger(__name__)
-
-# Load environment variables from the root .env file
-# This ensures that any underlying libraries (ADK, Google Cloud clients)
-# or imported tool functions (from instavibe.py) can access necessary
-# configurations like project IDs, API keys, or specific base URLs.
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-logger.info("Environment variables loaded for MCP Server.")
+logger.info(f"'{SERVICE_NAME}' initialized with OpenTelemetry and Cloud Logging.")
 
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.environ.get("APP_PORT", 8080))

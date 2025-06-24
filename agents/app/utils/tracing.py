@@ -41,6 +41,8 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
         storage_client: storage.Client | None = None,
         bucket_name: str | None = None,
         debug: bool = False,
+        service_name: str | None = None, # Added service_name
+        gcs_bucket_name: str | None = None, # Added gcs_bucket_name (renamed from bucket_name for clarity)
         **kwargs: Any,
     ) -> None:
         """
@@ -48,8 +50,10 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
 
         :param logging_client: Google Cloud Logging client
         :param storage_client: Google Cloud Storage client
-        :param bucket_name: Name of the GCS bucket to store large payloads
+        :param bucket_name: (Deprecated, use gcs_bucket_name) Name of the GCS bucket to store large payloads
         :param debug: Enable debug mode for additional logging
+        :param service_name: The name of the service, used in log labels.
+        :param gcs_bucket_name: Specific name for the GCS bucket.
         :param kwargs: Additional arguments to pass to the parent class
         """
         # Load environment variables from the root .env file
@@ -58,30 +62,28 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
 
         super().__init__(**kwargs)
         self.debug = debug
+        self.service_name = service_name or os.environ.get("OTEL_SERVICE_NAME", "unknown-service")
 
-        # Determine project_id to use. If not explicitly passed to CloudTraceSpanExporter (via kwargs),
-        # it often defaults to GOOGLE_CLOUD_PROJECT from env.
-        # We ensure COMMON_GOOGLE_CLOUD_PROJECT is loaded into GOOGLE_CLOUD_PROJECT by dotenv if it's set in .env
-        # Or, if project is explicitly passed to this constructor's kwargs, that will be used by super().__init__
-        # For clients initialized here, we use self.project_id which is set by the parent.
-        # If GOOGLE_CLOUD_PROJECT was set by load_dotenv, and no project explicitly passed to super,
-        # self.project_id should reflect that.
 
         effective_project_id = self.project_id or os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
         self.logging_client = logging_client or google_cloud_logging.Client(
             project=effective_project_id
         )
-        self.logger = self.logging_client.logger(__name__)
+        # Use a logger specific to this exporter, but logs will be associated with the service via labels
+        self.gcp_logger = self.logging_client.logger(f"{self.service_name}-trace-exporter")
         self.storage_client = storage_client or storage.Client(project=effective_project_id)
 
-        # Use effective_project_id for bucket name construction if self.project_id was None.
-        # If self.project_id was already set (e.g. passed explicitly to constructor), use that.
         base_project_id_for_bucket = self.project_id if self.project_id else os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT", "default-project")
 
-        self.bucket_name = (
-            bucket_name or f"{base_project_id_for_bucket}-cityspark-logs-data"
-        )
+        # Prioritize gcs_bucket_name if provided, then bucket_name (for backward compat), then default format
+        if gcs_bucket_name:
+            self.bucket_name = gcs_bucket_name
+        elif bucket_name:
+            self.bucket_name = bucket_name # For backward compatibility if old param is used
+        else:
+            self.bucket_name = f"{base_project_id_for_bucket}-cityspark-logs-data"
+
         self.bucket = self.storage_client.bucket(self.bucket_name)
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
@@ -110,13 +112,13 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
                 print(span_dict)
 
             # Log the span data to Google Cloud Logging
-            self.logger.log_struct(
+            self.gcp_logger.log_struct( # Use the renamed gcp_logger
                 span_dict,
                 labels={
-                    "type": "agent_telemetry",
-                    "service_name": "cityspark",
+                    "type": "otel_trace_span", # More specific type
+                    "service_name": self.service_name, # Use dynamic service_name
                 },
-                severity="INFO",
+                severity="INFO", # Spans are typically INFO level unless errors
             )
         # Export spans to Google Cloud Trace using the parent class method
         return super().export(spans)

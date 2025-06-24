@@ -15,8 +15,9 @@ from google.genai.types import Content, Part
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY # Added
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
+# Corrected import: setup_google_cloud_logging is the standardized name
 from agents.app.utils.logging_setup import setup_google_cloud_logging
 from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
 

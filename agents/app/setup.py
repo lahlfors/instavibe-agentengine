@@ -15,7 +15,8 @@ setup(
         "opentelemetry-api>=1.22.0",
         "opentelemetry-sdk>=1.22.0",
         "opentelemetry-exporter-cloud-trace>=1.22.0", # For tracing.py
-        "opentelemetry-instrumentation>=0.43b0", # For LoggingInstrumentor
+        "opentelemetry-instrumentation>=0.43b0", # Namespace package
+        "opentelemetry-instrumentation-logging>=0.43b0", # For LoggingInstrumentor
         # Add any other direct dependencies of the app/common or app/utils modules
     ],
     python_requires='>=3.9', # Based on python:3.12-slim used in Dockerfiles

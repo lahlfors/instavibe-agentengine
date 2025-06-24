@@ -19,3 +19,4 @@ opentelemetry-sdk>=1.22.0
 # but instrumentations might be, and individual services need the exporter.
 # Adding instrumentation as it's the direct cause of the ModuleNotFoundError.
 opentelemetry-instrumentation>=0.43b0
+opentelemetry-instrumentation-logging>=0.43b0 # Specific package for LoggingInstrumentor

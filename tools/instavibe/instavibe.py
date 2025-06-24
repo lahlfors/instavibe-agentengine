@@ -1,11 +1,19 @@
 import requests
 import json
 import os
+import logging # Added
 from dotenv import load_dotenv
+
+# Get logger. Since this module is used by mcp_server.py,
+# it will use the logging setup from there if mcp_server.py is the entry point.
+# If this module were run or imported standalone, it would need its own setup.
+logger = logging.getLogger(__name__)
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 BASE_URL = os.environ.get("TOOLS_INSTAVIBE_BASE_URL")
+if not BASE_URL:
+    logger.warning("TOOLS_INSTAVIBE_BASE_URL environment variable is not set. API calls will likely fail.")
 
 def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL):
     """
@@ -33,18 +41,21 @@ def create_post(author_name: str, text: str, sentiment: str, base_url: str = BAS
     }
 
     try:
+        logger.info(f"Sending create_post request to {url} for author '{author_name}'. Sentiment: {sentiment}.")
+        logger.debug(f"Payload for create_post: {payload}")
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        print(f"Successfully created post. Status Code: {response.status_code}")
+        logger.info(f"Successfully created post for author '{author_name}'. Status Code: {response.status_code}")
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error creating post for '{author_name}': {e}. Response: {e.response.text if e.response else 'N/A'}", exc_info=True)
+        return {"error": str(e), "details": e.response.text if e.response else "No response body"}
     except requests.exceptions.RequestException as e:
-        print(f"Error creating post: {e}")
-        # Optionally re-raise the exception if the caller needs to handle it
-        # raise e
-        return None
-    except json.JSONDecodeError:
-        print(f"Error decoding JSON response from {url}. Response text: {response.text}")
-        return None
+        logger.error(f"Error creating post for '{author_name}': {e}", exc_info=True)
+        return {"error": str(e)}
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON response from {url} for create_post. Response text: {response.text if 'response' in locals() else 'N/A'}", exc_info=True)
+        return {"error": "JSONDecodeError", "details": response.text if 'response' in locals() else "No response object"}
 
 def create_event(event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str], base_url: str = BASE_URL):
     """
@@ -79,18 +90,21 @@ def create_event(event_name: str, description: str, event_date: str, locations: 
     }
 
     try:
+        logger.info(f"Sending create_event request to {url} for event '{event_name}'. Attendees: {attendee_names}.")
+        logger.debug(f"Payload for create_event: {payload}")
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        print(f"Successfully created event registration. Status Code: {response.status_code}")
+        logger.info(f"Successfully created event '{event_name}'. Status Code: {response.status_code}")
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error creating event '{event_name}': {e}. Response: {e.response.text if e.response else 'N/A'}", exc_info=True)
+        return {"error": str(e), "details": e.response.text if e.response else "No response body"}
     except requests.exceptions.RequestException as e:
-        print(f"Error creating event registration: {e}")
-        # Optionally re-raise the exception if the caller needs to handle it
-        # raise e
-        return None
-    except json.JSONDecodeError:
-        print(f"Error decoding JSON response from {url}. Response text: {response.text}")
-        return None
+        logger.error(f"Error creating event '{event_name}': {e}", exc_info=True)
+        return {"error": str(e)}
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON response from {url} for create_event. Response text: {response.text if 'response' in locals() else 'N/A'}", exc_info=True)
+        return {"error": "JSONDecodeError", "details": response.text if 'response' in locals() else "No response object"}
 
 
 

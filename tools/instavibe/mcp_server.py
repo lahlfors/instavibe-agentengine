@@ -3,9 +3,12 @@ import asyncio
 import json
 import uvicorn
 import os
+import logging # Added
 from dotenv import load_dotenv
+from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
+from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
 
-from mcp import types as mcp_types 
+from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
 
 from mcp.server.sse import SseServerTransport
@@ -18,16 +21,30 @@ from google.adk.tools.function_tool import FunctionTool
 
 from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
-from instavibe import create_event,create_post
+from instavibe import create_event,create_post # instavibe.py also needs logging setup
+
+# Initialize OpenTelemetry Tracer Provider first
+# Use a specific service name for traces and logs in GCP
+SERVICE_NAME = "tools-mcp-server"
+setup_global_tracer(service_name=SERVICE_NAME)
+
+# Then setup logging
+LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
+
+# Get logger AFTER setup
+logger = logging.getLogger(__name__)
 
 # Load environment variables from the root .env file
 # This ensures that any underlying libraries (ADK, Google Cloud clients)
 # or imported tool functions (from instavibe.py) can access necessary
 # configurations like project IDs, API keys, or specific base URLs.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+logger.info("Environment variables loaded for MCP Server.")
 
-APP_HOST = os.environ.get("APP_HOST", "0.0.0.0") # Remains unprefixed as per current understanding
-APP_PORT = int(os.environ.get("APP_PORT", 8080)) # Remains unprefixed, ensure port is int
+APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
+APP_PORT = int(os.environ.get("APP_PORT", 8080))
+logger.info(f"MCP Server configured to run on {APP_HOST}:{APP_PORT}")
 
 
 event_tool = FunctionTool(create_event)
@@ -49,7 +66,8 @@ async def list_tools() -> list[mcp_types.Tool]:
   # Convert the ADK tool's definition to MCP format
   mcp_tool_schema_event = adk_to_mcp_tool_type(event_tool)
   mcp_tool_schema_post = adk_to_mcp_tool_type(post_tool)
-  print(f"MCP Server: Received list_tools request. \n MCP Server: Advertising tool: {mcp_tool_schema_event.name} and {mcp_tool_schema_post}")
+  logger.info(f"MCP Server: Received list_tools request. Advertising tools: '{mcp_tool_schema_event.name}', '{mcp_tool_schema_post.name}'.")
+  logger.debug(f"Event tool schema: {mcp_tool_schema_event}, Post tool schema: {mcp_tool_schema_post}")
   return [mcp_tool_schema_event,mcp_tool_schema_post]
 
 @app.call_tool()
@@ -57,29 +75,29 @@ async def call_tool(
     name: str, arguments: dict
 ) -> list[mcp_types.TextContent | mcp_types.ImageContent | mcp_types.EmbeddedResource]:
   """MCP handler to execute a tool call."""
-  print(f"MCP Server: Received call_tool request for '{name}' with args: {arguments}")
+  logger.info(f"MCP Server: Received call_tool request for '{name}' with args: {arguments}")
 
   # Look up the tool by name in our dictionary
   tool_to_call = available_tools.get(name)
   if tool_to_call:
     try:
+      logger.debug(f"Executing ADK tool '{name}' with arguments: {arguments}")
       adk_response = await tool_to_call.run_async(
           args=arguments,
-          tool_context=None,
+          tool_context=None, # Consider if a mock or minimal context is needed
       )
-      print(f"MCP Server: ADK tool '{name}' executed successfully.")
+      logger.info(f"MCP Server: ADK tool '{name}' executed successfully.")
+      logger.debug(f"ADK response for tool '{name}': {adk_response}")
 
-      response_text = json.dumps(adk_response, indent=2)
+      response_text = json.dumps(adk_response) # Keep it compact for MCP transport
       return [mcp_types.TextContent(type="text", text=response_text)]
 
     except Exception as e:
-      print(f"MCP Server: Error executing ADK tool '{name}': {e}")
-      # Creating a proper MCP error response might be more robust
+      logger.error(f"MCP Server: Error executing ADK tool '{name}': {e}", exc_info=True)
       error_text = json.dumps({"error": f"Failed to execute tool '{name}': {str(e)}"})
       return [mcp_types.TextContent(type="text", text=error_text)]
   else:
-      # Handle calls to unknown tools
-      print(f"MCP Server: Tool '{name}' not found.")
+      logger.warning(f"MCP Server: Tool '{name}' not found.")
       error_text = json.dumps({"error": f"Tool '{name}' not implemented."})
       return [mcp_types.TextContent(type="text", text=error_text)]
 
@@ -103,15 +121,18 @@ starlette_app = Starlette(
 )
 
 if __name__ == "__main__":
-  print("Launching MCP Server exposing ADK tools...")
+  logger.info("Launching MCP Server exposing ADK tools...")
   try:
     # Ensure APP_PORT is an integer for uvicorn
     uvicorn_port = APP_PORT if isinstance(APP_PORT, int) else int(str(APP_PORT))
-    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port))
+    # Pass log_config=None to uvicorn if using global logging setup,
+    # or configure uvicorn's logging separately if needed.
+    # For now, relying on our global setup.
+    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port, log_config=None))
   except KeyboardInterrupt:
-    print("\nMCP Server stopped by user.")
+    logger.info("MCP Server stopped by user.")
   except Exception as e:
-    print(f"MCP Server encountered an error: {e}")
+    logger.critical(f"MCP Server encountered a critical error at startup/runtime: {e}", exc_info=True)
   finally:
-    print("MCP Server process exiting.")
+    logger.info("MCP Server process exiting.")
 # --- End MCP Server ---

@@ -12,13 +12,25 @@ import logging
 from google.genai import types # For types.Content
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional
+from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
+from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
+
+# Initialize OpenTelemetry Tracer Provider first
+# Use a specific service name for traces and logs in GCP
+SERVICE_NAME = "social-agent"
+setup_global_tracer(service_name=SERVICE_NAME)
+
+# Then setup logging
+LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
+
 
 # Load environment variables from the root .env file.
 # This is crucial for LlmAgent instances and any tools (like those from instavibe.py)
 # to pick up necessary configurations (e.g., API keys, project IDs, Spanner details).
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-# Get a logger instance
+# Get a logger instance AFTER setup
 log = logging.getLogger(__name__)
 
 # project_id, location, and model_config_kwargs are removed as LlmAgent will use

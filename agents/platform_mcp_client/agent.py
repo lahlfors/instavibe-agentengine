@@ -12,12 +12,22 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
 from typing import Any, Dict, List, Tuple, Optional
 from google.genai.types import Content, Part
+from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
+from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
 
+# Initialize OpenTelemetry Tracer Provider first
+# Use a specific service name for traces and logs in GCP
+SERVICE_NAME = "platform-mcp-client-agent"
+setup_global_tracer(service_name=SERVICE_NAME)
+
+# Then setup logging
+LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-logging.basicConfig(level=logging.INFO)
+# Get logger AFTER setup
 log = logging.getLogger(__name__)
 
 

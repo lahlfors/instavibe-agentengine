@@ -8,16 +8,33 @@ from google.api_core import exceptions
 import humanize 
 import uuid
 import traceback
-from dateutil import parser 
-from ally_routes import ally_bp 
+from dateutil import parser
+from ally_routes import ally_bp
+import logging # Added
+from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
+from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
 
+# Initialize OpenTelemetry Tracer Provider first
+# Use a specific service name for traces and logs in GCP
+SERVICE_NAME = "instavibe-app"
+setup_global_tracer(service_name=SERVICE_NAME)
+
+# Then setup logging for the whole application
+LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+# Note: Flask's default logger will also use this setup if called early.
+setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)
+
+# Get a logger for this module AFTER setup
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 # Load environment variables from root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+logger.info("Environment variables loaded for Instavibe app.")
 
 app.secret_key = os.environ.get("INSTAVIBE_FLASK_SECRET_KEY", "a_default_secret_key_for_dev")
 app.register_blueprint(ally_bp)
+logger.info("Flask app initialized and Ally blueprint registered.")
 
 # --- Spanner Configuration ---
 INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
@@ -38,13 +55,14 @@ GOOGLE_MAPS_API_KEY = os.environ.get("INSTAVIBE_GOOGLE_MAPS_API_KEY")
 GOOGLE_MAPS_MAP_ID = os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID') # Corrected variable name GOOGLE_MAPS_MAP_KEY to GOOGLE_MAPS_MAP_ID
 
 if not GOOGLE_MAPS_API_KEY:
-    print("INFO: The INSTAVIBE_GOOGLE_MAPS_API_KEY environment variable is not set. Mapping features relying on this key may be limited or non-functional.")
+    logger.info("The INSTAVIBE_GOOGLE_MAPS_API_KEY environment variable is not set. Mapping features relying on this key may be limited or non-functional.")
 
 if not GOOGLE_MAPS_MAP_ID:
-    print("INFO: The INSTAVIBE_GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
+    logger.info("The INSTAVIBE_GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
 
 if not PROJECT_ID:
     # This check is critical for Spanner client initialization.
+    logger.critical("CRITICAL: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
     raise ValueError("CRITICAL: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
 
 # --- Spanner Client Initialization ---
@@ -52,38 +70,38 @@ if not PROJECT_ID:
 
 db = None
 try:
-    print(f"Attempting to initialize Spanner client with Project ID: {PROJECT_ID}") # Add this log
+    logger.info(f"Attempting to initialize Spanner client with Project ID: {PROJECT_ID}")
     spanner_client = spanner.Client(project=PROJECT_ID)
     instance = spanner_client.instance(INSTANCE_ID) # Ensure INSTANCE_ID is defined
     database = instance.database(DATABASE_ID)       # Ensure DATABASE_ID is defined
-    print(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
+    logger.info(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
 
     if not instance.exists():
-        print(f"CRITICAL Error: Spanner instance '{INSTANCE_ID}' does not exist in project '{PROJECT_ID}'.")
+        logger.critical(f"CRITICAL Error: Spanner instance '{INSTANCE_ID}' does not exist in project '{PROJECT_ID}'.")
         raise RuntimeError(f"Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'. Application cannot start.")
 
     if not database.exists():
-        print(f"CRITICAL Error: Database '{DATABASE_ID}' does not exist in instance '{INSTANCE_ID}'.")
+        logger.critical(f"CRITICAL Error: Database '{DATABASE_ID}' does not exist in instance '{INSTANCE_ID}'.")
         # Optionally, you could mention creating the database here if that's part of your SOPs
         raise RuntimeError(f"Spanner database '{DATABASE_ID}' not found in instance '{INSTANCE_ID}'. Application cannot start.")
     else:
-        print("Spanner Database connection check successful (database exists).")
+        logger.info("Spanner Database connection check successful (database exists).")
         db = database
 
 except exceptions.NotFound as e: # Catch specific Spanner NotFound
-    print(f"CRITICAL Spanner Error (NotFound): {e}. This usually means instance or database details are incorrect or they don't exist.")
+    logger.critical(f"CRITICAL Spanner Error (NotFound): {e}. This usually means instance or database details are incorrect or they don't exist.", exc_info=True)
     raise RuntimeError(f"Spanner resource not found: {e}. Application cannot start.") from e
 except exceptions.GoogleAPICallError as e: # Catch broader API call errors
-    print(f"CRITICAL Spanner API Call Error: {e}. This could be permissions, network, or configuration issues.")
+    logger.critical(f"CRITICAL Spanner API Call Error: {e}. This could be permissions, network, or configuration issues.", exc_info=True)
     raise RuntimeError(f"Spanner API call failed: {e}. Application cannot start.") from e
 except Exception as e: # Catch any other unexpected errors during initialization
-    print(f"CRITICAL Unexpected error during Spanner initialization: {e}")
-    traceback.print_exc() # Print full traceback for unexpected errors
+    logger.critical(f"CRITICAL Unexpected error during Spanner initialization: {e}", exc_info=True)
+    # traceback.print_exc() # Already covered by exc_info=True in logger
     raise RuntimeError(f"Unexpected error during Spanner initialization: {e}. Application cannot start.") from e
 
 # Final check after try-except block
 if db is None:
-    print("CRITICAL: Spanner database object 'db' is None after initialization attempts. This should not happen if exceptions are raised correctly.")
+    logger.critical("CRITICAL: Spanner database object 'db' is None after initialization attempts. This should not happen if exceptions are raised correctly.")
     raise RuntimeError("Spanner database connection could not be established. 'db' is None. Application cannot start.")
 
 def run_query(sql, params=None, param_types=None, expected_fields=None): # Add expected_fields
@@ -102,15 +120,13 @@ def run_query(sql, params=None, param_types=None, expected_fields=None): # Add e
                                                 Required if results.fields fails.
     """
     if not db:
-        print("Error: Database connection is not available.")
+        logger.error("Error: Database connection is not available for run_query.")
         raise ConnectionError("Spanner database connection not initialized.")
 
     results_list = []
-    print(f"--- Executing SQL ---")
-    print(f"SQL: {sql}")
+    logger.debug(f"Executing SQL query: {sql[:500]}{'...' if len(sql) > 500 else ''}") # Log snippet of SQL
     if params:
-        print(f"Params: {params}")
-    print("----------------------")
+        logger.debug(f"With parameters: {params}")
 
     try:
         with db.snapshot() as snapshot:
@@ -120,51 +136,41 @@ def run_query(sql, params=None, param_types=None, expected_fields=None): # Add e
                 param_types=param_types
             )
 
-            # --- MODIFICATION START ---
-            # Define field names based on the expected_fields argument
-            # This avoids accessing results.fields which caused the error
             field_names = expected_fields
             if not field_names:
-                 # Fallback or raise error if expected_fields were not provided
-                 # For now, let's try the potentially failing way if not provided
-                 print("Warning: expected_fields not provided to run_query. Attempting dynamic lookup.")
+                 logger.warning("expected_fields not provided to run_query. Attempting dynamic field name lookup from results.fields.")
                  try:
                      field_names = [field.name for field in results.fields]
-                 except AttributeError as e:
-                     print(f"Error accessing results.fields even as fallback: {e}")
-                     print("Cannot process results without field names.")
-                     # Decide: raise error or return empty list?
-                     raise ValueError("Could not determine field names for query results.") from e
+                 except AttributeError as e_fields:
+                     logger.error(f"Error accessing results.fields: {e_fields}. Cannot process results without field names.", exc_info=True)
+                     raise ValueError("Could not determine field names for query results.") from e_fields
 
+            logger.debug(f"Using field names for query results: {field_names}")
 
-            print(f"Using field names: {field_names}")
-            # --- MODIFICATION END ---
-
-            for row in results:
-                # Now zip the known field names with the row values (which are lists)
+            for i, row in enumerate(results):
                 if len(field_names) != len(row):
-                     print(f"Warning: Mismatch between number of field names ({len(field_names)}) and row values ({len(row)})")
-                     print(f"Fields: {field_names}")
-                     print(f"Row: {row}")
-                     # Skip this row or handle error appropriately
-                     continue # Skip malformed row for now
+                     logger.warning(
+                         f"Row {i}: Mismatch between number of field names ({len(field_names)}) and row values ({len(row)}). "
+                         f"Fields: {field_names}, Row: {row}. Skipping this row."
+                     )
+                     continue
                 results_list.append(dict(zip(field_names, row)))
 
-            print(f"Query successful, fetched {len(results_list)} rows.")
+            logger.info(f"Query successful, fetched {len(results_list)} rows for SQL: {sql[:80]}{'...' if len(sql) > 80 else ''}")
 
     except (exceptions.NotFound, exceptions.PermissionDenied, exceptions.InvalidArgument) as spanner_err:
-        print(f"Spanner Error ({type(spanner_err).__name__}): {spanner_err}")
-        flash(f"Database error: {spanner_err}", "danger")
-        return []
-    except ValueError as e: # Catch the ValueError we might raise above
-         print(f"Query Processing Error: {e}")
+        logger.error(f"Spanner Error ({type(spanner_err).__name__}) executing query: {sql[:80]}... Error: {spanner_err}", exc_info=True)
+        flash(f"Database error: {spanner_err}", "danger") # Keep flash for user feedback
+        return [] # Return empty list on error to maintain function signature for UI
+    except ValueError as e_val: # Catch the ValueError we might raise above
+         logger.error(f"Query Processing Error: {e_val}", exc_info=True)
          flash("Internal error processing query results.", "danger")
          return []
-    except Exception as e:
-        print(f"An unexpected error occurred during query execution or processing: {e}")
-        traceback.print_exc()
+    except Exception as e_unexpected:
+        logger.error(f"An unexpected error occurred during query execution or processing: {e_unexpected}", exc_info=True)
+        # traceback.print_exc() # Covered by exc_info=True
         flash(f"An unexpected server error occurred while fetching data.", "danger")
-        raise e
+        raise e_unexpected # Re-raise for server to handle, or return [] if UI should degrade gracefully
 
     return results_list
 
@@ -383,7 +389,7 @@ def _jinja2_filter_humanize_datetime(value, default="just now"):
 def get_person_by_name_db(name):
     """Fetch a person's ID by their name from Spanner."""
     if not db:
-        print("Error: Database connection is not available.")
+        logger.error("Error: Database connection is not available for get_person_by_name_db.")
         raise ConnectionError("Spanner database connection not initialized.")
 
     sql = "SELECT person_id FROM Person WHERE name = @name LIMIT 1"
@@ -392,20 +398,25 @@ def get_person_by_name_db(name):
     fields = ["person_id"] # Expected field from the SELECT
     try:
         results = run_query(sql, params=params, param_types=param_types_map, expected_fields=fields)
-        return results[0]['person_id'] if results else None
+        person_id = results[0]['person_id'] if results else None
+        if person_id:
+            logger.info(f"Found person_id '{person_id}' for name '{name}'.")
+        else:
+            logger.warning(f"Could not find person_id for name '{name}'.")
+        return person_id
     except Exception as e:
-        print(f"Error fetching person by name '{name}': {e}")
-        # Optionally re-raise or return None based on desired error handling
-        raise e # Re-raise to be caught by the API endpoint handler
+        logger.error(f"Error fetching person by name '{name}': {e}", exc_info=True)
+        raise e
 
 # --- Helper function to insert a post ---
 def add_post_db(post_id, author_id, text, sentiment=None):
     """Inserts a new post into the Spanner database."""
     if not db:
-        print("Error: Database connection is not available for insert.")
+        logger.error("Error: Database connection is not available for add_post_db.")
         raise ConnectionError("Spanner database connection not initialized.")
 
     def _insert_post(transaction):
+        logger.debug(f"Transaction attempting to insert post_id: {post_id} by author_id: {author_id}")
         transaction.insert(
             table="Post",
             columns=[
@@ -414,21 +425,19 @@ def add_post_db(post_id, author_id, text, sentiment=None):
             ],
             values=[(
                 post_id, author_id, text, sentiment,
-                datetime.now(timezone.utc), # Use current UTC time for post_timestamp
-                spanner.COMMIT_TIMESTAMP   # Use commit time for create_time
+                datetime.now(timezone.utc),
+                spanner.COMMIT_TIMESTAMP
             )]
         )
-        print(f"Transaction attempting to insert post_id: {post_id}")
+        logger.info(f"Post insertion prepared in transaction for post_id: {post_id}")
 
     try:
         db.run_in_transaction(_insert_post)
-        print(f"Successfully inserted post_id: {post_id}")
+        logger.info(f"Successfully inserted post_id: {post_id}")
         return True
     except Exception as e:
-        print(f"Error inserting post (id: {post_id}): {e}")
-        # Log the full traceback for detailed debugging if needed
-        # traceback.print_exc()
-        return False # Indicate failure
+        logger.error(f"Error inserting post (id: {post_id}): {e}", exc_info=True)
+        return False
 
 def add_full_event_with_details_db(event_id, event_name, description, event_date, locations_data, attendee_ids):
     """
@@ -448,11 +457,11 @@ def add_full_event_with_details_db(event_id, event_name, description, event_date
         bool: True if the transaction was successful, False otherwise.
     """
     if not db:
-        print("Error: Database connection is not available for full event insert.")
+        logger.error("Error: Database connection is not available for add_full_event_with_details_db.")
         raise ConnectionError("Spanner database connection not initialized.")
 
     def _insert_event_and_attendee(transaction):
-        # Insert into Event table (Simplified Schema)
+        logger.debug(f"Transaction attempting to insert event_id: {event_id} with name '{event_name}'")
         transaction.insert(
             table="Event",
             columns=[
@@ -463,46 +472,43 @@ def add_full_event_with_details_db(event_id, event_name, description, event_date
                 spanner.COMMIT_TIMESTAMP
             )]
         )
-        print(f"Transaction attempting to insert event_id: {event_id}")
 
-        # Insert Locations and EventLocation links
-        for loc_data in locations_data:
+        for i, loc_data in enumerate(locations_data):
             location_id = str(uuid.uuid4())
+            logger.debug(f"Transaction attempting to insert location_id: {location_id} (Location {i+1}) for event {event_id}")
             transaction.insert(
                 table="Location",
                 columns=["location_id", "name", "description", "latitude", "longitude", "address", "create_time"],
                 values=[(
                     location_id, loc_data.get("name"), loc_data.get("description"),
-                    float(loc_data.get("latitude", 0.0)), float(loc_data.get("longitude", 0.0)), # Ensure float
+                    float(loc_data.get("latitude", 0.0)), float(loc_data.get("longitude", 0.0)),
                     loc_data.get("address"), spanner.COMMIT_TIMESTAMP
                 )]
             )
-            print(f"Transaction attempting to insert location_id: {location_id} for event {event_id}")
+            logger.debug(f"Transaction attempting to link event {event_id} with location {location_id}")
             transaction.insert(
                 table="EventLocation",
                 columns=["event_id", "location_id", "create_time"],
                 values=[(event_id, location_id, spanner.COMMIT_TIMESTAMP)]
             )
-            print(f"Transaction attempting to link event {event_id} with location {location_id}")
 
-        # Insert each attendee into Attendance table
         if attendee_ids:
             for attendee_id_to_add in attendee_ids:
+                logger.debug(f"Transaction attempting to insert attendee {attendee_id_to_add} for event {event_id} into Attendance")
                 transaction.insert(
                     table="Attendance",
                     columns=["event_id", "person_id", "attendance_time"],
                     values=[(event_id, attendee_id_to_add, spanner.COMMIT_TIMESTAMP)]
                 )
-                print(f"Transaction attempting to insert attendee {attendee_id_to_add} for event {event_id} into Attendance")
+        logger.info(f"Event {event_id} and related data prepared in transaction.")
 
     try:
         db.run_in_transaction(_insert_event_and_attendee)
-        print(f"Successfully inserted event {event_id} with details and attendees {attendee_ids}")
+        logger.info(f"Successfully inserted event {event_id} with details and attendees {attendee_ids}")
         return True
     except Exception as e:
-        print(f"Error inserting full event (event_id: {event_id}, attendee_ids: {attendee_ids}): {e}")
-        traceback.print_exc() # Log detailed error
-        return False # Indicate failure
+        logger.error(f"Error inserting full event (event_id: {event_id}, attendees: {attendee_ids}): {e}", exc_info=True)
+        return False
 
 # --- Routes ---
 @app.route('/')
@@ -577,16 +583,14 @@ def event_detail_page(event_id):
     try:
         event_data = get_event_details_with_locations_attendees_db(event_id)
         if not event_data:
+            logger.warning(f"Event with ID '{event_id}' not found in database.")
             abort(404) # Event not found
     except Exception as e:
         flash(f"Failed to load event data: {e}", "danger")
-        # Log the error for debugging
-        print(f"Error fetching event {event_id}: {e}")
-        traceback.print_exc()
-        # Render the page with an error state or redirect
-        return render_template('event_detail.html', event=None, error=True, google_maps_api_key=GOOGLE_MAPS_API_KEY)
+        logger.error(f"Error fetching event details for event_id '{event_id}': {e}", exc_info=True)
+        return render_template('event_detail.html', event=None, error=True, google_maps_api_key=GOOGLE_MAPS_API_KEY, google_maps_map_id=GOOGLE_MAPS_MAP_ID)
 
-    return render_template('event_detail.html', event=event_data, google_maps_api_key=GOOGLE_MAPS_API_KEY)
+    return render_template('event_detail.html', event=event_data, google_maps_api_key=GOOGLE_MAPS_API_KEY, google_maps_map_id=GOOGLE_MAPS_MAP_ID)
 
 
 @app.route('/api/posts', methods=['POST'])
@@ -651,13 +655,10 @@ def add_post_api():
             return jsonify({"error": "Failed to save post to the database"}), 500 # Internal Server Error
 
     except ConnectionError as e:
-         # Handle case where db connection failed specifically in this request path
-         print(f"ConnectionError during post add: {e}")
+         logger.error(f"ConnectionError during post add API call: {e}", exc_info=True)
          return jsonify({"error": "Database connection error during operation"}), 503
     except Exception as e:
-        # Catch any other unexpected errors (e.g., from get_person_by_name_db)
-        print(f"Unexpected error processing add post request: {e}")
-        traceback.print_exc() # Log detailed error for server admin
+        logger.error(f"Unexpected error processing add post request: {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
 
 
@@ -747,26 +748,28 @@ def add_event_api():
 
 
     except ValueError as e:
+        logger.error(f"Invalid timestamp format for 'event_date': {event_date_str}. Details: {e}", exc_info=True)
         return jsonify({"error": f"Invalid timestamp format for 'event_date'. Use ISO 8601 (e.g., YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+HH:MM). Details: {e}"}), 400
 
     try:
-        # 1. Find person_ids for all attendee names
+        logger.info(f"Processing add_event_api request for event '{event_name}'. Attendees: {attendee_names}")
         attendee_ids_to_add = []
         processed_attendees_info = []
         for attendee_name_str in attendee_names:
             attendee_id = get_person_by_name_db(attendee_name_str)
             if not attendee_id:
-                return jsonify({"error": f"Attendee '{attendee_name_str}' not found"}), 404 # Not Found
+                logger.warning(f"Attendee '{attendee_name_str}' not found during event creation '{event_name}'.")
+                return jsonify({"error": f"Attendee '{attendee_name_str}' not found"}), 404
             attendee_ids_to_add.append(attendee_id)
             processed_attendees_info.append({"id": attendee_id, "name": attendee_name_str})
 
-        if not attendee_ids_to_add: # Should be caught by earlier validation, but good check
+        if not attendee_ids_to_add:
+            logger.warning(f"No valid attendee IDs found for event '{event_name}'. Original names: {attendee_names}")
             return jsonify({"error": "No valid attendees found or provided."}), 400
 
-        # 2. Generate a unique ID for the new event
         new_event_id = str(uuid.uuid4())
+        logger.debug(f"Generated new event_id: {new_event_id} for event '{event_name}'")
 
-        # 3. Insert the event and all attendees atomically
         success = add_full_event_with_details_db(
             event_id=new_event_id,
             event_name=event_name,
@@ -777,47 +780,44 @@ def add_event_api():
         )
 
         if success:
-            # 4. Return a success response
             event_data = {
                 "message": "Event and attendees added successfully",
                 "event_id": new_event_id,
                 "event_name": event_name,
                 "description": description,
-                "event_date": event_date.isoformat(), # Return in ISO format
-                "locations": locations_data, # Echo back the locations provided
-                "attendees": processed_attendees_info # List of {id, name}
+                "event_date": event_date.isoformat(),
+                "locations": locations_data,
+                "attendees": processed_attendees_info
             }
-            return jsonify(event_data), 201 # 201 Created status code
+            logger.info(f"Event '{event_name}' (ID: {new_event_id}) created successfully.")
+            return jsonify(event_data), 201
         else:
-            # Insertion failed (error logged in helper function)
-            return jsonify({"error": "Failed to save event and attendee to the database"}), 500 # Internal Server Error
+            logger.error(f"Failed to save event '{event_name}' (ID: {new_event_id}) to database.")
+            return jsonify({"error": "Failed to save event and attendee to the database"}), 500
 
     except ConnectionError as e:
-         print(f"ConnectionError during event add: {e}")
+         logger.error(f"ConnectionError during event add API call for '{event_name}': {e}", exc_info=True)
          return jsonify({"error": "Database connection error during operation"}), 503
     except Exception as e:
-        # Catch other unexpected errors
-        print(f"Unexpected error processing add event request: {e}")
-        traceback.print_exc()
+        logger.error(f"Unexpected error processing add event request for '{event_name}': {e}", exc_info=True)
         return jsonify({"error": "An internal server error occurred"}), 500
 
 
 # --- Error Handlers ---
 @app.errorhandler(404)
 def page_not_found(e):
-    return render_template('404.html'), 404 # You'll need to create 404.html
+    logger.warning(f"404 Not Found error: {e}. Request URL: {request.url}")
+    return render_template('404.html'), 404
 
 @app.errorhandler(500)
 def internal_server_error(e):
-     # Log the error e
-     print(f"Internal Server Error: {e}")
-     return render_template('500.html'), 500 # You'll need to create 500.html
+     logger.error(f"500 Internal Server Error: {e}. Request URL: {request.url}", exc_info=e.original_exception if hasattr(e, 'original_exception') else True)
+     return render_template('500.html'), 500
 
 @app.errorhandler(503)
 def service_unavailable(e):
-     # Log the error e
-     print(f"Service Unavailable Error: {e}")
-     return render_template('503.html'), 503 # You'll need to create 503.html
+     logger.error(f"503 Service Unavailable error: {e}. Request URL: {request.url}", exc_info=e.original_exception if hasattr(e, 'original_exception') else True)
+     return render_template('503.html'), 503
 
 
 
@@ -826,10 +826,14 @@ def service_unavailable(e):
 if __name__ == '__main__':
     # Check if db connection was successful before running
     if not db:
-        print("\n--- Cannot start Flask app: Spanner database connection failed during initialization. ---")
-        print("--- Please check GCP project, instance ID, database ID, permissions, and network connectivity. ---")
+        logger.critical("\n--- Cannot start Flask app: Spanner database connection failed during initialization. ---")
+        logger.critical("--- Please check GCP project, instance ID, database ID, permissions, and network connectivity. ---")
     else:
-        print("\n--- Starting Flask Development Server ---")
-        # Use debug=True only in development! It reloads code and provides better error pages.
-        # Use host='0.0.0.0' to make it accessible on your network (e.g., from a VM)
-        app.run(debug=True, host=APP_HOST, port=int(APP_PORT)) # Ensure APP_PORT is int, and uses updated INSTAVIBE_APP_HOST/PORT
+        logger.info("\n--- Starting Flask Development Server ---")
+        # For production, use a proper WSGI server like Gunicorn.
+        # Debug mode should be False in production.
+        # The host '0.0.0.0' makes it accessible on your network.
+        # The port is cast to int as uvicorn/gunicorn expect it.
+        # Flask's default logger is used unless `log_config=None` is passed to uvicorn/gunicorn if they are configured to take over logging.
+        # Our `setup_google_cloud_logging` configures the root logger, which Flask's app.logger will use.
+        app.run(debug=os.environ.get("FLASK_DEBUG", "False").lower() == "true", host=APP_HOST, port=int(APP_PORT))

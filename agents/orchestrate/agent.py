@@ -5,14 +5,25 @@ from dotenv import load_dotenv
 from google.genai import types
 from google.adk.agents import BaseAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset # Removed SseServerParams
-import logging 
+import logging
 import nest_asyncio # Import nest_asyncio
 import atexit
+from agents.app.utils.logging_setup import setup_google_cloud_logging # Import the new utility
+from agents.app.utils.tracing import setup_global_tracer # Assuming this sets up OTEL tracer
+
+# Initialize OpenTelemetry Tracer Provider first
+setup_global_tracer(service_name="orchestrate-agent") # Or appropriate service name
+
+# Then setup logging, which might use OTEL context if LoggingInstrumentor is active
+# Use a specific service name for logs in GCP
+SERVICE_NAME_FOR_LOGS = "orchestrate-agent"
+LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME_FOR_LOGS)
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-logging.basicConfig(level=logging.INFO)
+# Get the logger after setup
 log = logging.getLogger(__name__)
  
 # --- Global variables ---

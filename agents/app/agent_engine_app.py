@@ -28,7 +28,8 @@ import google.api_core.exceptions # For specific exception handling
 from google.cloud import logging as google_cloud_logging
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider, export
-from opentelemetry.instrumentation.logging import LoggingInstrumentor # Added
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY # Added
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 
@@ -60,11 +61,17 @@ class AgentEngineApp(AdkApp):
         # Default to "base-agent-engine" if not set by specific agent.
         current_service_name = os.environ.get("AGENT_SERVICE_NAME", "base-agent-engine")
 
-        provider = TracerProvider()
+        # Define Resource for OpenTelemetry
+        resource = Resource(attributes={
+            OTEL_SERVICE_NAME_KEY: current_service_name
+            # Future: add other attributes like service.version, deployment.environment
+        })
+
+        provider = TracerProvider(resource=resource) # Pass resource to provider
         processor = export.BatchSpanProcessor(
             CloudTraceLoggingSpanExporter(
                 project_id=GOOGLE_CLOUD_PROJECT, # Explicitly pass project_id
-                service_name=current_service_name # Pass service_name to exporter
+                service_name=current_service_name # Pass service_name to exporter (still useful for its own logging)
             )
         )
         provider.add_span_processor(processor)

@@ -14,8 +14,9 @@ import logging
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY # Added
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
-from opentelemetry.instrumentation.flask import FlaskInstrumentor # Added for Flask
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from agents.app.utils.logging_setup import setup_google_cloud_logging
 from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
 
@@ -27,11 +28,14 @@ SERVICE_NAME = "instavibe-app"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 1. Initialize OpenTelemetry TracerProvider
-provider = TracerProvider()
+resource = Resource(attributes={
+    OTEL_SERVICE_NAME_KEY: SERVICE_NAME
+})
+provider = TracerProvider(resource=resource)
 processor = BatchSpanProcessor(
     CloudTraceLoggingSpanExporter(
         project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
-        service_name=SERVICE_NAME # Pass SERVICE_NAME here
+        service_name=SERVICE_NAME
     )
 )
 provider.add_span_processor(processor)

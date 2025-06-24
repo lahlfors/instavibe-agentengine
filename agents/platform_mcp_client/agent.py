@@ -12,12 +12,13 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
 from typing import Any, Dict, List, Tuple, Optional
 from google.genai.types import Content, Part
-from opentelemetry import trace # Added
-from opentelemetry.sdk.trace import TracerProvider # Added
-from opentelemetry.sdk.trace.export import BatchSpanProcessor # Added
-from opentelemetry.instrumentation.logging import LoggingInstrumentor # Added
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY # Added
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # Changed from setup_global_tracer
+from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
 
 # Define service name for observability
 # Load environment variables from the root .env file first.
@@ -28,11 +29,14 @@ LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 1. Initialize OpenTelemetry Tracer Provider
 # GOOGLE_CLOUD_PROJECT should be available from environment after dotenv load
-provider = TracerProvider()
+resource = Resource(attributes={
+    OTEL_SERVICE_NAME_KEY: SERVICE_NAME
+})
+provider = TracerProvider(resource=resource)
 processor = BatchSpanProcessor(
     CloudTraceLoggingSpanExporter(
         project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
-        service_name=SERVICE_NAME # Pass SERVICE_NAME here
+        service_name=SERVICE_NAME
     )
 )
 provider.add_span_processor(processor)

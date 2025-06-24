@@ -14,8 +14,8 @@ setup(
         "google-cloud-storage>=2.0.0", # For tracing.py (GCS client)
         "opentelemetry-api>=1.22.0",
         "opentelemetry-sdk>=1.22.0",
-        "opentelemetry-exporter-gcp-trace~=1.22.0", # Updated exporter
-        "opentelemetry-propagator-gcp~=1.22.0", # Added propagator
+        "opentelemetry-exporter-gcp-trace~=1.9.0", # Corrected version
+        "opentelemetry-propagator-gcp~=1.9.0", # Corrected version
         "opentelemetry-instrumentation>=0.43b0", # Namespace package
         "opentelemetry-instrumentation-logging>=0.43b0", # For LoggingInstrumentor
         # Add any other direct dependencies of the app/common or app/utils modules

@@ -9,7 +9,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
-COPY . /app
+COPY ./mcp_server.py /app/mcp_server.py
 COPY ../../agents /app/agents
 
 # --- Environment ---
@@ -20,4 +20,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread mcp_server:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "2", "--threads", "4", "--worker-class", "gthread", "mcp_server:app"]

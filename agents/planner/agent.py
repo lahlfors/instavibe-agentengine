@@ -10,16 +10,22 @@ import google.cloud.aiplatform
 # --- END: Agent Environment Debugging Code ---
 
 import os
+import logging # Added
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
 # from google.adk.models.google_llm import GoogleLlm # Removed import
 from google.adk.tools import google_search
 
+# Initialize logger at the module level
+logger = logging.getLogger(__name__)
+
 # Load environment variables from the root .env file.
 # This is important so that any underlying ADK or Google library calls
 # (e.g., for API keys for google_search, or project/location for Vertex AI)
 # can pick up the correct configuration.
+logger.info("Loading environment variables for planner agent definition...")
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+logger.info("Environment variables loaded.")
 
 # project_id, location, and model_config_kwargs are removed as LlmAgent will use
 # values from vertexai.init() or environment variables.
@@ -27,6 +33,8 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # Define model name string - ensure this is the desired model
 MODEL_NAME = "gemini-2.0-flash-001" # Updated deprecated model
 AGENT_NAME = "location_search_agent" # Consistent name from before
+logger.info(f"Defining Planner ADK Agent: Name='{AGENT_NAME}', Model='{MODEL_NAME}'")
+
 AGENT_INSTRUCTION = """
 
         You are a specialized AI assistant tasked with generating creative and fun plan suggestions.
@@ -62,7 +70,9 @@ AGENT_INSTRUCTION = """
 
     """
 root_tools = [google_search] # Assuming this was the original definition
+logger.debug(f"Planner ADK Agent tools: {[tool.name for tool in root_tools if hasattr(tool, 'name')]}")
 
+logger.info("Instantiating Planner ADK LlmAgent...")
 root_agent = Agent(
     name=AGENT_NAME,
     model=MODEL_NAME,
@@ -71,3 +81,4 @@ root_agent = Agent(
     tools=root_tools
     # NO model_kwargs
 )
+logger.info(f"Planner ADK LlmAgent '{root_agent.name}' instantiated successfully.")

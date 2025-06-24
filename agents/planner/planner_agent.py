@@ -1,6 +1,6 @@
 import os # For path joining
-import logging # Added
-import asyncio # Added
+import logging
+import asyncio
 import nest_asyncio # Added
 from dotenv import load_dotenv # To load .env
 from typing import Any, Dict, Optional # Removed AsyncIterable, ensured Any, Dict, Optional
@@ -14,6 +14,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part # Modified import
 from agents.app.common.task_manager import AgentTaskManager # Corrected to agents.app.common
+from agents.app.utils.tracing import get_tracer # Import the tracer utility
 from . import agent
 
 # Load environment variables from the root .env file.
@@ -25,32 +26,56 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # Apply nest_asyncio to allow asyncio.run() within an existing event loop (e.g., server)
 nest_asyncio.apply()
 
+# Initialize logger at the module level
+logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
+
 class PlannerAgent(AgentTaskManager):
   """An agent to help user planning a night out with its desire location."""
 
   SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
 
   def __init__(self):
-    self._agent = self._build_agent()
-    self._user_id = "remote_agent"
-    self._runner = Runner(
-        app_name=self._agent.name,
-        agent=self._agent,
-        artifact_service=InMemoryArtifactService(),
-        session_service=InMemorySessionService(),
-        memory_service=InMemoryMemoryService(),
-    )
+    with tracer.start_as_current_span("PlannerAgent.__init__") as span:
+        logger.info("Initializing PlannerAgent...")
+        self._agent = self._build_agent()
+        span.set_attribute("agent.name", self._agent.name)
+        logger.info(f"PlannerAgent initialized with ADK agent name: {self._agent.name}")
+        self._user_id = "remote_agent" # Default user_id
+        self._runner = Runner(
+            app_name=self._agent.name,
+            agent=self._agent,
+            artifact_service=InMemoryArtifactService(),
+            session_service=InMemorySessionService(),
+            memory_service=InMemoryMemoryService(),
+        )
+        logger.info("PlannerAgent Runner configured.")
+        span.set_attribute("runner.configured", True)
 
   def get_processing_message(self) -> str:
       return "Processing the planning request..."
 
   def _build_agent(self) -> LoopAgent:
     """Builds the LLM agent for the night out planning agent."""
-    return agent.root_agent
+    with tracer.start_as_current_span("PlannerAgent._build_agent") as span:
+        logger.info(f"Building ADK LoopAgent with agent name: {agent.AGENT_NAME}, model: {agent.MODEL_NAME}")
+        span.set_attribute("adk.agent.name", agent.AGENT_NAME)
+        span.set_attribute("adk.agent.model", agent.MODEL_NAME)
+        # This span will cover the instantiation of agent.root_agent
+        # which happens in the return statement.
+        return agent.root_agent
 
   def query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Renamed query_text back to query, made sync
-        logger = logging.getLogger(__name__)
+    with tracer.start_as_current_span("PlannerAgent.query") as span:
+        span.set_attribute("agent.name", "PlannerAgent")
+        span.set_attribute("method.name", "query")
+        span.set_attribute("query.length", len(query))
+        span.set_attribute("kwargs", str(kwargs)) # Be cautious with sensitive data in kwargs
+
+        logger.info(f"PlannerAgent query started. Query length: {len(query)}. Kwargs: {kwargs}")
+        logger.debug(f"Full query text: {query}")
         app_name = self._agent.name
+        span.set_attribute("adk.app.name", app_name)
 
         # Determine the user_id and desired_session_id for this interaction
         # ADK 1.0.0 examples use user_id for session context and run_async.
@@ -63,85 +88,137 @@ class PlannerAgent(AgentTaskManager):
         # If instavibe-app is providing "Alice" as kwargs["session_id"], then interaction_user_id becomes "Alice".
         # We'll use this as the session_id for get/create, effectively making session_id = user_id for these calls.
         desired_session_id_for_service = interaction_user_id
+        span.set_attribute("session.user_id", interaction_user_id)
+        span.set_attribute("session.desired_id", desired_session_id_for_service)
+        logger.debug(f"Session management: app_name='{app_name}', user_id='{interaction_user_id}', desired_session_id='{desired_session_id_for_service}'")
 
-        current_session_obj: Optional[Any] = None # Changed type hint to Optional[Any] for safety
+        current_session_obj: Optional[Any] = None
+        session_status = "unknown"
         try:
-            # logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-            # Synchronous call
-            current_session_obj = self._runner.session_service.get_session(
-                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
-            )
-            if current_session_obj:
-                logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
-            else:
-                # Handles get_session returning None if session not found
-                logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found (get_session returned None). Will create.")
-                # current_session_obj is already None in this path
+            with tracer.start_as_current_span("PlannerAgent.query.get_session") as get_session_span:
+                get_session_span.set_attribute("session.user_id", interaction_user_id)
+                get_session_span.set_attribute("session.id_lookup", desired_session_id_for_service)
+                logger.info(f"Attempting to get session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}'...")
+                current_session_obj = self._runner.session_service.get_session(
+                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+                )
+                if current_session_obj:
+                    logger.info(f"Found existing session: {current_session_obj.id} for user '{interaction_user_id}'")
+                    get_session_span.set_attribute("session.status", "found")
+                    get_session_span.set_attribute("session.retrieved_id", current_session_obj.id)
+                    session_status = "found_existing"
+                else:
+                    logger.info(f"Session '{desired_session_id_for_service}' for user '{interaction_user_id}' not found. Will attempt to create.")
+                    get_session_span.set_attribute("session.status", "not_found")
+                    session_status = "requires_creation"
         except Exception as e_get:
-            # Catches other errors from get_session (e.g., if it still raises something on 'not found' that isn't SessionNotFoundError)
-            logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Will assume session needs creation.")
-            current_session_obj = None # Ensure it's None so create is attempted
+            logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Assuming session needs creation.", exc_info=True)
+            current_session_obj = None
+            session_status = "get_error"
+            span.set_attribute("session.get_error", str(e_get))
+
 
         if current_session_obj is None:
             try:
-                # logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-                # Synchronous call, using session_id as override as per user example context
-                current_session_obj = self._runner.session_service.create_session(
-                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
-                    # Note: ADK docs for BaseSessionService.create_session show session_id_override.
-                    # User example for InMemorySessionService shows session_id. Assuming session_id works as override.
-                )
-                # logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+                with tracer.start_as_current_span("PlannerAgent.query.create_session") as create_session_span:
+                    create_session_span.set_attribute("session.user_id", interaction_user_id)
+                    create_session_span.set_attribute("session.id_create_attempt", desired_session_id_for_service)
+                    logger.info(f"Creating session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}'...")
+                    current_session_obj = self._runner.session_service.create_session(
+                        app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+                    )
+                    logger.info(f"Successfully created session: {current_session_obj.id} for user '{interaction_user_id}'.")
+                    create_session_span.set_attribute("session.status", "created")
+                    create_session_span.set_attribute("session.created_id", current_session_obj.id)
+                    session_status = "created_new"
             except Exception as e_create:
-                logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
+                logger.error(f"Failed to create session for user '{interaction_user_id}' with session_id '{desired_session_id_for_service}': {e_create}", exc_info=True)
+                span.set_attribute("error", True)
+                span.set_attribute("error.message", f"Session management failure during create: {e_create}")
+                span.set_attribute("session.status", "create_error")
                 return {"error": f"Session management failure during create: {e_create}"}
 
         if not current_session_obj:
-            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
+            logger.error(f"Critical error: Failed to obtain a session object for user '{interaction_user_id}', session_id '{desired_session_id_for_service}'.")
+            span.set_attribute("error", True)
+            span.set_attribute("error.message", "Failed to get or create a session.")
+            span.set_attribute("session.status", "critical_failure")
             return {"error": "Failed to get or create a session."}
 
+        span.set_attribute("session.final_status", session_status)
+        span.set_attribute("session.final_id", current_session_obj.id)
+        logger.debug(f"Successfully obtained session: {current_session_obj.id}")
         response_event_data = None
 
         async def _execute_run_and_get_first_event():
             """Helper async function to run the agent and get the first event."""
-            # Assuming self._runner.run is an async generator or returns an async iterable
+            # This will run within the ADK runner's main span if ADK creates one,
+            # or we can wrap self._runner.run if needed, but let's assume ADK handles its internals for now.
+            logger.info(f"Executing ADK runner for session_id: {current_session_obj.id}, user_id: {interaction_user_id}.")
+            logger.debug(f"Runner input message for session {current_session_obj.id}: Role='user', Text='{query[:100]}...' (truncated if long)")
+
+            event_count = 0
             async for event in self._runner.run(
                 user_id=interaction_user_id,
                 session_id=current_session_obj.id,
                 new_message=Content(parts=[Part(text=query)], role="user")
             ):
-                return event # Return the first event yielded by the runner
-            return None # Should not happen if agent always yields at least one event before finishing
+                event_count += 1
+                logger.debug(f"Received event {event_count} from runner for session {current_session_obj.id}. Type: {type(event)}")
+                if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
+                     logger.debug(f"Event content part 0 text (if available): {event.content.parts[0].text[:100] if hasattr(event.content.parts[0], 'text') else 'N/A'}")
+                elif isinstance(event, dict):
+                    logger.debug(f"Event is a dict: {str(event)[:200]}")
+                return event
+            logger.warning(f"ADK runner finished for session {current_session_obj.id} without yielding any events after {event_count} iterations.")
+            return None
 
         try:
-            # Run the async helper function using asyncio.run()
-            response_event_data = asyncio.run(_execute_run_and_get_first_event())
+            with tracer.start_as_current_span("PlannerAgent.query.adk_run_async") as adk_run_span:
+                adk_run_span.set_attribute("adk.runner.session_id", current_session_obj.id)
+                adk_run_span.set_attribute("adk.runner.user_id", interaction_user_id)
+                logger.info(f"Calling asyncio.run for _execute_run_and_get_first_event, session: {current_session_obj.id}")
+                response_event_data = asyncio.run(_execute_run_and_get_first_event())
+                logger.info(f"Asyncio.run completed for session {current_session_obj.id}. Event data received: {'Yes' if response_event_data else 'No'}")
+                adk_run_span.set_attribute("adk.runner.event_received", bool(response_event_data))
+                if response_event_data and hasattr(response_event_data, 'content') and response_event_data.content and \
+                   hasattr(response_event_data.content, 'parts') and response_event_data.content.parts and \
+                   hasattr(response_event_data.content.parts[0], 'text'):
+                    adk_run_span.set_attribute("adk.runner.response_text_length", len(response_event_data.content.parts[0].text))
+
         except Exception as e_run:
             logger.error(f"Error during asyncio.run(_execute_run_and_get_first_event) for session {current_session_obj.id}: {e_run}", exc_info=True)
+            span.set_attribute("error", True)
+            span.set_attribute("error.message", f"Agent execution error: {e_run}")
+            if hasattr(e_run, "__class__"):
+                 span.set_attribute("error.type", e_run.__class__.__name__)
             return {"error": f"Agent execution error: {e_run}"}
 
         if response_event_data:
+            logger.debug(f"Raw response_event_data from runner (type {type(response_event_data)}): {str(response_event_data)[:200]}")
+            span.set_attribute("response.type", type(response_event_data).__name__)
             if isinstance(response_event_data, dict):
-                # If the event itself is already the dict response we want
+                logger.info(f"PlannerAgent query returning dict response for session {current_session_obj.id}.")
+                logger.debug(f"Returning dict response: {str(response_event_data)[:200]}")
+                span.set_attribute("response.format", "dict")
                 return response_event_data
-            # Check if it's an ADK Event object and extract content if it's the final response
-            # This part needs to align with how ADK Event objects are structured.
-            # The previous code checked for is_final_response(), content, and parts.
-            # This structure might vary based on ADK version and agent type (LoopAgent vs LlmAgent directly).
-            # For now, let's assume the event might be a dict or needs conversion from an ADK event object.
-            # If it's not a dict, we need to know its structure to convert it.
-            # For simplicity, if it's not a dict, we'll log and return it as is,
-            # which might need further refinement based on actual event structure.
-            # Example for ADK event (this is a guess, adapt to actual Event structure):
+
             if hasattr(response_event_data, 'content') and response_event_data.content and \
                hasattr(response_event_data.content, 'parts') and response_event_data.content.parts and \
                hasattr(response_event_data.content.parts[0], 'text'):
-                return {"output": response_event_data.content.parts[0].text}
+                extracted_text = response_event_data.content.parts[0].text
+                logger.info(f"PlannerAgent query extracted text content for session {current_session_obj.id}. Length: {len(extracted_text)}")
+                logger.debug(f"Returning extracted text: {extracted_text[:200]}")
+                span.set_attribute("response.format", "text_extracted")
+                span.set_attribute("response.text_length", len(extracted_text))
+                return {"output": extracted_text}
 
-            logger.warning(f"Runner returned event of type {type(response_event_data)} that was not a dict and not directly convertible: {str(response_event_data)[:200]}")
-            # If we don't know how to convert it, returning it as is or an error might be necessary.
-            # Let's try to return its string representation within a dict for now.
+            logger.warning(f"Runner returned event of type {type(response_event_data)} for session {current_session_obj.id} that was not a dict and not directly convertible: {str(response_event_data)[:200]}")
+            span.set_attribute("response.format", "unknown_conversion")
             return {"raw_event_data": str(response_event_data)}
         else:
             logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
+            span.set_attribute("response.format", "none")
+            span.set_attribute("error", True) # Technically not an exception, but an unexpected outcome
+            span.set_attribute("error.message", "No response event received from agent execution")
             return {"error": "No response event received from agent execution"}

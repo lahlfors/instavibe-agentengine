@@ -9,9 +9,14 @@ setup(
     author_email='dev@example.com', # Placeholder
     keywords='agents a2a instavibe common',
     install_requires=[
-        # List any direct dependencies of the common code here
-        # e.g., 'requests', if it uses requests for HTTP communication directly
-        # For now, assuming it has no external deps not already covered by agents
+        "python-dotenv>=1.0.0",
+        "google-cloud-logging>=3.8.0", # For logging_setup.py
+        "google-cloud-storage>=2.0.0", # For tracing.py (GCS client)
+        "opentelemetry-api>=1.22.0",
+        "opentelemetry-sdk>=1.22.0",
+        "opentelemetry-exporter-cloud-trace>=1.22.0", # For tracing.py
+        "opentelemetry-instrumentation>=0.43b0", # For LoggingInstrumentor
+        # Add any other direct dependencies of the app/common or app/utils modules
     ],
     python_requires='>=3.9', # Based on python:3.12-slim used in Dockerfiles
 )

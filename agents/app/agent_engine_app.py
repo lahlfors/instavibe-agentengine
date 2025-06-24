@@ -26,10 +26,13 @@ import google.auth
 import vertexai
 import google.api_core.exceptions # For specific exception handling
 from google.cloud import logging as google_cloud_logging
-from opentelemetry import trace
+from opentelemetry import trace, propagators # Added propagators
 from opentelemetry.sdk.trace import TracerProvider, export
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY # Added
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
+from opentelemetry.propagators.composite import CompositePropagator # Added
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 
@@ -53,6 +56,14 @@ class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Set up logging and tracing for the agent engine app."""
         super().set_up()
+
+        # 0. Configure Global Propagator (early in setup)
+        propagators.set_global_textmap_propagator(
+            CompositePropagator([
+                TraceContextTextMapPropagator(),  # W3C Trace Context (standard)
+                GcpCloudTraceFormatPropagator(),  # GCP specific format
+            ])
+        )
 
         # 1. Setup OpenTelemetry TracerProvider
         # GOOGLE_CLOUD_PROJECT should be available from environment

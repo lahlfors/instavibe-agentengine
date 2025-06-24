@@ -21,12 +21,25 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from agents.app.utils.logging_setup import setup_google_cloud_logging
 from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
 
+from opentelemetry import propagators # Added
+from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
+from opentelemetry.propagators.composite import CompositePropagator # Added
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
+
 # Define service name for observability
 # Load environment variables from the root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 SERVICE_NAME = "platform-mcp-client-agent"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+
+# 0. Configure Global Propagator
+propagators.set_global_textmap_propagator(
+    CompositePropagator([
+        TraceContextTextMapPropagator(),
+        GcpCloudTraceFormatPropagator(),
+    ])
+)
 
 # 1. Initialize OpenTelemetry Tracer Provider
 # GOOGLE_CLOUD_PROJECT should be available from environment after dotenv load

@@ -29,12 +29,25 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 from instavibe import create_event,create_post # instavibe.py also needs logging setup
 
+from opentelemetry import propagators # Added
+from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
+from opentelemetry.propagators.composite import CompositePropagator # Added
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
+
 # Load environment variables from the root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 # Define service name for observability
 SERVICE_NAME = "tools-mcp-server"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
+
+# 0. Configure Global Propagator
+propagators.set_global_textmap_propagator(
+    CompositePropagator([
+        TraceContextTextMapPropagator(),
+        GcpCloudTraceFormatPropagator(),
+    ])
+)
 
 # 1. Initialize OpenTelemetry Tracer Provider
 resource = Resource(attributes={

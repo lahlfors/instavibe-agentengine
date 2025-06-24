@@ -21,7 +21,7 @@ from typing import Any
 
 import google.cloud.storage as storage
 from google.cloud import logging as google_cloud_logging
-from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+from opentelemetry.exporter.gcp.trace import CloudTraceSpanExporter # Updated import
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExportResult
 

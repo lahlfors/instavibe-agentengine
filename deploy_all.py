@@ -276,20 +276,24 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
     image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
     print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
     try:
+        substitutions = f"_AGENT_NAME=tools/instavibe,_IMAGE_PATH={image_tag}"
         build_command = [
-            "gcloud", "builds", "submit", "tools/instavibe", # Source path from repo root
-            "--tag", image_tag,
+            "gcloud", "builds", "submit", ".",  # Context is repo root
+            "--config", "agents/cloudbuild.yaml",
             "--project", project_id,
-            "--no-cache"
+            "--no-cache",
+            f"--substitutions={substitutions}"
         ]
+        # Assuming deploy_all.py is run from the repository root
+        # If not, an absolute path to "." or a correct relative path from where deploy_all.py is run to repo root would be needed.
+        # For now, assuming it's run from repo root, so "." is correct.
         subprocess.run(
             build_command,
             check=True, capture_output=True, text=True
-            # cwd is not needed as "tools/instavibe" is the source path argument
         )
-        print(f"Successfully built image: {image_tag}")
+        print(f"Successfully submitted build for image: {image_tag} using agents/cloudbuild.yaml")
     except subprocess.CalledProcessError as e:
-        print(f"Error building MCP Tool Server image: {e.stderr}")
+        print(f"Error building MCP Tool Server image using agents/cloudbuild.yaml: {e.stderr}")
         print(f"Stdout: {e.stdout}") # Also print stdout for more context
         raise
 

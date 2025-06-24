@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
 COPY ./mcp_server.py /app/mcp_server.py
-COPY agents /app/agents
+COPY ./agents /app/agents
 
 # --- Environment ---
 ENV PYTHONPATH=/app

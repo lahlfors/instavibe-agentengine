@@ -85,7 +85,7 @@ logger.debug(f"Planner ADK Agent tools: {[tool.name for tool in root_tools if ha
 
 logger.info("Instantiating Planner ADK LlmAgent...")
 root_agent = Agent(
-    name=AGENT_NAME,
+    name=ADK_AGENT_NAME, # Corrected variable name
     model=MODEL_NAME,
     description="Agent tasked with generating creative and fun event plan suggestions", # Kept original description
     instruction=AGENT_INSTRUCTION,

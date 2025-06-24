@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
 COPY . /app
+COPY ../../agents /app/agents
 
 # --- Environment ---
 ENV PYTHONPATH=/app

@@ -281,7 +281,7 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
             "gcloud", "builds", "submit", ".",  # Context is repo root
             "--config", "agents/cloudbuild.yaml",
             "--project", project_id,
-            "--no-cache",
+            # "--no-cache", # Removed as it's not allowed with --config
             f"--substitutions={substitutions}"
         ]
         # Assuming deploy_all.py is run from the repository root

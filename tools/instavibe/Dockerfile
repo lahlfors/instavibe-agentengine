@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
 COPY tools/instavibe/mcp_server.py /app/mcp_server.py
+COPY tools/instavibe/instavibe.py /app/instavibe.py # Added this line
 COPY ./agents /app/agents
 
 # --- Environment ---
@@ -23,4 +24,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread mcp_server:starlette_app"]
+CMD ["sh", "-c", "echo 'Attempting to run Gunicorn with mcp_server:starlette_app' && gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 --worker-class gthread mcp_server:starlette_app"]

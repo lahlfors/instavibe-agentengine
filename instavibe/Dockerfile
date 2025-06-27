@@ -15,4 +15,9 @@ COPY ./agents /app/agents
 
 ENV PYTHONPATH=/app
 EXPOSE 8080
+
+# --- Debug file structure ---
+RUN echo "--- INSTAVIBE-APP: Listing /app contents ---" && ls -R /app
+RUN echo "--- INSTAVIBE-APP: Listing /app/agents contents ---" && ls -R /app/agents || echo "INSTAVIBE-APP: /app/agents not found or ls failed"
+
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread app:app"]

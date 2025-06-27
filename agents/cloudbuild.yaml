@@ -4,6 +4,7 @@ steps:
     args:
       [
         'build',
+        '--no-cache', # Ensure a clean build, helps with caching issues
         '-t',
         '${_IMAGE_PATH}', # Use substitution for the full image path + tag
         '-f',

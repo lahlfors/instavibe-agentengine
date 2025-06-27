@@ -214,6 +214,31 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     except subprocess.CalledProcessError as e:
         print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
+    # --- Pre-build step: Copy the common wheel into the build context ---
+    common_wheel_filename = "a2a_common-0.1.0-py3-none-any.whl"
+    source_wheel_path = os.path.join("agents", common_wheel_filename)
+    dest_wheel_path = os.path.join("instavibe", common_wheel_filename)
+
+    print(f"Preparing build context: Copying {source_wheel_path} to {dest_wheel_path}...")
+    try:
+        if not os.path.exists(source_wheel_path):
+            raise FileNotFoundError(f"Critical: Shared wheel {source_wheel_path} not found. Make sure it's built and in the 'agents' directory.")
+
+        # Ensure the source is a file
+        if not os.path.isfile(source_wheel_path):
+            raise IsADirectoryError(f"Critical: Source path {source_wheel_path} is a directory, not the wheel file.")
+
+        # Ensure the destination directory exists
+        os.makedirs(os.path.dirname(dest_wheel_path), exist_ok=True)
+
+        # Copy the file using shutil which handles paths well
+        import shutil
+        shutil.copy2(source_wheel_path, dest_wheel_path)
+        print(f"Successfully copied {common_wheel_filename} to {dest_wheel_path}.")
+    except Exception as copy_e:
+        print(f"ERROR: Could not copy {source_wheel_path} to {dest_wheel_path}: {copy_e}")
+        raise # Stop deployment if wheel can't be copied
+
     # 2. Build the Docker image with --no-cache
     # Construct the full image tag
     image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
@@ -236,6 +261,18 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
         # print full error details
         print(f"Stdout: {e.stdout}")
         raise
+    finally:
+        # --- Post-build cleanup: Remove the copied wheel ---
+        if os.path.exists(dest_wheel_path):
+            print(f"Cleaning up: Removing {dest_wheel_path}...")
+            try:
+                os.remove(dest_wheel_path)
+                print(f"Successfully removed {dest_wheel_path}.")
+            except OSError as rm_e:
+                print(f"Warning: Could not remove temporary wheel file {dest_wheel_path}: {rm_e}")
+        else:
+            print(f"Cleanup: Temporary wheel file {dest_wheel_path} not found, no removal needed.")
+
 
     # 3. Deploy the newly built image to Cloud Run
     print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")

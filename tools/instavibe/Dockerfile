@@ -19,6 +19,11 @@ COPY ./agents /app/agents
 # --- Environment ---
 ENV PYTHONPATH=/app
 
+# --- Debugging: Check file structure and PYTHONPATH ---
+RUN echo "--- MCP-TOOL: Listing /app contents (before CMD) ---" && ls -R /app
+RUN echo "--- MCP-TOOL: Finding Python files in /app (before CMD) ---" && find /app -name "*.py"
+RUN echo "--- MCP-TOOL: PYTHONPATH IS $PYTHONPATH (before CMD) ---"
+
 # Make port 8080 available to the world outside this container
 # Cloud Run uses the PORT env var, but EXPOSE is good practice.
 EXPOSE 8080

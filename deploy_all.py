@@ -214,42 +214,64 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     except subprocess.CalledProcessError as e:
         print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
-    # --- Pre-build step: Copy the common wheel into the build context ---
-    common_wheel_filename = "a2a_common-0.1.0-py3-none-any.whl"
-    source_wheel_path = os.path.join("agents", common_wheel_filename)
-    dest_wheel_path = os.path.join("instavibe", common_wheel_filename)
+    # --- Pre-build step: Dynamically find and copy the common wheel into the build context ---
+    print("Locating dynamically generated a2a_common wheel...")
+    dist_dir = os.path.join("agents", "dist") # Assuming wheel is in agents/dist/
+    if not os.path.isdir(dist_dir):
+        # Fallback if agents/dist doesn't exist, maybe it's in agents/ directly (old behavior)
+        print(f"Warning: Distribution directory {dist_dir} not found. Looking in 'agents/' for the wheel.")
+        dist_dir = "agents"
+        if not os.path.isdir(dist_dir):
+             raise FileNotFoundError(f"Critical: Neither 'agents/dist/' nor 'agents/' directory found. Cannot locate wheel.")
+
+    wheel_files = sorted([f for f in os.listdir(dist_dir) if f.startswith("a2a_common-") and f.endswith(".whl")], reverse=True)
+
+    if not wheel_files:
+        raise FileNotFoundError(f"Critical: No 'a2a_common-*.whl' file found in {dist_dir}.")
+
+    actual_wheel_filename = wheel_files[0] # Pick the latest version if sorted, or just the first found.
+    print(f"Found wheel: {actual_wheel_filename}")
+
+    source_wheel_path = os.path.join(dist_dir, actual_wheel_filename)
+    # Destination path for the wheel inside the 'instavibe' build context directory
+    # The name of the file at dest_wheel_path must be actual_wheel_filename,
+    # as this filename is passed as the build argument.
+    dest_wheel_path = os.path.join("instavibe", actual_wheel_filename)
 
     print(f"Preparing build context: Copying {source_wheel_path} to {dest_wheel_path}...")
     try:
-        if not os.path.exists(source_wheel_path):
-            raise FileNotFoundError(f"Critical: Shared wheel {source_wheel_path} not found. Make sure it's built and in the 'agents' directory.")
-        
-        # Ensure the source is a file
+        if not os.path.exists(source_wheel_path): # Should be caught by earlier checks, but good to have
+            raise FileNotFoundError(f"Critical: Source wheel {source_wheel_path} not found.")
         if not os.path.isfile(source_wheel_path):
             raise IsADirectoryError(f"Critical: Source path {source_wheel_path} is a directory, not the wheel file.")
 
-        # Ensure the destination directory exists
         os.makedirs(os.path.dirname(dest_wheel_path), exist_ok=True)
         
-        # Copy the file using shutil which handles paths well
         import shutil
         shutil.copy2(source_wheel_path, dest_wheel_path)
-        print(f"Successfully copied {common_wheel_filename} to {dest_wheel_path}.")
+        print(f"Successfully copied {actual_wheel_filename} to {dest_wheel_path}.")
     except Exception as copy_e:
         print(f"ERROR: Could not copy {source_wheel_path} to {dest_wheel_path}: {copy_e}")
-        raise # Stop deployment if wheel can't be copied
+        raise
 
-    # 2. Build the Docker image with --no-cache
-    # Construct the full image tag
+    # 2. Build the Docker image with --no-cache and passing the wheel name as a build argument
     image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
-    print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build...")
+    print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build, passing wheel name...")
     try:
+        # Note: For `gcloud builds submit`, build arguments are passed via --substitutions
+        # The Dockerfile's "ARG A2A_WHL_FILE" will be set by the _A2A_WHL_FILE substitution.
+        # The Dockerfile's "COPY ${A2A_WHL_FILE} /app/a2a_common_dependency.whl"
+        # means ${A2A_WHL_FILE} should be the filename present at the root of the build context ('instavibe/').
+        substitutions_arg = f"_A2A_WHL_FILE={actual_wheel_filename}"
+
         build_command = [
-            "gcloud", "builds", "submit", "instavibe", # Source path from repo root
+            "gcloud", "builds", "submit", "instavibe", # Source path (build context) from repo root
             "--tag", image_tag,
             "--project", project_id,
-            "--no-cache"
+            "--no-cache", # Retained as it forces a fresh build of layers not affected by ARG
+            f"--substitutions={substitutions_arg}"
         ]
+        print(f"Executing build command: {' '.join(build_command)}")
         subprocess.run(
             build_command,
             check=True, capture_output=True, text=True

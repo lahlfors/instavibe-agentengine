@@ -259,10 +259,10 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build, passing wheel name...")
     try:
         # Note: For `gcloud builds submit`, build arguments are passed via --substitutions
-        # The Dockerfile's "ARG A2A_WHL_FILE" will be set by the _A2A_WHL_FILE substitution.
+        # The Dockerfile's "ARG A2A_WHL_FILE" will be set by the A2A_WHL_FILE substitution (no leading underscore for direct ARG match).
         # The Dockerfile's "COPY ${A2A_WHL_FILE} /app/a2a_common_dependency.whl"
         # means ${A2A_WHL_FILE} should be the filename present at the root of the build context ('instavibe/').
-        substitutions_arg = f"_A2A_WHL_FILE={actual_wheel_filename}"
+        substitutions_arg = f"A2A_WHL_FILE={actual_wheel_filename}" # Removed leading underscore
 
         build_command = [
             "gcloud", "builds", "submit", "instavibe", # Source path (build context) from repo root

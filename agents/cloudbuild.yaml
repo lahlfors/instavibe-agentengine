@@ -8,7 +8,7 @@ steps:
         '-t',
         '${_IMAGE_PATH}', # Use substitution for the full image path + tag
         '-f',
-        '${_AGENT_NAME}/Dockerfile', # Dynamically point to the correct Dockerfile
+        '${_AGENT_DIR}/${_DOCKERFILE_NAME}', # Dynamically point to the correct Dockerfile using new substitutions
         '.', # Build context is the project root
       ]
 # Specify the image(s) to push upon successful build.

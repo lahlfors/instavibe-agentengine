@@ -223,14 +223,14 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     try:
         if not os.path.exists(source_wheel_path):
             raise FileNotFoundError(f"Critical: Shared wheel {source_wheel_path} not found. Make sure it's built and in the 'agents' directory.")
-
+        
         # Ensure the source is a file
         if not os.path.isfile(source_wheel_path):
             raise IsADirectoryError(f"Critical: Source path {source_wheel_path} is a directory, not the wheel file.")
 
         # Ensure the destination directory exists
         os.makedirs(os.path.dirname(dest_wheel_path), exist_ok=True)
-
+        
         # Copy the file using shutil which handles paths well
         import shutil
         shutil.copy2(source_wheel_path, dest_wheel_path)
@@ -310,15 +310,25 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
         print(f"Warning: Could not set Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
     # 2. Build the Docker image with --no-cache
-    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
-    print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
+    import uuid
+    cache_buster_value = uuid.uuid4().hex[:6]
+    
+    base_image_name = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
+    image_tag_with_buster = f"{base_image_name}:latest-cb{cache_buster_value}" # Append to tag part or use as tag
+    # Using a fixed tag like 'latest' and appending a cache buster to it, or making the whole tag unique.
+    # For Cloud Run, it's often better to have a unique tag rather than always 'latest'.
+    # Let's make the tag itself unique for this build.
+    image_tag_for_build = f"{base_image_name}-cb{cache_buster_value}"
+
+
+    print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag_for_build} with a clean build (cache buster: {cache_buster_value})...")
     try:
-        substitutions = f"_AGENT_NAME=tools/instavibe,_IMAGE_PATH={image_tag}"
+        substitutions = f"_AGENT_DIR=tools/instavibe,_DOCKERFILE_NAME=Dockerfile.v2,_IMAGE_PATH={image_tag_for_build}"
         build_command = [
             "gcloud", "builds", "submit", ".",  # Context is repo root
             "--config", "agents/cloudbuild.yaml",
             "--project", project_id,
-            # "--no-cache", # Removed as it's not allowed with --config
+            # "--no-cache", # Removed as it's not allowed with --config and GCB handles caching with --config
             f"--substitutions={substitutions}"
         ]
         # Assuming deploy_all.py is run from the repository root
@@ -328,18 +338,18 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
             build_command,
             check=True, capture_output=True, text=True
         )
-        print(f"Successfully submitted build for image: {image_tag} using agents/cloudbuild.yaml")
+        print(f"Successfully submitted build for image: {image_tag_for_build} using agents/cloudbuild.yaml")
     except subprocess.CalledProcessError as e:
         print(f"Error building MCP Tool Server image using agents/cloudbuild.yaml: {e.stderr}")
         print(f"Stdout: {e.stdout}") # Also print stdout for more context
         raise
 
     # 3. Deploy the newly built image to Cloud Run
-    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
+    print(f"\nStep 3: Deploying the new image {image_tag_for_build} to Cloud Run service {image_name_param}...")
     try:
         deploy_command = [
             "gcloud", "run", "deploy", image_name_param,
-            "--image", image_tag,
+            "--image", image_tag_for_build, # Use the cache-busted image tag
             "--platform", "managed", "--region", region, "--project", project_id, "--allow-unauthenticated",
         ]
         if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
@@ -528,3 +538,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+    

@@ -18,9 +18,9 @@ from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_N
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 # Corrected import: setup_google_cloud_logging is the standardized name
-# Assuming a2a_common.whl installs 'utils' package directly at the top level of site-packages
-from utils.logging_setup import setup_google_cloud_logging
-from utils.tracing import CloudTraceLoggingSpanExporter # Assuming tracing is also in utils from a2a_common
+# Assuming a2a_common.whl installs 'utils' package under 'a2a_common' namespace
+from a2a_common.utils.logging_setup import setup_google_cloud_logging
+from a2a_common.utils.tracing import CloudTraceLoggingSpanExporter
 
 from opentelemetry import propagators # Added
 from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added

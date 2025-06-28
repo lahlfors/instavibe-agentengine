@@ -1,0 +1,20 @@
+# This file controls which files are uploaded to Google Cloud Build
+# when 'gcloud builds submit' is run on the 'instavibe/' directory.
+# It overrides the project's root .gitignore for this purpose.
+
+# Allow all .whl files by not excluding them.
+# Specifically, we need a2a_common-*.whl to be included.
+
+# Common ignores:
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# If there are other specific files/directories within 'instavibe/'
+# that should NOT be uploaded to Cloud Build, list them here.
+# For example:
+# temp_local_data/
+# *.local.log
+# .env # If .env files are in instavibe/ and shouldn't be uploaded (though Dockerfile also has .env)

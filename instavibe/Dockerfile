@@ -18,9 +18,12 @@ COPY ${A2A_WHL_FILE} /app/${A2A_WHL_FILE}
 RUN pip install --no-cache-dir /app/${A2A_WHL_FILE}
 
 # --- Verify a2a_common installation ---
-RUN echo "--- Verifying a2a_common installation post pip install ---" && \
-    pip show a2a_common && \
-    (cat <<'EOF' > /tmp/verify_install.py
+RUN set -e && \
+    echo "--- Running pip show a2a_common ---" && \
+    pip show a2a_common
+
+RUN set -e && \
+    cat <<'EOF' > /tmp/verify_install.py
 import sys
 import os
 import site
@@ -28,44 +31,58 @@ import site
 print('--- Python sys.path during build: ---')
 for p in sys.path:
     print(p)
+sys.stdout.flush() # Flush after initial path print
+
 print('--- Attempting to import a2a_common and submodules ---')
 try:
     import a2a_common
     print('Successfully imported a2a_common, location: ' + str(a2a_common.__file__))
+    sys.stdout.flush()
+
     import a2a_common.utils.logging_setup
     print('Successfully imported a2a_common.utils.logging_setup, location: ' + str(a2a_common.utils.logging_setup.__file__))
+    sys.stdout.flush()
+
     print('--- a2a_common import verification successful ---')
-    sys.stdout.flush() # Ensure all output is written
+    sys.stdout.flush()
     sys.exit(0) # Explicitly exit with 0 on success
+
 except ImportError as e_import:
     print('!!! Python import verification FAILED (ImportError): {}'.format(e_import))
-    # The following diagnostic info will be printed before exiting with 1
+    sys.stderr.flush()
 except Exception as e_general:
     print('!!! Python import verification FAILED (General Exception): {}'.format(e_general))
-    # The following diagnostic info will be printed before exiting with 1
-# Common exit path for failures to print diagnostics
-# This code will only be reached if an exception occurred in the try block,
-# because successful try block calls sys.exit(0).
-print('Python sys.path on failure:')
+    sys.stderr.flush()
+
+# This part is reached only if an exception occurred in the try block
+print('--- Diagnostics on failure ---')
+print('Python sys.path on failure (re-printing, might be same as above):')
 for p_fail in sys.path: print(p_fail)
+sys.stdout.flush()
+
 print('Site packages:')
-site_pkgs = site.getsitepackages()
-print(site_pkgs)
-if site_pkgs and len(site_pkgs) > 0 and os.path.exists(site_pkgs[0]):
-    print('Contents of first site-package dir ({}):'.format(site_pkgs[0]))
-    try:
-        print(os.listdir(site_pkgs[0]))
-    except Exception as e_listdir:
-        print('Error listing site-packages: {}'.format(e_listdir))
-else:
-    print('No site-packages found or first one is invalid/inaccessible')
-sys.stdout.flush() # Ensure all diagnostic output is written
+site_pkgs = []
+try:
+    site_pkgs = site.getsitepackages()
+    print(site_pkgs)
+    if site_pkgs and len(site_pkgs) > 0 and os.path.exists(site_pkgs[0]):
+        print('Contents of first site-package dir ({}):'.format(site_pkgs[0]))
+        try:
+            print(os.listdir(site_pkgs[0]))
+        except Exception as e_listdir:
+            print('Error listing site-packages contents: {}'.format(e_listdir))
+    else:
+        print('No site-packages found by site.getsitepackages() or first one is invalid/inaccessible')
+except Exception as e_site:
+    print('Error getting site packages: {}'.format(e_site))
+sys.stdout.flush()
 sys.stderr.flush()
 sys.exit(1) # Exit with 1 if we reached here (meaning an exception occurred)
 EOF
-    ) && \
+
+RUN set -e && \
     python /tmp/verify_install.py && \
-    rm /tmp/verify_install.py # Clean up the temporary script
+    rm /tmp/verify_install.py
 # --- End verification ---
 
 # Copy the rest of the application code and assets from the build context

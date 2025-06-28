@@ -1,5 +1,5 @@
 substitutions:
-  _A2A_WHL_FILE: 'default_wheel_name.whl'  # Default value, will be overridden by deploy_all.py
+  # _A2A_WHL_FILE is no longer used as the agents source is copied directly.
   _IMAGE_TAG: 'gcr.io/default-project/default-image:latest' # Default value, will be overridden
 
 steps:
@@ -7,7 +7,7 @@ steps:
   args: [
     'build',
     '--no-cache',
-    '--build-arg', 'A2A_WHL_FILE=${_A2A_WHL_FILE}',
+    # '--build-arg', 'A2A_WHL_FILE=${_A2A_WHL_FILE}', # Removed
     '-t', '${_IMAGE_TAG}',
     '.'  # Docker build context is the current directory (instavibe/)
   ]

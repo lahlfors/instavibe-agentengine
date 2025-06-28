@@ -13,3 +13,9 @@ opentelemetry-propagator-gcp==1.9.0 # Pinned to exact version
 opentelemetry-instrumentation>=0.43b0 # Namespace package
 opentelemetry-instrumentation-logging>=0.43b0 # For LoggingInstrumentor
 opentelemetry-instrumentation-flask>=0.43b0 # For FlaskInstrumentor
+
+# Dependencies from agents/app/setup.py (now that source is copied directly)
+google-cloud-storage>=2.0.0
+
+# For future A2A SDK refactoring
+python-a2a==0.5.9

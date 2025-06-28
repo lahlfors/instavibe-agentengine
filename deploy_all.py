@@ -214,89 +214,67 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     except subprocess.CalledProcessError as e:
         print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
-    # --- Pre-build step: Dynamically find and copy the common wheel into the build context ---
-    # The wheel is now built by build_a2a_common_wheel() in agents/app/dist/
-    print("Locating a2a_common wheel from agents/app/dist/...")
-    dist_dir = os.path.join("agents", "app", "dist") # Updated path
-    if not os.path.isdir(dist_dir):
-        raise FileNotFoundError(f"Critical: Distribution directory {dist_dir} not found. Ensure 'build_a2a_common_wheel()' ran successfully.")
+    # --- Pre-build step: Copy the entire 'agents' directory into the 'instavibe' build context ---
+    # This replaces the need for the a2a_common.whl for instavibe-app's direct dependencies on agents/app code.
+    source_agents_dir_name = "agents"
+    temp_agents_dir_in_context = "temp_agents_for_build" # Name of the dir when copied into instavibe/
 
-    wheel_files = sorted([f for f in os.listdir(dist_dir) if f.startswith("a2a_common-") and f.endswith(".whl")], reverse=True)
+    # Assuming deploy_all.py is at the project root, so 'agents' is 'project_root/agents'
+    source_agents_path = source_agents_dir_name
+    dest_agents_path_in_build_context = os.path.join("instavibe", temp_agents_dir_in_context)
 
-    if not wheel_files:
-        raise FileNotFoundError(f"Critical: No 'a2a_common-*.whl' file found in {dist_dir}. Ensure 'build_a2a_common_wheel()' produced a wheel.")
-
-    actual_wheel_filename = wheel_files[0] # Pick the latest version if sorted, or just the first found.
-    print(f"Found wheel: {actual_wheel_filename}")
-
-    source_wheel_path = os.path.join(dist_dir, actual_wheel_filename)
-    # Destination path for the wheel inside the 'instavibe' build context directory
-    # The name of the file at dest_wheel_path must be actual_wheel_filename,
-    # as this filename is passed as the build argument.
-    dest_wheel_path = os.path.join("instavibe", actual_wheel_filename)
-
-    print(f"Preparing build context: Copying {source_wheel_path} to {dest_wheel_path}...")
+    print(f"Preparing build context for instavibe-app: Copying '{source_agents_path}' to '{dest_agents_path_in_build_context}'...")
+    import shutil
     try:
-        if not os.path.exists(source_wheel_path): # Should be caught by earlier checks, but good to have
-            raise FileNotFoundError(f"Critical: Source wheel {source_wheel_path} not found.")
-        if not os.path.isfile(source_wheel_path):
-            raise IsADirectoryError(f"Critical: Source path {source_wheel_path} is a directory, not the wheel file.")
-
-        os.makedirs(os.path.dirname(dest_wheel_path), exist_ok=True)
+        if not os.path.isdir(source_agents_path):
+            raise FileNotFoundError(f"Critical: Source agents directory '{source_agents_path}' not found relative to {os.getcwd()}.")
         
-        import shutil
-        shutil.copy2(source_wheel_path, dest_wheel_path)
-        print(f"Successfully copied {actual_wheel_filename} to {dest_wheel_path}.")
+        if os.path.exists(dest_agents_path_in_build_context):
+            shutil.rmtree(dest_agents_path_in_build_context)
+            print(f"Removed existing '{dest_agents_path_in_build_context}'.")
+
+        shutil.copytree(source_agents_path, dest_agents_path_in_build_context)
+        print(f"Successfully copied '{source_agents_path}' to '{dest_agents_path_in_build_context}'.")
     except Exception as copy_e:
-        print(f"ERROR: Could not copy {source_wheel_path} to {dest_wheel_path}: {copy_e}")
+        print(f"ERROR: Could not copy '{source_agents_path}' to '{dest_agents_path_in_build_context}': {copy_e}")
+        if os.path.exists(dest_agents_path_in_build_context): # Attempt cleanup on error
+            shutil.rmtree(dest_agents_path_in_build_context)
         raise
 
-    # 2. Build the Docker image with --no-cache and passing the wheel name as a build argument
+    # 2. Build the Docker image
     image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
-    print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build, passing wheel name...")
+    print(f"\nStep 2: Building Instavibe App Docker image {image_tag}...")
     try:
-        # Note: For `gcloud builds submit`, build arguments are passed via --substitutions
-        # The Dockerfile's "ARG A2A_WHL_FILE" will be set by the A2A_WHL_FILE substitution (no leading underscore for direct ARG match).
-        # The Dockerfile's "COPY ${A2A_WHL_FILE} /app/a2a_common_dependency.whl"
-        # means ${A2A_WHL_FILE} should be the filename present at the root of the build context ('instavibe/').
-        substitutions_arg = f"A2A_WHL_FILE={actual_wheel_filename}" # Removed leading underscore
-
-        # The source for the build is the 'instavibe' directory, relative to project root.
-        # The config file is also within this source.
-        substitutions_arg = f"_A2A_WHL_FILE={actual_wheel_filename},_IMAGE_TAG={image_tag}"
+        # _A2A_WHL_FILE substitution is removed as the wheel is no longer used for these common utils.
+        substitutions_arg = f"_IMAGE_TAG={image_tag}"
 
         build_command = [
-            "gcloud", "builds", "submit", "instavibe", # Source path (build context) from repo root
-            f"--config=instavibe/cloudbuild.yaml",    # Path to config file within the source
+            "gcloud", "builds", "submit", "instavibe",
+            f"--config=instavibe/cloudbuild.yaml",
             f"--substitutions={substitutions_arg}",
             "--project", project_id
-            # Note: --tag is usually specified in cloudbuild.yaml images section or via substitution.
-            # --no-cache is handled by the 'docker build --no-cache' in cloudbuild.yaml.
         ]
         print(f"Executing build command: {' '.join(build_command)}")
         subprocess.run(
             build_command,
             check=True, capture_output=True, text=True
-            # cwd is not needed as "instavibe" is specified as source for gcloud builds submit
         )
         print(f"Successfully built image: {image_tag}")
     except subprocess.CalledProcessError as e:
         print(f"Error building Instavibe App image: {e.stderr}")
-        # print full error details
         print(f"Stdout: {e.stdout}")
         raise
     finally:
-        # --- Post-build cleanup: Remove the copied wheel ---
-        if os.path.exists(dest_wheel_path):
-            print(f"Cleaning up: Removing {dest_wheel_path}...")
+        # --- Post-build cleanup: Remove the copied 'agents' directory ---
+        if os.path.exists(dest_agents_path_in_build_context):
+            print(f"Cleaning up: Removing '{dest_agents_path_in_build_context}'...")
             try:
-                os.remove(dest_wheel_path)
-                print(f"Successfully removed {dest_wheel_path}.")
+                shutil.rmtree(dest_agents_path_in_build_context)
+                print(f"Successfully removed '{dest_agents_path_in_build_context}'.")
             except OSError as rm_e:
-                print(f"Warning: Could not remove temporary wheel file {dest_wheel_path}: {rm_e}")
+                print(f"Warning: Could not remove temporary agents directory '{dest_agents_path_in_build_context}': {rm_e}")
         else:
-            print(f"Cleanup: Temporary wheel file {dest_wheel_path} not found, no removal needed.")
-
+            print(f"Cleanup: Temporary agents directory '{dest_agents_path_in_build_context}' not found, no removal needed.")
 
     # 3. Deploy the newly built image to Cloud Run
     print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")

@@ -264,12 +264,17 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
         # means ${A2A_WHL_FILE} should be the filename present at the root of the build context ('instavibe/').
         substitutions_arg = f"A2A_WHL_FILE={actual_wheel_filename}" # Removed leading underscore
 
+        # The source for the build is the 'instavibe' directory, relative to project root.
+        # The config file is also within this source.
+        substitutions_arg = f"_A2A_WHL_FILE={actual_wheel_filename},_IMAGE_TAG={image_tag}"
+
         build_command = [
             "gcloud", "builds", "submit", "instavibe", # Source path (build context) from repo root
-            "--tag", image_tag,
-            "--project", project_id,
-            "--no-cache", # Retained as it forces a fresh build of layers not affected by ARG
-            f"--substitutions={substitutions_arg}"
+            f"--config=instavibe/cloudbuild.yaml",    # Path to config file within the source
+            f"--substitutions={substitutions_arg}",
+            "--project", project_id
+            # Note: --tag is usually specified in cloudbuild.yaml images section or via substitution.
+            # --no-cache is handled by the 'docker build --no-cache' in cloudbuild.yaml.
         ]
         print(f"Executing build command: {' '.join(build_command)}")
         subprocess.run(

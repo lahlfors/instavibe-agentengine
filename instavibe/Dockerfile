@@ -27,9 +27,9 @@ print('--- Python sys.path during build: ---'); \
 for p in sys.path: print(p); \
 print('--- Attempting to import a2a_common and submodules ---'); \
 import a2a_common; \
-print(f'Successfully imported a2a_common, location: {a2a_common.__file__}'); \
+print('Successfully imported a2a_common, location: ' + str(a2a_common.__file__)); \
 import a2a_common.utils.logging_setup; \
-print(f'Successfully imported a2a_common.utils.logging_setup, location: {a2a_common.utils.logging_setup.__file__}'); \
+print('Successfully imported a2a_common.utils.logging_setup, location: ' + str(a2a_common.utils.logging_setup.__file__)); \
 print('--- a2a_common import verification successful ---')" || \
     (echo "!!! Python import verification FAILED. Listing site-packages and sys.path again. !!!" && \
      python -c "import site; import os; import sys; print('Python sys.path on failure:'); for p in sys.path: print(p); print('Site packages:'); print(site.getsitepackages()); print('Contents of first site-package dir:'); print(os.listdir(site.getsitepackages()[0])) if site.getsitepackages() and os.path.exists(site.getsitepackages()[0]) else print('No site-packages found or first one is invalid')" && \

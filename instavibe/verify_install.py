@@ -8,17 +8,21 @@ for p in sys.path:
     print(p)
 sys.stdout.flush()
 
-print('--- Attempting to import a2a_common and submodules ---')
+print('--- Attempting to import installed packages (utils, common) ---')
 try:
-    import a2a_common
-    print('Successfully imported a2a_common, location: ' + str(a2a_common.__file__))
+    import utils
+    print('Successfully imported top-level package utils, location: ' + str(utils.__file__))
     sys.stdout.flush()
 
-    import a2a_common.utils.logging_setup
-    print('Successfully imported a2a_common.utils.logging_setup, location: ' + str(a2a_common.utils.logging_setup.__file__))
+    import utils.logging_setup
+    print('Successfully imported utils.logging_setup, location: ' + str(utils.logging_setup.__file__))
     sys.stdout.flush()
 
-    print('--- a2a_common import verification successful ---')
+    import common
+    print('Successfully imported top-level package common, location: ' + str(common.__file__))
+    sys.stdout.flush()
+
+    print('--- Package import verification successful ---')
     sys.stdout.flush()
     sys.exit(0) # Explicitly exit with 0 on success
 

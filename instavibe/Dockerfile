@@ -22,8 +22,7 @@ RUN set -e && \
     echo "--- Running pip show a2a_common ---" && \
     pip show a2a_common
 
-RUN set -e && \
-    cat <<'EOF' > /tmp/verify_install.py
+RUN set -e && cat <<'EOF' > /tmp/verify_install.py
 import sys
 import os
 import site
@@ -31,7 +30,7 @@ import site
 print('--- Python sys.path during build: ---')
 for p in sys.path:
     print(p)
-sys.stdout.flush() # Flush after initial path print
+sys.stdout.flush()
 
 print('--- Attempting to import a2a_common and submodules ---')
 try:
@@ -45,7 +44,7 @@ try:
 
     print('--- a2a_common import verification successful ---')
     sys.stdout.flush()
-    sys.exit(0) # Explicitly exit with 0 on success
+    sys.exit(0)
 
 except ImportError as e_import:
     print('!!! Python import verification FAILED (ImportError): {}'.format(e_import))
@@ -54,9 +53,9 @@ except Exception as e_general:
     print('!!! Python import verification FAILED (General Exception): {}'.format(e_general))
     sys.stderr.flush()
 
-# This part is reached only if an exception occurred in the try block
+# This part is reached only if an exception occurred in the try block (and sys.exit(0) was not called)
 print('--- Diagnostics on failure ---')
-print('Python sys.path on failure (re-printing, might be same as above):')
+print('Python sys.path on failure (re-printing):')
 for p_fail in sys.path: print(p_fail)
 sys.stdout.flush()
 
@@ -77,7 +76,7 @@ except Exception as e_site:
     print('Error getting site packages: {}'.format(e_site))
 sys.stdout.flush()
 sys.stderr.flush()
-sys.exit(1) # Exit with 1 if we reached here (meaning an exception occurred)
+sys.exit(1)
 EOF
 
 RUN set -e && \

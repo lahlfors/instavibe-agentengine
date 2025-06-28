@@ -215,19 +215,16 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
         print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
     # --- Pre-build step: Dynamically find and copy the common wheel into the build context ---
-    print("Locating dynamically generated a2a_common wheel...")
-    dist_dir = os.path.join("agents", "dist") # Assuming wheel is in agents/dist/
+    # The wheel is now built by build_a2a_common_wheel() in agents/app/dist/
+    print("Locating a2a_common wheel from agents/app/dist/...")
+    dist_dir = os.path.join("agents", "app", "dist") # Updated path
     if not os.path.isdir(dist_dir):
-        # Fallback if agents/dist doesn't exist, maybe it's in agents/ directly (old behavior)
-        print(f"Warning: Distribution directory {dist_dir} not found. Looking in 'agents/' for the wheel.")
-        dist_dir = "agents"
-        if not os.path.isdir(dist_dir):
-             raise FileNotFoundError(f"Critical: Neither 'agents/dist/' nor 'agents/' directory found. Cannot locate wheel.")
+        raise FileNotFoundError(f"Critical: Distribution directory {dist_dir} not found. Ensure 'build_a2a_common_wheel()' ran successfully.")
 
     wheel_files = sorted([f for f in os.listdir(dist_dir) if f.startswith("a2a_common-") and f.endswith(".whl")], reverse=True)
 
     if not wheel_files:
-        raise FileNotFoundError(f"Critical: No 'a2a_common-*.whl' file found in {dist_dir}.")
+        raise FileNotFoundError(f"Critical: No 'a2a_common-*.whl' file found in {dist_dir}. Ensure 'build_a2a_common_wheel()' produced a wheel.")
 
     actual_wheel_filename = wheel_files[0] # Pick the latest version if sorted, or just the first found.
     print(f"Found wheel: {actual_wheel_filename}")
@@ -565,4 +562,63 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
-    
+
+def build_a2a_common_wheel():
+    """Builds the a2a_common wheel from agents/app directory."""
+    print("\n--- Building a2a_common wheel ---")
+    a2a_source_dir = os.path.join("agents", "app")
+    if not os.path.isdir(a2a_source_dir):
+        raise FileNotFoundError(f"Critical: a2a_common source directory '{a2a_source_dir}' not found.")
+
+    # Clean up old build artifacts
+    print(f"Cleaning up old build artifacts in {a2a_source_dir}...")
+    import shutil
+    import glob
+
+    dist_dir = os.path.join(a2a_source_dir, "dist")
+    build_dir = os.path.join(a2a_source_dir, "build")
+    egg_info_dirs = glob.glob(os.path.join(a2a_source_dir, "*.egg-info"))
+
+    if os.path.isdir(dist_dir):
+        shutil.rmtree(dist_dir)
+        print(f"Removed old {dist_dir}")
+    if os.path.isdir(build_dir):
+        shutil.rmtree(build_dir)
+        print(f"Removed old {build_dir}")
+    for egg_dir in egg_info_dirs:
+        shutil.rmtree(egg_dir)
+        print(f"Removed old {egg_dir}")
+
+    # Build the wheel
+    print(f"Running 'python -m build' in {a2a_source_dir}...")
+    try:
+        # Ensure build and its dependencies are installed (might be good to add 'build' to root requirements.txt)
+        # For now, assume they are present or handle error if 'build' module is not found by python.
+        subprocess.run(
+            [sys.executable, "-m", "build"],
+            cwd=a2a_source_dir, # Run command in this directory
+            check=True, text=True, capture_output=True # Capture output to show in case of error
+        )
+        print("a2a_common wheel built successfully.")
+    except FileNotFoundError as e: # Specific for python executable not found, though sys.executable should be valid
+        print(f"ERROR: Python executable not found? This should not happen. {e}")
+        raise
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: Failed to build a2a_common wheel in {a2a_source_dir}.")
+        if e.stdout: print(f"Build Stdout:\n{e.stdout}")
+        if e.stderr: print(f"Build Stderr:\n{e.stderr}")
+        raise
+    except Exception as e: # Catch any other unexpected error during build
+        print(f"ERROR: An unexpected error occurred during a2a_common wheel build: {e}")
+        raise
+    print("--- a2a_common wheel build process finished ---")
+
+# Modify main to call the build function
+def main(argv=None):
+    load_dotenv()
+
+    # Build the a2a_common wheel first
+    build_a2a_common_wheel()
+
+    project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
+    region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))

@@ -13,8 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the a2a_common wheel using the build argument.
 # The build command must pass --build-arg A2A_WHL_FILE=<filename_in_build_context>
 # The specified ${A2A_WHL_FILE} is expected to be at the root of the build context (e.g., 'instavibe/' directory).
-COPY ${A2A_WHL_FILE} /app/a2a_common_dependency.whl
-RUN pip install --no-cache-dir /app/a2a_common_dependency.whl
+# Copy the wheel preserving its original filename, as pip expects a valid wheel filename.
+COPY ${A2A_WHL_FILE} /app/${A2A_WHL_FILE}
+RUN pip install --no-cache-dir /app/${A2A_WHL_FILE}
 
 # Copy the rest of the application code and assets from the build context
 # (which is the 'instavibe' directory) into /app/ in the image.

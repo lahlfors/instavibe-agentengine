@@ -15,3 +15,8 @@ venv_312/
 /.env
 
 # Application-specific .env files
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/

@@ -17,5 +17,5 @@ opentelemetry-api[entry-points]~=1.31.0 # Added [entry-points] extra
 opentelemetry-sdk~=1.31.0 # Matched with opentelemetry-api
 # opentelemetry-exporter-gcp-trace==1.9.0 # REMOVED - Unnecessary for deploy_all.py and potentially conflicting
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated, unnecessary, and potentially conflicting
-# opentelemetry-instrumentation>=0.43b0 # REMOVED - To be in agent-specific requirements
-# opentelemetry-instrumentation-logging>=0.43b0 # REMOVED - To be in agent-specific requirements
+opentelemetry-instrumentation>=0.43b0 # RE-ADDED - Needed if deploy_all.py imports agent code using instrumentation
+opentelemetry-instrumentation-logging>=0.43b0 # RE-ADDED - Needed if deploy_all.py imports agent code using instrumentation

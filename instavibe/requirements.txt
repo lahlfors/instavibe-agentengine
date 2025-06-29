@@ -1,11 +1,11 @@
-google-cloud-aiplatform[adk,agent_engines]==1.98.0
+google-cloud-aiplatform[adk,agent_engines] # Version unpinned
 Flask==3.1.0
-google-cloud-spanner==3.54.0
+google-cloud-spanner # Version unpinned
 humanize==4.12.3
 gunicorn
 python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
-google-cloud-logging==3.9.0
+google-cloud-logging # Version unpinned
 opentelemetry-api>=1.22.0
 opentelemetry-sdk>=1.22.0
 opentelemetry-exporter-otlp # ADDED: OTLP exporter

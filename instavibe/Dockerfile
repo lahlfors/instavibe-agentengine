@@ -1,57 +1,79 @@
 # instavibe/Dockerfile
 FROM python:3.12-slim
 
-# Define a build argument for the wheel file name
-ARG A2A_WHL_FILE
-
 WORKDIR /app
 
-# Copy requirements.txt from the root of the build context (which is the 'instavibe' directory)
+# Copy and install requirements
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ARG A2A_WHL_FILE # No longer used
+# --- Verify OpenTelemetry GCP Propagator installation ---
+RUN set -e && cat <<'EOF' > /tmp/verify_otel_gcp.py
+import sys
+import os
+import site
 
-WORKDIR /app
+print("--- Attempting to import OpenTelemetry GCP Propagator ---")
+sys.stdout.flush()
+try:
+    import opentelemetry.propagators.gcp
+    print("Successfully imported opentelemetry.propagators.gcp")
+    print("Location: {}".format(opentelemetry.propagators.gcp.__file__))
+    from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator
+    print("Successfully imported GcpCloudTraceFormatPropagator from opentelemetry.propagators.gcp")
+    sys.stdout.flush()
+    sys.exit(0)
+except ImportError as e_import:
+    print("!!! FAILED to import OpenTelemetry GCP Propagator (ImportError): {}".format(e_import))
+except Exception as e_general:
+    print("!!! FAILED to import OpenTelemetry GCP Propagator (Other Exception): {}".format(e_general))
 
-# Copy requirements.txt from the root of the build context (which is the 'instavibe' directory)
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# This part is reached only if an exception occurred
+print("--- Diagnostics for OpenTelemetry Failure ---")
+sys.stderr.flush() # Ensure error messages are flushed
+sys.stdout.flush() # Ensure info messages are flushed
 
-# Copy the a2a_common wheel using the build argument. # This comment is now obsolete
-# The build command must pass --build-arg A2A_WHL_FILE=<filename_in_build_context> # Obsolete
-# The specified ${A2A_WHL_FILE} is expected to be at the root of the build context (e.g., 'instavibe/' directory). # Obsolete
-# Copy the wheel preserving its original filename, as pip expects a valid wheel filename. # Obsolete
-# COPY ${A2A_WHL_FILE} /app/${A2A_WHL_FILE} # Removed
-# RUN pip install --no-cache-dir /app/${A2A_WHL_FILE} # Removed
+print("Python sys.path:")
+for p in sys.path: print(p)
+sys.stdout.flush()
 
-# --- Verify a2a_common installation --- # This entire verification block is removed
-# RUN set -e && \
-#     echo "--- Running pip show a2a_common ---" && \
-#     pip show a2a_common
+print("Site packages:")
+site_pkgs = []
+try:
+    site_pkgs = site.getsitepackages()
+    print(site_pkgs)
+    if site_pkgs and len(site_pkgs) > 0 and os.path.exists(site_pkgs[0]):
+        print("Contents of first site-package dir ({}):".format(site_pkgs[0]))
+        try:
+            print(os.listdir(site_pkgs[0]))
+        except Exception as e_listdir:
+            print("Error listing site-packages: {}".format(e_listdir))
+    else:
+        print("No site-packages found or first one invalid.")
+except Exception as e_site:
+    print("Error getting site packages: {}".format(e_site))
+sys.stdout.flush()
+sys.stderr.flush()
+sys.exit(1)
+EOF
 
-# Copy the verification script from the build context (instavibe/verify_install.py) # Removed
-# COPY verify_install.py /tmp/verify_install.py # Removed
-# Optional: RUN chmod +x /tmp/verify_install.py # Removed
+RUN set -e && \
+    python /tmp/verify_otel_gcp.py && \
+    rm /tmp/verify_otel_gcp.py
+# --- End OpenTelemetry Verification ---
 
-# Execute the verification script # Removed
-# RUN set -e && \
-#     python /tmp/verify_install.py && \
-#     rm /tmp/verify_install.py # Removed
-# --- End verification --- # Removed
-
-# Copy the 'agents' source code prepared by deploy_all.py into instavibe/temp_agents_for_build
+# Copy the 'agents' source code
 COPY temp_agents_for_build /app/agents
 
-# Copy the rest of the application code and assets from the build context
-# (which is the 'instavibe' directory, excluding temp_agents_for_build if not handled by .dockerignore)
-# into /app/ in the image.
+# Copy the rest of the application code and assets
 COPY . /app/
 
-ENV PYTHONPATH=/app # This makes /app and /app/agents importable
+# Set the Python path to make modules importable
+ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Debug file structure ---
 RUN echo "--- INSTAVIBE-APP: Listing /app contents ---" && ls -R /app
 
+# Run the application
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread app:app"]

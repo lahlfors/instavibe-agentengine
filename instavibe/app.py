@@ -20,12 +20,13 @@ from opentelemetry.instrumentation.flask import FlaskInstrumentor
 # Imports reverted to use agents.app.utils structure,
 # as 'agents' directory is now copied directly into the image.
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
+# from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED - Rely on Agent Engine auto-export
+# from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # REMOVED - Rely on Agent Engine auto-export
 
-from opentelemetry import propagators # Added
-from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
-from opentelemetry.propagators.composite import CompositePropagator # Added
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
+from opentelemetry import propagators
+# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
+from opentelemetry.propagators.composite import CompositePropagator # Kept for structure if other standard propagators are added
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # Load environment variables from root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -35,25 +36,26 @@ SERVICE_NAME = "instavibe-app"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
+# Rely on W3C TraceContextTextMapPropagator. Agent Engine handles GCP context.
 propagators.set_global_textmap_propagator(
-    CompositePropagator([
-        TraceContextTextMapPropagator(),
-        GcpCloudTraceFormatPropagator(),
-    ])
+    TraceContextTextMapPropagator()
 )
+# If needing multiple standard propagators (e.g., baggage):
+# propagators.set_global_textmap_propagator(
+# CompositePropagator([
+# TraceContextTextMapPropagator(),
+# # BaggagePropagator(),
+# ])
+# )
 
 # 1. Initialize OpenTelemetry TracerProvider
+# Exporter and processor are removed; relying on Vertex AI Agent Engine's auto-export.
 resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 provider = TracerProvider(resource=resource)
-processor = BatchSpanProcessor(
-    CloudTraceLoggingSpanExporter(
-        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
-        service_name=SERVICE_NAME
-    )
-)
-provider.add_span_processor(processor)
+# processor = BatchSpanProcessor(...) # REMOVED
+# provider.add_span_processor(processor) # REMOVED
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry

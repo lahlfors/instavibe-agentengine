@@ -19,12 +19,13 @@ from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_N
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 # Corrected import: setup_google_cloud_logging is the standardized name
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
+# from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED
+# from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # REMOVED - Rely on Agent Engine auto-export
 
-from opentelemetry import propagate # Corrected import
-from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator # Corrected class name
-from opentelemetry.propagators.composite import CompositePropagator # Added
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
+from opentelemetry import propagators # Changed from propagate to propagators for consistency
+# from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator # REMOVED - Deprecated
+from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # Define service name for observability
 # Load environment variables from the root .env file first.
@@ -34,12 +35,17 @@ SERVICE_NAME = "platform-mcp-client-agent"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
-propagate.set_global_textmap( # Corrected API usage to set_global_textmap
-    CompositePropagator([
-        TraceContextTextMapPropagator(),
-        CloudTraceFormatPropagator(), # Corrected class name usage
-    ])
+# Rely on W3C TraceContextTextMapPropagator, GCP-specific propagator is deprecated
+propagators.set_global_textmap_propagator( # Using consistent API
+    TraceContextTextMapPropagator()
 )
+# If other propagators like Baggage were needed:
+# propagators.set_global_textmap_propagator(
+#     CompositePropagator([
+#         TraceContextTextMapPropagator(),
+#         # BaggagePropagator(),
+#     ])
+# )
 
 # 1. Initialize OpenTelemetry Tracer Provider
 # GOOGLE_CLOUD_PROJECT should be available from environment after dotenv load
@@ -47,13 +53,14 @@ resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 provider = TracerProvider(resource=resource)
-processor = BatchSpanProcessor(
-    CloudTraceLoggingSpanExporter(
-        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
-        service_name=SERVICE_NAME
-    )
-)
-provider.add_span_processor(processor)
+# Exporter and processor are removed; relying on Vertex AI Agent Engine's auto-export.
+# processor = BatchSpanProcessor(
+#     CloudTraceExporter(
+#         project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+#         # service_name is typically derived from the Resource attributes
+#     )
+# )
+# provider.add_span_processor(processor) # REMOVED
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry

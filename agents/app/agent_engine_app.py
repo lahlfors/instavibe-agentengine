@@ -27,18 +27,23 @@ import vertexai
 import google.api_core.exceptions # For specific exception handling
 from google.cloud import logging as google_cloud_logging
 from opentelemetry import trace, propagators # Added propagators
-from opentelemetry.sdk.trace import TracerProvider, export
+from opentelemetry.sdk.trace import TracerProvider, export # 'export' is used as export.BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
-from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
-from opentelemetry.propagators.composite import CompositePropagator # Added
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
+# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
+from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
+from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+# from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # REMOVED - Rely on Agent Engine auto-export
+
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 
 from app.utils.gcs import create_bucket_if_not_exists
-from app.utils.tracing import CloudTraceLoggingSpanExporter
-from app.utils.logging_setup import setup_google_cloud_logging # Added
+# from app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED
+from app.utils.logging_setup import setup_google_cloud_logging
 from app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
@@ -58,12 +63,17 @@ class AgentEngineApp(AdkApp):
         super().set_up()
 
         # 0. Configure Global Propagator (early in setup)
+        # Rely on W3C TraceContextTextMapPropagator, GcpCloudTraceFormatPropagator is deprecated
         propagators.set_global_textmap_propagator(
-            CompositePropagator([
-                TraceContextTextMapPropagator(),  # W3C Trace Context (standard)
-                GcpCloudTraceFormatPropagator(),  # GCP specific format
-            ])
+            TraceContextTextMapPropagator()
         )
+        # If other propagators like Baggage were needed:
+        # propagators.set_global_textmap_propagator(
+        #     CompositePropagator([
+        #         TraceContextTextMapPropagator(),
+        #         # BaggagePropagator(),
+        #     ])
+        # )
 
         # 1. Setup OpenTelemetry TracerProvider
         # GOOGLE_CLOUD_PROJECT should be available from environment
@@ -79,13 +89,14 @@ class AgentEngineApp(AdkApp):
         })
 
         provider = TracerProvider(resource=resource) # Pass resource to provider
-        processor = export.BatchSpanProcessor(
-            CloudTraceLoggingSpanExporter(
-                project_id=GOOGLE_CLOUD_PROJECT, # Explicitly pass project_id
-                service_name=current_service_name # Pass service_name to exporter (still useful for its own logging)
-            )
-        )
-        provider.add_span_processor(processor)
+        # Exporter and processor are removed; relying on Vertex AI Agent Engine's auto-export.
+        # processor = export.BatchSpanProcessor(
+        #     CloudTraceExporter(
+        #         project_id=GOOGLE_CLOUD_PROJECT
+        #         # service_name is typically derived from the Resource attributes for OTLP exporters
+        #     )
+        # )
+        # provider.add_span_processor(processor) # REMOVED
         trace.set_tracer_provider(provider)
 
         # 2. Instrument logging for OpenTelemetry

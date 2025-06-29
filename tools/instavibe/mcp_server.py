@@ -7,13 +7,14 @@ import logging
 from dotenv import load_dotenv
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-# BatchSpanProcessor removed - relying on Agent Engine for trace export
+from opentelemetry.sdk.trace.export import BatchSpanProcessor # ADDED: For trace export
+from opentelemetry.exporter.cloud_trace import CloudTraceExporter # ADDED: Google Cloud Trace exporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 # Corrected import: setup_google_cloud_logging is the standardized name
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-# CloudTraceLoggingSpanExporter REMOVED
-# CloudTraceExporter (OTLP) REMOVED - Rely on Agent Engine auto-export
+# CloudTraceLoggingSpanExporter REMOVED - Not applicable with direct Cloud Trace export.
+# CloudTraceExporter (OTLP) REMOVED - Using the standard CloudTraceExporter directly.
 
 from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
@@ -43,7 +44,8 @@ SERVICE_NAME = "tools-mcp-server"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
-# Rely on W3C TraceContextTextMapPropagator, GcpCloudTraceFormatPropagator is deprecated
+# Using W3C TraceContextTextMapPropagator for trace context propagation.
+# GcpCloudTraceFormatPropagator is deprecated.
 propagators.set_global_textmap_propagator(
     TraceContextTextMapPropagator()
 )
@@ -56,17 +58,23 @@ propagators.set_global_textmap_propagator(
 # )
 
 # 1. Initialize OpenTelemetry Tracer Provider
+# Configure an exporter to send traces to Google Cloud Trace.
+trace_exporter = CloudTraceExporter() # Assumes ADC or GOOGLE_CLOUD_PROJECT env var is set.
+
+# The BatchSpanProcessor processes spans in batches before exporting.
+span_processor = BatchSpanProcessor(trace_exporter)
+
 resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
-provider = TracerProvider(resource=resource)
-# Exporter (CloudTraceExporter) and processor (BatchSpanProcessor) are REMOVED.
-# Relying on Vertex AI Agent Engine's environment for automatic trace export
-# when a TracerProvider is initialized and set.
+
+# Add the span processor to the TracerProvider.
+# This setup enables direct trace exporting to Google Cloud Trace.
+provider = TracerProvider(resource=resource, active_span_processor=span_processor)
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry
-LoggingInstrumentor().instrument(set_logging_format=True)
+LoggingInstrumentor().instrument(set_logging_format=True) # Adds trace context to logs.
 
 # 3. Then setup Google Cloud logging
 setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)

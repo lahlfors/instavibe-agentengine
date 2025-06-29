@@ -9,8 +9,8 @@ python-dotenv==1.0.1
 google-cloud-logging==3.9.0
 opentelemetry-api>=1.22.0
 opentelemetry-sdk>=1.22.0
-# opentelemetry-exporter-gcp-trace==1.9.0 # REMOVED - Old direct exporter
-# opentelemetry-exporter-google-cloud-trace # REMOVED - Rely on Agent Engine's automatic export
+opentelemetry-exporter-google-cloud-trace # ADDED: For direct Google Cloud Trace export
+# opentelemetry-exporter-gcp-trace==1.9.0 # Old package, REMOVED
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated
 opentelemetry-instrumentation>=0.43b0 # Namespace package
 opentelemetry-instrumentation-logging>=0.43b0 # For LoggingInstrumentor

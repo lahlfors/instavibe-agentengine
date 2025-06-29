@@ -12,12 +12,10 @@ COPY tools/instavibe/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
-# Test this line
-COPY tools/instavibe/instavibe.py /app/debug_instavibe_probe.py 
+# Copy instavibe.py (HTTP client for instavibe service) correctly for mcp_server.py to import
+COPY tools/instavibe/instavibe.py /app/instavibe.py
 
 COPY tools/instavibe/mcp_server.py /app/mcp_server.py
-# Original problematic line, ensure it remains commented or is removed if the probe works
-# COPY tools/instavibe/instavibe.py /app/instavibe.py 
 COPY ./agents /app/agents
 
 # --- Environment ---

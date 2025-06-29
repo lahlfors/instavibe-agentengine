@@ -12,7 +12,8 @@ from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_N
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 # Corrected import: setup_google_cloud_logging is the standardized name
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
+# from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED - Using standard OTLP exporter
+from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # ADDED
 
 from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
@@ -30,8 +31,8 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 from instavibe import create_event,create_post # instavibe.py also needs logging setup
 
 from opentelemetry import propagators # Added
-from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # Added
-from opentelemetry.propagators.composite import CompositePropagator # Added
+# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
+from opentelemetry.propagators.composite import CompositePropagator # Kept for structure, though might simplify
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
 
 # Load environment variables from the root .env file first.
@@ -42,22 +43,28 @@ SERVICE_NAME = "tools-mcp-server"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
+# Rely on W3C TraceContextTextMapPropagator, GcpCloudTraceFormatPropagator is deprecated
 propagators.set_global_textmap_propagator(
-    CompositePropagator([
-        TraceContextTextMapPropagator(),
-        GcpCloudTraceFormatPropagator(),
-    ])
+    TraceContextTextMapPropagator()
 )
+# If you need baggage or other propagators, use CompositePropagator:
+# propagators.set_global_textmap_propagator(
+#     CompositePropagator([
+#         TraceContextTextMapPropagator(),
+#         # BaggagePropagator(), # Example if baggage is used
+#     ])
+# )
 
 # 1. Initialize OpenTelemetry Tracer Provider
 resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 provider = TracerProvider(resource=resource)
+# Use the standard OTLP-based CloudTraceExporter
 processor = BatchSpanProcessor(
-    CloudTraceLoggingSpanExporter(
-        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"),
-        service_name=SERVICE_NAME
+    CloudTraceExporter(
+        project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+        # service_name is typically derived from the Resource attributes
     )
 )
 provider.add_span_processor(processor)

@@ -9,14 +9,16 @@ sys.stdout.flush()
 try:
     import opentelemetry.trace
     from opentelemetry.sdk.trace import TracerProvider
-    # from opentelemetry.sdk.trace.export import BatchSpanProcessor # Optional check, not strictly needed for this basic SDK verification
-    # from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # Optional check
 
     print("Successfully imported OpenTelemetry SDK trace components (opentelemetry.trace, TracerProvider)")
 
     # Check instantiation of TracerProvider
     provider = TracerProvider()
     print("TracerProvider instantiated successfully.")
+
+    # Optionally, try to get a tracer
+    tracer = opentelemetry.trace.get_tracer(__name__)
+    print("Successfully got a tracer instance: {}".format(tracer))
 
     sys.stdout.flush()
     sys.exit(0) # Explicitly exit with 0 on success

@@ -13,18 +13,18 @@ from ally_routes import ally_bp
 import logging
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+# BatchSpanProcessor removed - relying on Agent Engine for trace export
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 # Imports reverted to use agents.app.utils structure,
 # as 'agents' directory is now copied directly into the image.
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-# from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED - Rely on Agent Engine auto-export
-# from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # REMOVED - Rely on Agent Engine auto-export
+# CloudTraceLoggingSpanExporter REMOVED - Rely on Agent Engine auto-export
+# CloudTraceExporter (OTLP) REMOVED - Rely on Agent Engine auto-export
 
 from opentelemetry import propagators
-# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
+# GcpCloudTraceFormatPropagator REMOVED - Deprecated
 from opentelemetry.propagators.composite import CompositePropagator # Kept for structure if other standard propagators are added
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -54,8 +54,9 @@ resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 provider = TracerProvider(resource=resource)
-# processor = BatchSpanProcessor(...) # REMOVED
-# provider.add_span_processor(processor) # REMOVED
+# BatchSpanProcessor and its addition to the provider are REMOVED.
+# The Vertex AI Agent Engine's environment is expected to handle trace export
+# when a TracerProvider is initialized and set.
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry

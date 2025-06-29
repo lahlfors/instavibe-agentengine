@@ -14,16 +14,16 @@ from typing import Any, Dict, List, Tuple, Optional
 from google.genai.types import Content, Part
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+# BatchSpanProcessor removed - relying on Agent Engine for trace export
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 # Corrected import: setup_google_cloud_logging is the standardized name
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-# from agents.app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED
-# from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # REMOVED - Rely on Agent Engine auto-export
+# CloudTraceLoggingSpanExporter REMOVED
+# CloudTraceExporter (OTLP) REMOVED - Rely on Agent Engine auto-export
 
 from opentelemetry import propagators # Changed from propagate to propagators for consistency
-# from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator # REMOVED - Deprecated
+# CloudTraceFormatPropagator REMOVED - Deprecated
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -53,14 +53,9 @@ resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 provider = TracerProvider(resource=resource)
-# Exporter and processor are removed; relying on Vertex AI Agent Engine's auto-export.
-# processor = BatchSpanProcessor(
-#     CloudTraceExporter(
-#         project_id=os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
-#         # service_name is typically derived from the Resource attributes
-#     )
-# )
-# provider.add_span_processor(processor) # REMOVED
+# Exporter (CloudTraceExporter) and processor (BatchSpanProcessor) are REMOVED.
+# Relying on Vertex AI Agent Engine's environment for automatic trace export
+# when a TracerProvider is initialized and set.
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry

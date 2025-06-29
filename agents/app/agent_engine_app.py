@@ -27,22 +27,19 @@ import vertexai
 import google.api_core.exceptions # For specific exception handling
 from google.cloud import logging as google_cloud_logging
 from opentelemetry import trace, propagators # Added propagators
-from opentelemetry.sdk.trace import TracerProvider, export # 'export' is used as export.BatchSpanProcessor
+from opentelemetry.sdk.trace import TracerProvider # 'export' (for BatchSpanProcessor) removed
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
-# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
+# GcpCloudTraceFormatPropagator REMOVED - Deprecated
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
-from opentelemetry.propagators.composite import CompositePropagator
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-# from opentelemetry.exporter.cloud_trace_otlp import CloudTraceExporter # REMOVED - Rely on Agent Engine auto-export
+# CloudTraceExporter (OTLP) REMOVED - Rely on Agent Engine auto-export
 
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 
 from app.utils.gcs import create_bucket_if_not_exists
-# from app.utils.tracing import CloudTraceLoggingSpanExporter # REMOVED
+# CloudTraceLoggingSpanExporter REMOVED
 from app.utils.logging_setup import setup_google_cloud_logging
 from app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
@@ -89,14 +86,9 @@ class AgentEngineApp(AdkApp):
         })
 
         provider = TracerProvider(resource=resource) # Pass resource to provider
-        # Exporter and processor are removed; relying on Vertex AI Agent Engine's auto-export.
-        # processor = export.BatchSpanProcessor(
-        #     CloudTraceExporter(
-        #         project_id=GOOGLE_CLOUD_PROJECT
-        #         # service_name is typically derived from the Resource attributes for OTLP exporters
-        #     )
-        # )
-        # provider.add_span_processor(processor) # REMOVED
+        # Exporter (CloudTraceExporter) and processor (BatchSpanProcessor) are REMOVED.
+        # Relying on Vertex AI Agent Engine's environment for automatic trace export
+        # when a TracerProvider is initialized and set.
         trace.set_tracer_provider(provider)
 
         # 2. Instrument logging for OpenTelemetry

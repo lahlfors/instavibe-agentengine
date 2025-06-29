@@ -7,15 +7,15 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --- Verify OpenTelemetry GCP Propagator installation ---
-# Copy the verification script from the build context (instavibe/verify_otel_gcp.py)
-COPY verify_otel_gcp.py /tmp/verify_otel_gcp.py
+# --- Verify OpenTelemetry SDK installation (as propagator is removed) ---
+# Copy the verification script from the build context (instavibe/verify_otel_sdk.py)
+COPY verify_otel_sdk.py /tmp/verify_otel_sdk.py
 
 # Execute the verification script
 RUN set -e && \
-    python /tmp/verify_otel_gcp.py && \
-    rm /tmp/verify_otel_gcp.py
-# --- End OpenTelemetry Verification ---
+    python /tmp/verify_otel_sdk.py && \
+    rm /tmp/verify_otel_sdk.py
+# --- End OpenTelemetry SDK Verification ---
 
 # Copy the 'agents' source code
 COPY temp_agents_for_build /app/agents

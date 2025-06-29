@@ -22,9 +22,9 @@ from agents.app.utils.logging_setup import setup_google_cloud_logging
 # CloudTraceLoggingSpanExporter REMOVED
 # CloudTraceExporter (OTLP) REMOVED - Rely on Agent Engine auto-export
 
-from opentelemetry import propagators # Changed from propagate to propagators for consistency
+from opentelemetry.propagate import set_global_textmap_propagator
 # CloudTraceFormatPropagator REMOVED - Deprecated
-from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.propagators.composite import CompositePropagator # Kept for example, but not used if only one propagator
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # Define service name for observability
@@ -35,16 +35,15 @@ SERVICE_NAME = "platform-mcp-client-agent"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
-# Rely on W3C TraceContextTextMapPropagator, GCP-specific propagator is deprecated
-propagators.set_global_textmap_propagator( # Using consistent API
-    TraceContextTextMapPropagator()
-)
-# If other propagators like Baggage were needed:
-# propagators.set_global_textmap_propagator(
-#     CompositePropagator([
-#         TraceContextTextMapPropagator(),
-#         # BaggagePropagator(),
-#     ])
+# Rely on W3C TraceContextTextMapPropagator.
+set_global_textmap_propagator(TraceContextTextMapPropagator())
+# Example if needing multiple standard propagators (e.g., baggage):
+# from opentelemetry.baggage.propagation import W3CBaggagePropagator
+# set_global_textmap_propagator(
+# CompositePropagator([
+# TraceContextTextMapPropagator(),
+# W3CBaggagePropagator(),
+# ])
 # )
 
 # 1. Initialize OpenTelemetry Tracer Provider

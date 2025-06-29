@@ -3,6 +3,45 @@ import argparse
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__))) # Add repo root to path
+
+# --- BEGIN OpenTelemetry API Version Diagnostic (using importlib.metadata) ---
+import opentelemetry
+# Attempt to prime the opentelemetry namespace by importing key submodules early
+try:
+    import opentelemetry.sdk
+    import opentelemetry.sdk.trace
+    import opentelemetry.propagate
+    import opentelemetry.instrumentation # Base for instrumentation submodules
+    import opentelemetry.instrumentation.logging
+    print("DEBUG: Successfully performed early priming imports for opentelemetry.sdk, .trace, .propagate, .instrumentation, .instrumentation.logging")
+except ImportError as e_prime:
+    print(f"DEBUG: Error during early OTel priming imports: {e_prime}. This might be okay if the namespace populates correctly anyway.")
+
+try:
+    from importlib import metadata as importlib_metadata # Python 3.8+
+except ImportError:
+    import importlib_metadata # Fallback for Python < 3.10 where it might be a backport
+    print("DEBUG: importlib.metadata not found, using importlib_metadata backport (ensure it's in requirements.txt if Python < 3.8).")
+
+try:
+    otel_api_version = importlib_metadata.version('opentelemetry-api')
+    print(f"DEBUG: opentelemetry-api version (importlib.metadata): {otel_api_version}")
+except importlib_metadata.PackageNotFoundError:
+    print("DEBUG: opentelemetry-api version not found via importlib.metadata.")
+except Exception as e_meta:
+    print(f"DEBUG: Error getting opentelemetry-api version via importlib.metadata: {e_meta}")
+
+# Re-check after priming imports
+print(f"DEBUG: opentelemetry module location (after priming): {opentelemetry.__file__}")
+print(f"DEBUG: opentelemetry version attribute (after priming): {opentelemetry.__version__ if hasattr(opentelemetry, '__version__') else 'N/A'}")
+if hasattr(opentelemetry, 'sdk') and hasattr(opentelemetry.sdk, '__file__'):
+    print(f"DEBUG: opentelemetry.sdk location (after priming): {opentelemetry.sdk.__file__}")
+if hasattr(opentelemetry, 'propagate') and hasattr(opentelemetry.propagate, '__file__'):
+    print(f"DEBUG: opentelemetry.propagate location (after priming): {opentelemetry.propagate.__file__}")
+if hasattr(opentelemetry, 'instrumentation') and hasattr(opentelemetry.instrumentation, 'logging') and hasattr(opentelemetry.instrumentation.logging, '__file__'):
+    print(f"DEBUG: opentelemetry.instrumentation.logging location (after priming): {opentelemetry.instrumentation.logging.__file__}")
+# --- END OpenTelemetry API Version Diagnostic ---
+
 from dotenv import load_dotenv
 from google.cloud import aiplatform as vertexai
 from google.cloud.aiplatform_v1.services import reasoning_engine_service
@@ -11,18 +50,24 @@ from google.api_core import exceptions as api_exceptions
 import time
 
 # Pre-install root dependencies
+print(f"DEBUG: deploy_all.py sys.executable (before pip): {sys.executable}")
+print(f"DEBUG: deploy_all.py VIRTUAL_ENV (before pip): {os.environ.get('VIRTUAL_ENV', 'Not set')}")
+print(f"DEBUG: deploy_all.py sys.path (before pip): {sys.path}")
 try:
-    print("Pre-installing root dependencies for import purposes...")
+    print("Pre-installing root dependencies for import purposes (with --no-cache-dir)...")
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-        check=True, text=True, capture_output=False
+        [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--break-system-packages", "-r", "requirements.txt"],
+        check=True, text=True, capture_output=False # Set capture_output to False to see pip's output directly
     )
-    print("Root dependencies pre-installed successfully.")
+    print("Root dependencies pre-installed successfully (with --no-cache-dir).")
 except subprocess.CalledProcessError as e:
     print(f"ERROR: Critical error pre-installing root dependencies: {e}")
-    if e.stdout: print(f"Stdout: {e.stdout}")
-    if e.stderr: print(f"Stderr: {e.stderr}")
+    if e.stdout: print(f"Stdout: {e.stdout}") # Will be None if capture_output=False
+    if e.stderr: print(f"Stderr: {e.stderr}") # Will be None if capture_output=False
     raise
+
+# The extensive diagnostic block previously here (after internal pip install) has been removed.
+# The primary diagnostics are now at the top of the script, enhanced with early priming imports.
 
 from agents.planner.deploy import deploy_planner_main_func
 from agents.social.deploy import deploy_social_main_func

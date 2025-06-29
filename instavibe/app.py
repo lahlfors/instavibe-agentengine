@@ -7,26 +7,27 @@ from google.cloud.spanner_v1 import param_types
 from google.api_core import exceptions
 import humanize 
 import uuid
-import traceback
+# import traceback # REMOVED: Unused import
 from dateutil import parser
 from ally_routes import ally_bp
 import logging
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor # ADDED: For trace export
-from opentelemetry.exporter.cloud_trace import CloudTraceExporter # ADDED: Google Cloud Trace exporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor # For OTLP export
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter # OTLP HTTP Exporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 # Imports reverted to use agents.app.utils structure,
 # as 'agents' directory is now copied directly into the image.
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-# CloudTraceLoggingSpanExporter REMOVED - Not used with direct CloudTraceExporter.
-# CloudTraceExporter (OTLP) REMOVED - Using the standard CloudTraceExporter directly.
+# Comments updated to reflect OTLP usage for direct export
+# CloudTraceLoggingSpanExporter REMOVED.
+# CloudTraceExporter (OTLP) REMOVED.
 
 from opentelemetry import propagators
-# GcpCloudTraceFormatPropagator REMOVED - Deprecated. Standard W3C TraceContext is used.
-from opentelemetry.propagators.composite import CompositePropagator # Kept for structure if other standard propagators are added
+# GcpCloudTraceFormatPropagator REMOVED - Deprecated
+# from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # Load environment variables from root .env file first.
@@ -50,23 +51,22 @@ propagators.set_global_textmap_propagator(
 # )
 
 # 1. Initialize OpenTelemetry TracerProvider
-# Configure an exporter to send traces to Google Cloud Trace.
-trace_exporter = CloudTraceExporter() # Assumes ADC or GOOGLE_CLOUD_PROJECT env var is set.
+# Configure an OTLP exporter to send traces to Google Cloud Trace via HTTP.
+otlp_exporter = OTLPSpanExporter(endpoint="https://cloudtrace.googleapis.com/v1/traces")
 
 # The BatchSpanProcessor processes spans in batches before exporting.
-span_processor = BatchSpanProcessor(trace_exporter)
+span_processor = BatchSpanProcessor(otlp_exporter)
 
 resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 
 # Add the span processor to the TracerProvider.
-# This setup enables direct trace exporting to Google Cloud Trace.
 provider = TracerProvider(resource=resource, active_span_processor=span_processor)
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry
-LoggingInstrumentor().instrument(set_logging_format=True) # Adds trace context (e.g., trace_id, span_id) to logs.
+LoggingInstrumentor().instrument(set_logging_format=True)
 
 # 3. Setup Google Cloud logging for the application
 # This will configure the root logger. Flask's app.logger will inherit this.

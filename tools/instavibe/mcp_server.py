@@ -7,14 +7,13 @@ import logging
 from dotenv import load_dotenv
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor # ADDED: For trace export
-from opentelemetry.exporter.cloud_trace import CloudTraceExporter # ADDED: Google Cloud Trace exporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor # For OTLP export
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter # OTLP HTTP Exporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 # Corrected import: setup_google_cloud_logging is the standardized name
 from agents.app.utils.logging_setup import setup_google_cloud_logging
-# CloudTraceLoggingSpanExporter REMOVED - Not applicable with direct Cloud Trace export.
-# CloudTraceExporter (OTLP) REMOVED - Using the standard CloudTraceExporter directly.
+# Comments updated to reflect OTLP usage for direct export
 
 from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
@@ -31,10 +30,10 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 from instavibe import create_event,create_post # instavibe.py also needs logging setup
 
-from opentelemetry import propagators # Added
-# from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator # REMOVED - Deprecated
-from opentelemetry.propagators.composite import CompositePropagator # Kept for structure, though might simplify
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # Added
+from opentelemetry import propagators
+# GcpCloudTraceFormatPropagator REMOVED - Deprecated
+# from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # Load environment variables from the root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -45,7 +44,6 @@ LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
 # Using W3C TraceContextTextMapPropagator for trace context propagation.
-# GcpCloudTraceFormatPropagator is deprecated.
 propagators.set_global_textmap_propagator(
     TraceContextTextMapPropagator()
 )
@@ -58,23 +56,22 @@ propagators.set_global_textmap_propagator(
 # )
 
 # 1. Initialize OpenTelemetry Tracer Provider
-# Configure an exporter to send traces to Google Cloud Trace.
-trace_exporter = CloudTraceExporter() # Assumes ADC or GOOGLE_CLOUD_PROJECT env var is set.
+# Configure an OTLP exporter to send traces to Google Cloud Trace via HTTP.
+otlp_exporter = OTLPSpanExporter(endpoint="https://cloudtrace.googleapis.com/v1/traces")
 
 # The BatchSpanProcessor processes spans in batches before exporting.
-span_processor = BatchSpanProcessor(trace_exporter)
+span_processor = BatchSpanProcessor(otlp_exporter)
 
 resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })
 
 # Add the span processor to the TracerProvider.
-# This setup enables direct trace exporting to Google Cloud Trace.
 provider = TracerProvider(resource=resource, active_span_processor=span_processor)
 trace.set_tracer_provider(provider)
 
 # 2. Instrument logging for OpenTelemetry
-LoggingInstrumentor().instrument(set_logging_format=True) # Adds trace context to logs.
+LoggingInstrumentor().instrument(set_logging_format=True)
 
 # 3. Then setup Google Cloud logging
 setup_google_cloud_logging(log_level=LOG_LEVEL, service_name=SERVICE_NAME)

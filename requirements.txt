@@ -13,7 +13,7 @@ google-genai>=1.17.0,<2.0.0
 deprecated==1.2.18
 python-dotenv==1.0.1
 google-cloud-logging==3.9.0
-opentelemetry-api~=1.31.0 # Updated to satisfy google-adk 1.4.2 dependency
+opentelemetry-api[entry-points]~=1.31.0 # Added [entry-points] extra
 opentelemetry-sdk~=1.31.0 # Matched with opentelemetry-api
 # opentelemetry-exporter-gcp-trace==1.9.0 # REMOVED - Unnecessary for deploy_all.py and potentially conflicting
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated, unnecessary, and potentially conflicting

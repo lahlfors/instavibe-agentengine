@@ -40,6 +40,27 @@ if hasattr(opentelemetry, 'propagate') and hasattr(opentelemetry.propagate, '__f
     print(f"DEBUG: opentelemetry.propagate location (after priming): {opentelemetry.propagate.__file__}")
 if hasattr(opentelemetry, 'instrumentation') and hasattr(opentelemetry.instrumentation, 'logging') and hasattr(opentelemetry.instrumentation.logging, '__file__'):
     print(f"DEBUG: opentelemetry.instrumentation.logging location (after priming): {opentelemetry.instrumentation.logging.__file__}")
+
+# --- Explicitly initialize and set TracerProvider ---
+try:
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry import trace as global_trace
+    # Basic resource, can be enhanced later if deploy_all.py itself needs to emit traces
+    # from opentelemetry.sdk.resources import Resource
+    # resource = Resource(attributes={"service.name": "deploy_all_script"})
+    # tracer_provider = TracerProvider(resource=resource)
+    tracer_provider = TracerProvider() # Minimal provider
+    global_trace.set_tracer_provider(tracer_provider)
+    print("DEBUG: TracerProvider initialized and set globally in deploy_all.py.")
+    # Re-check opentelemetry module status after setting provider
+    print(f"DEBUG: opentelemetry module location (after set_tracer_provider): {opentelemetry.__file__}")
+    print(f"DEBUG: opentelemetry version attribute (after set_tracer_provider): {opentelemetry.__version__ if hasattr(opentelemetry, '__version__') else 'N/A'}")
+except ImportError as e_tp_import:
+    print(f"DEBUG: Failed to import for TracerProvider setup: {e_tp_import}")
+except Exception as e_tp_set:
+    print(f"DEBUG: Error during TracerProvider setup: {e_tp_set}")
+# --- END SDK Activation ---
+
 # --- END OpenTelemetry API Version Diagnostic ---
 
 from dotenv import load_dotenv

@@ -2,8 +2,7 @@
 import os
 import json
 import logging
-from vertexai.preview import reasoning_engines
-from vertexai.preview.reasoning_engines import Agent as AdkAgentExecutor # To execute other ADK Agents
+from vertexai.preview import reasoning_engines # For ReasoningEngine client
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
@@ -78,22 +77,36 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
         logger.info(f"Calling Planner Agent ({self.planner_agent_resource_name}) for user '{user_name}'.")
 
         try:
-            # Create an executor for the target Planner Agent
-            planner_executor = AdkAgentExecutor(agent=self.planner_agent_resource_name)
+            # Create a client for the target Planner Agent
+            planner_client = reasoning_engines.ReasoningEngine(self.planner_agent_resource_name)
 
             # Call the Planner Agent.
-            # The `input` parameter name might vary based on how the target agent is defined.
-            # Common names are 'input', 'message', 'prompt', 'query'. Assuming 'message' or 'input'.
-            # ADK Agent.run() typically expects `input` or specific args defined by the agent.
-            # Let's assume the target agent takes a generic 'input' string.
-            response = planner_executor.run(input=planner_input_prompt, session=adk_session)
+            # The `input` parameter is standard for ReasoningEngine.run()
+            # session should be the session resource name, adk_session.name if it's a Session object
+            session_name = adk_session.name if hasattr(adk_session, 'name') else adk_session
+            response = planner_client.run(input=planner_input_prompt, session=session_name)
 
-            # The response from an ADK agent's run() method is typically the final string output.
-            # If it's structured (JSON), it should be returned as a string to be parsed.
-            generated_text = response # Assuming response is the direct string output.
+            # The response from ReasoningEngine.run() is typically a dict-like object.
+            # The actual output from the agent is often in response['output'] or response['text'].
+            # Assuming the planner agent (if it's an ADK agent) returns its result in 'output'.
+            # If it's a simple LLM agent, it might be directly in 'text' or a similar field.
+            # Given the old code expected a direct string, we'll try to extract common output fields.
+            if isinstance(response, str):
+                generated_text = response
+            elif hasattr(response, 'text'): # Common for some response objects
+                generated_text = response.text
+            elif isinstance(response, dict) and 'output' in response: # Common for ADK agents
+                generated_text = response['output']
+            elif isinstance(response, dict) and 'text' in response: # Alternative for some agents
+                generated_text = response['text']
+            else:
+                logger.warning(f"Unexpected response type from Planner Agent: {type(response)}. Content: {str(response)[:500]}")
+                # Fallback to trying to convert the whole response to string, hoping it's the text.
+                generated_text = str(response)
 
-            thoughts.append(f"Planner Agent raw response: {generated_text[:200]}...")
-            logger.info(f"Planner Agent raw response (user '{user_name}'): {generated_text[:200]}...")
+
+            thoughts.append(f"Planner Agent raw response (after potential extraction): {generated_text[:200]}...")
+            logger.info(f"Planner Agent raw response (user '{user_name}', after potential extraction): {generated_text[:200]}...")
 
             if not generated_text or not generated_text.strip():
                 thoughts.append("Planner Agent returned an empty response.")
@@ -155,13 +168,26 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
         logger.info(f"Calling Orchestrate Agent ({self.orchestrate_agent_resource_name}) for user '{user_name}'.")
 
         try:
-            orchestrate_executor = AdkAgentExecutor(agent=self.orchestrate_agent_resource_name)
+            orchestrate_client = reasoning_engines.ReasoningEngine(self.orchestrate_agent_resource_name)
 
-            # Assuming Orchestrate Agent takes 'input' or 'message'
-            response_text = orchestrate_executor.run(input=orchestrator_input_message, session=adk_session)
+            session_name = adk_session.name if hasattr(adk_session, 'name') else adk_session
+            response = orchestrate_client.run(input=orchestrator_input_message, session=session_name)
 
-            thoughts.append(f"Orchestrate Agent raw response: {response_text[:200]}...")
-            logger.info(f"Orchestrate Agent raw response (user '{user_name}'): {response_text[:200]}...")
+            # Similar to the planner, extract the text output
+            if isinstance(response, str):
+                response_text = response
+            elif hasattr(response, 'text'):
+                response_text = response.text
+            elif isinstance(response, dict) and 'output' in response:
+                response_text = response['output']
+            elif isinstance(response, dict) and 'text' in response:
+                response_text = response['text']
+            else:
+                logger.warning(f"Unexpected response type from Orchestrate Agent: {type(response)}. Content: {str(response)[:500]}")
+                response_text = str(response) # Fallback
+
+            thoughts.append(f"Orchestrate Agent raw response (after potential extraction): {response_text[:200]}...")
+            logger.info(f"Orchestrate Agent raw response (user '{user_name}', after potential extraction): {response_text[:200]}...")
 
             if response_text and response_text.strip():
                 thoughts.append("Successfully delegated to Orchestrate Agent.")

@@ -654,12 +654,10 @@ def main(argv=None):
 
     # General Vertex AI SDK initialization (for multiple agent deployments)
     # Specific init with staging_bucket for AdkApp based deployment will be in its function
-    print(f"Initializing Vertex AI SDK globally (Project: {project_id}, Location: {region})")
+    print(f"Initializing Vertex AI SDK globally (Project: {project_id}, Location: {region}, Staging Bucket: {staging_bucket_uri})")
     try:
-        # Note: staging_bucket is not set here globally, as different deployments might need different ones
-        # or AdkApp deployment will set it specifically.
-        vertexai.init(project=project_id, location=region)
-        print("Global Vertex AI SDK initialized successfully.")
+        vertexai.init(project=project_id, location=region, staging_bucket=staging_bucket_uri)
+        print("Global Vertex AI SDK initialized successfully (with staging bucket).")
     except Exception as e:
         print(f"Error initializing Vertex AI SDK globally: {e}")
         raise

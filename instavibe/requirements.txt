@@ -14,12 +14,13 @@ opentelemetry-exporter-otlp-proto-grpc # Standardizing on gRPC for collector
 # opentelemetry-exporter-google-cloud-trace # REMOVED: Incorrect package
 # opentelemetry-exporter-gcp-trace==1.9.0 # Old package, REMOVED
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated
-opentelemetry-instrumentation>=0.43b0 # Namespace package
-opentelemetry-instrumentation-logging>=0.43b0 # For LoggingInstrumentor
-opentelemetry-instrumentation-flask>=0.43b0 # For FlaskInstrumentor
+opentelemetry-instrumentation==0.43b0 # Pinned to specific version
+opentelemetry-instrumentation-logging==0.43b0 # Pinned to specific version
+opentelemetry-instrumentation-flask==0.43b0 # Pinned to specific version
 
 # Dependencies from agents/app/setup.py (now that source is copied directly)
 google-cloud-storage>=2.0.0
 
 # For future A2A SDK refactoring
 python-a2a==0.5.9
+google-adk==1.4.3 # Pinned google-adk version

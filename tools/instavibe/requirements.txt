@@ -1,7 +1,7 @@
 google-cloud-aiplatform[adk,agent_engines] # Version unpinned
 Flask==3.1.0
 mcp[cli]>=1.8.0
-google-adk==1.4.2
+google-adk==1.4.3 # Pinned google-adk version
 python-dateutil==2.9.0.post0
 deprecated==1.2.18
 gunicorn
@@ -15,6 +15,7 @@ opentelemetry-exporter-otlp-proto-grpc # Standardizing on gRPC for collector
 # opentelemetry-exporter-google-cloud-trace # REMOVED: Incorrect package
 # opentelemetry-exporter-gcp-trace==1.9.0 # Old package, REMOVED
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated
-opentelemetry-instrumentation>=0.43b0 # Namespace package
-opentelemetry-instrumentation-logging>=0.43b0 # For LoggingInstrumentor
+opentelemetry-instrumentation==0.43b0 # Pinned to specific version
+opentelemetry-instrumentation-logging==0.43b0 # Pinned to specific version
+# opentelemetry-instrumentation-flask is not used in this file, so no change for it.
 python-a2a==0.5.9 # For future A2A SDK refactoring

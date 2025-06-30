@@ -408,43 +408,20 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     except subprocess.CalledProcessError as e:
         print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
-    # --- Pre-build step: Copy the entire 'agents' directory into the 'instavibe' build context ---
-    # This replaces the need for the a2a_common.whl for instavibe-app's direct dependencies on agents/app code.
-    source_agents_dir_name = "agents"
-    temp_agents_dir_in_context = "temp_agents_for_build" # Name of the dir when copied into instavibe/
-
-    # Assuming deploy_all.py is at the project root, so 'agents' is 'project_root/agents'
-    source_agents_path = source_agents_dir_name
-    dest_agents_path_in_build_context = os.path.join("instavibe", temp_agents_dir_in_context)
-
-    print(f"Preparing build context for instavibe-app: Copying '{source_agents_path}' to '{dest_agents_path_in_build_context}'...")
-    import shutil
-    try:
-        if not os.path.isdir(source_agents_path):
-            raise FileNotFoundError(f"Critical: Source agents directory '{source_agents_path}' not found relative to {os.getcwd()}.")
-        
-        if os.path.exists(dest_agents_path_in_build_context):
-            shutil.rmtree(dest_agents_path_in_build_context)
-            print(f"Removed existing '{dest_agents_path_in_build_context}'.")
-
-        shutil.copytree(source_agents_path, dest_agents_path_in_build_context)
-        print(f"Successfully copied '{source_agents_path}' to '{dest_agents_path_in_build_context}'.")
-    except Exception as copy_e:
-        print(f"ERROR: Could not copy '{source_agents_path}' to '{dest_agents_path_in_build_context}': {copy_e}")
-        if os.path.exists(dest_agents_path_in_build_context): # Attempt cleanup on error
-            shutil.rmtree(dest_agents_path_in_build_context)
-        raise
+    # --- Pre-build step for copying 'agents' directory REMOVED ---
+    # After refactoring, instavibe-app should not have direct dependencies on the 'agents/' common code.
+    # Its dependencies should be managed via its own requirements.txt and it communicates
+    # with agentic functionalities via the HTTP an WORKFLOW_AGENT_URL.
 
     # 2. Build the Docker image
     image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
     print(f"\nStep 2: Building Instavibe App Docker image {image_tag}...")
     try:
-        # _A2A_WHL_FILE substitution is removed as the wheel is no longer used for these common utils.
         substitutions_arg = f"_IMAGE_TAG={image_tag}"
 
         build_command = [
-            "gcloud", "builds", "submit", "instavibe",
-            f"--config=instavibe/cloudbuild.yaml",
+            "gcloud", "builds", "submit", "instavibe", # Source for the build is the 'instavibe' directory
+            f"--config=instavibe/cloudbuild.yaml",    # Config file path relative to CWD of deploy_all.py
             f"--substitutions={substitutions_arg}",
             "--project", project_id
         ]
@@ -458,17 +435,7 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
         print(f"Error building Instavibe App image: {e.stderr}")
         print(f"Stdout: {e.stdout}")
         raise
-    finally:
-        # --- Post-build cleanup: Remove the copied 'agents' directory ---
-        if os.path.exists(dest_agents_path_in_build_context):
-            print(f"Cleaning up: Removing '{dest_agents_path_in_build_context}'...")
-            try:
-                shutil.rmtree(dest_agents_path_in_build_context)
-                print(f"Successfully removed '{dest_agents_path_in_build_context}'.")
-            except OSError as rm_e:
-                print(f"Warning: Could not remove temporary agents directory '{dest_agents_path_in_build_context}': {rm_e}")
-        else:
-            print(f"Cleanup: Temporary agents directory '{dest_agents_path_in_build_context}' not found, no removal needed.")
+    # --- Post-build cleanup for 'temp_agents_for_build' REMOVED ---
 
     # 3. Deploy the newly built image to Cloud Run
     print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")

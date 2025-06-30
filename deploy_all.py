@@ -201,48 +201,57 @@ def deploy_agent_with_forced_update(
             deploy_args.update(additional_deploy_args)
 
         deployed_agent_resource = deploy_main_func(**deploy_args)
+        name_to_return = None
 
-        if deployed_agent_resource and hasattr(deployed_agent_resource, 'name') and deployed_agent_resource.name:
+        if not deployed_agent_resource:
+            print(f"{agent_display_name} deployment function returned None or empty. Cannot determine resource name.")
+        elif isinstance(deployed_agent_resource, str):
+            # Case 1: The function returned a string (either full resource name or just ID)
+            raw_name_from_sdk = deployed_agent_resource
+            if raw_name_from_sdk.startswith("projects/"):
+                print(f"{agent_display_name} deployment returned full resource name string: {raw_name_from_sdk}")
+                name_to_return = raw_name_from_sdk
+            elif raw_name_from_sdk.isdigit():
+                print(f"{agent_display_name} deployment returned ID string: {raw_name_from_sdk}. Constructing full resource name.")
+                name_to_return = f"projects/{project_id}/locations/{region}/reasoningEngines/{raw_name_from_sdk}"
+                print(f"{agent_display_name} - Constructed full resource name: {name_to_return}")
+            else:
+                print(f"ERROR: {agent_display_name} - deployment returned a string in an unexpected format: '{raw_name_from_sdk}'. Cannot determine full resource name.")
+        elif hasattr(deployed_agent_resource, 'name') and deployed_agent_resource.name:
+            # Case 2: The function returned an object with a .name attribute
             raw_name_from_sdk = deployed_agent_resource.name
             if callable(raw_name_from_sdk): # Should not happen for .name attribute but defensive
                 print(f"WARNING: {agent_display_name} - deployed_agent_resource.name is callable. Calling it.")
                 raw_name_from_sdk = raw_name_from_sdk()
 
-            # Ensure raw_name_from_sdk is a string before doing string operations
             if not isinstance(raw_name_from_sdk, str):
                 print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is not a string (type: {type(raw_name_from_sdk)}). Value: {raw_name_from_sdk}")
-                name_to_return = None # Cannot form full name
             elif raw_name_from_sdk.startswith("projects/"):
-                print(f"{agent_display_name} deployment returned full resource name: {raw_name_from_sdk}")
+                print(f"{agent_display_name} deployment returned full resource name via attribute: {raw_name_from_sdk}")
                 name_to_return = raw_name_from_sdk
             elif raw_name_from_sdk.isdigit(): # It's likely just the ID
-                print(f"{agent_display_name} deployment returned ID: {raw_name_from_sdk}. Constructing full resource name.")
+                print(f"{agent_display_name} deployment returned ID via attribute: {raw_name_from_sdk}. Constructing full resource name.")
                 name_to_return = f"projects/{project_id}/locations/{region}/reasoningEngines/{raw_name_from_sdk}"
                 print(f"{agent_display_name} - Constructed full resource name: {name_to_return}")
             else: # Unexpected format
                 print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is in an unexpected format: '{raw_name_from_sdk}'. Cannot determine full resource name.")
-                name_to_return = None # Cannot form full name
+        else:
+            # Case 3: Returned object is not a string and doesn't have a valid .name attribute
+            print(f"ERROR: {agent_display_name} - deployment returned an object of type {type(deployed_agent_resource)} without a valid '.name' attribute.")
+            print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource attributes: {dir(deployed_agent_resource)}")
 
-            if name_to_return:
-                print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: '{name_to_return}' (type: {type(name_to_return)})")
-                return name_to_return
-            else: # Fall through if name_to_return ended up being None due to errors above
-                print(f"{agent_display_name} deployment process resulted in an invalid name. See previous ERRORs.")
-                # No change needed for the DIAGNOSTIC_TRACE lines below as they will explain the None return
-        # This else block handles cases where deployed_agent_resource is None or .name is missing/empty initially
-        print(f"{agent_display_name} deployment process completed, but resource or its '.name' attribute is invalid/empty initially.")
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} - deployed_agent_resource: {deployed_agent_resource}") # DIAGNOSTIC_TRACE
-        if deployed_agent_resource:
-            print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource attributes: {dir(deployed_agent_resource)}") # DIAGNOSTIC_TRACE
-            if not hasattr(deployed_agent_resource, 'name'):
-                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource exists but has no 'name' attribute.") # DIAGNOSTIC_TRACE
-            elif not deployed_agent_resource.name: # Check if .name is empty or None
-                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource has an empty or None 'name' attribute: '{deployed_agent_resource.name}'") # DIAGNOSTIC_TRACE
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: None") # DIAGNOSTIC_TRACE
-        return None # Explicitly returning None
+        if name_to_return:
+            print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: '{name_to_return}' (type: {type(name_to_return)})")
+            return name_to_return
+        else:
+            print(f"{agent_display_name} deployment process resulted in an invalid or unhandled resource identifier. See previous ERRORs.")
+            print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} - Original deployed_agent_resource: {deployed_agent_resource}")
+            print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: None")
+            return None
+
     except Exception as e:
         print(f"Error deploying {agent_display_name}: {e}")
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} re-raising exception, WILL RETURN None implicitly if not caught by caller.") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} re-raising exception, WILL RETURN None implicitly if not caught by caller.")
         # Re-raise to indicate failure to the main script
         raise
     # This final return None should be unreachable if the try/except logic is exhaustive.
@@ -679,9 +688,11 @@ def main(argv=None):
         workflow_agent_id = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_ENGINE_ID", "instavibe-workflow-agent"))
         workflow_agent_display_name = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_DISPLAY_NAME", "Instavibe Workflow Agent"))
 
+        # Call the integrated function: deploy_instavibe_workflow_agent
+        # This replaces the call to deploy_new_workflow_agent() which seemed to call an external script.
         workflow_agent_url = deploy_instavibe_workflow_agent(
             project_id=project_id,
-            location=region,
+            location=region, # Correctly maps to 'location' param of deploy_instavibe_workflow_agent
             staging_bucket_uri=staging_bucket_uri,
             reasoning_engine_id=workflow_agent_id,
             agent_display_name=workflow_agent_display_name,
@@ -689,9 +700,9 @@ def main(argv=None):
             orchestrate_target_name=orchestrate_resource_name
         )
         if not workflow_agent_url:
-            print("ERROR: Instavibe Workflow Agent deployment failed. Halting.")
+            print("ERROR: Instavibe Workflow Agent deployment failed using integrated method. Halting.")
             sys.exit(1)
-        print(f"Instavibe Workflow Agent deployed. Endpoint URL: {workflow_agent_url}")
+        print(f"Instavibe Workflow Agent deployed (integrated method). Endpoint URL: {workflow_agent_url}")
     else:
         print("Skipping Instavibe Workflow Agent deployment due to --skip_workflow_agent flag.")
         workflow_agent_url = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_URL"))

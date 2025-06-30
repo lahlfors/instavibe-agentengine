@@ -252,6 +252,8 @@ def deploy_agent_with_forced_update(
 
 # Specific deployment functions using the generic helper
 def deploy_planner_agent(project_id: str, region: str):
+    # This agent might become obsolete if all planning goes through the workflow agent
+    print("Note: Planner Agent deployment might be obsolete if all planning is via Workflow Agent.")
     return deploy_agent_with_forced_update(project_id, region, "Planner Agent", deploy_planner_main_func)
 
 def deploy_social_agent(project_id: str, region: str):
@@ -263,6 +265,126 @@ def deploy_orchestrate_agent(project_id: str, region: str, remote_addresses_str:
 
 def deploy_platform_mcp_client(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
+
+
+# New function to deploy the Instavibe Workflow Agent using ADK SDK
+def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
+                                    reasoning_engine_id: str = "instavibe-workflow-agent",
+                                    agent_display_name: str = "Instavibe Workflow Agent"):
+    """
+    Deploys the Instavibe Workflow Agent using ADK SDK (agent_engines.create/update).
+    Returns the endpoint URI of the deployed agent.
+    """
+    print(f"--- Deploying Instavibe Workflow Agent ({agent_display_name}) ---")
+    print(f"Project: {project_id}, Location: {location}, Staging Bucket: {staging_bucket_uri}")
+    print(f"Reasoning Engine ID: {reasoning_engine_id}, Display Name: {agent_display_name}")
+
+    # Ensure vertexai is initialized (idempotent)
+    try:
+        vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket_uri)
+        print(f"Vertex AI SDK initialized for Workflow Agent deployment (Project: {project_id}, Location: {location}, Staging: {staging_bucket_uri}).")
+    except Exception as e:
+        print(f"ERROR: Failed to initialize Vertex AI for Workflow Agent: {e}")
+        return None
+
+    # Dynamically import the Flask app from the agent's main.py
+    # This assumes deploy_all.py is in the repo root.
+    try:
+        from agents.instavibe_workflow.main import app as flask_app
+        print("Successfully imported Flask app from agents.instavibe_workflow.main")
+    except ImportError as e:
+        print(f"ERROR: Could not import Flask app from agents.instavibe_workflow.main: {e}. Ensure PYTHONPATH is correct or script location.")
+        return None
+
+    requirements_path = os.path.join("agents", "instavibe_workflow", "requirements.txt")
+    if not os.path.exists(requirements_path):
+        print(f"ERROR: requirements.txt not found at {requirements_path}")
+        return None
+
+    with open(requirements_path, 'r') as f:
+        requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    print(f"Workflow Agent requirements: {requirements}")
+
+    # Define AdkApp configuration
+    # Note: extra_packages paths are relative to the directory of the flask_app (main.py)
+    # So, if main.py is in agents/instavibe_workflow/, then "agent.py" is correct.
+    adk_app_config = vertexai.preview.reasoning_engines.AdkApp(
+        agent_engine=flask_app,
+        display_name=agent_display_name,
+        requirements=requirements,
+        extra_packages=["agent.py"], # Files in the same directory as main.py (the flask_app)
+        description="Instavibe Workflow Agent for planning and posting events.",
+        env_vars={
+            "GOOGLE_CLOUD_PROJECT": project_id,
+            "COMMON_GOOGLE_CLOUD_LOCATION": location,
+            "SELF_AGENT_ENGINE_ID": reasoning_engine_id, # Agent needs to know its own ID
+            "PORT": "8080" # Port Gunicorn uses inside the container (matches Dockerfile)
+        }
+    )
+
+    remote_app_resource_name = None
+    deployed_agent_endpoint_uri = None
+
+    try:
+        print(f"Checking for existing workflow agent: {agent_display_name} in {location}")
+        # client_options for list can be tricky, often location is enough for vertexai.init context
+        existing_agents = list(vertexai.agent_engines.list(filter=f'display_name="{agent_display_name}" AND location="{location}"'))
+
+        if existing_agents:
+            print(f"Found existing workflow agent: {existing_agents[0].name}. Attempting to update.")
+            # For update, resource_name of the existing agent is needed.
+            updated_app = vertexai.agent_engines.update(resource_name=existing_agents[0].name, adk_app=adk_app_config)
+            remote_app_resource_name = updated_app.name
+            print(f"Workflow agent updated successfully: {remote_app_resource_name}")
+        else:
+            print("No existing workflow agent found. Creating new agent.")
+            created_app = vertexai.agent_engines.create(reasoning_engine_id=reasoning_engine_id, adk_app=adk_app_config)
+            remote_app_resource_name = created_app.name
+            print(f"Workflow agent created successfully: {remote_app_resource_name}")
+
+        if remote_app_resource_name:
+            # Fetch the deployed agent to get its endpoint URI
+            # Ensure that vertexai.init() has set the correct context (project/location) for get()
+            # The resource_name is already fully qualified.
+            time.sleep(10) # Brief pause for endpoint to become available after create/update
+            print(f"Fetching deployed workflow agent by resource name: {remote_app_resource_name}")
+            deployed_agent = vertexai.agent_engines.get(remote_app_resource_name)
+            if deployed_agent and hasattr(deployed_agent, 'endpoint_uri') and deployed_agent.endpoint_uri:
+                deployed_agent_endpoint_uri = deployed_agent.endpoint_uri
+                print(f"Instavibe Workflow Agent Endpoint URI: {deployed_agent_endpoint_uri}")
+            else:
+                print("WARNING: Workflow agent deployment reported success, but couldn't fetch endpoint URI automatically via SDK.")
+                print(f"Deployed agent details: {deployed_agent}")
+                # Construct a potential endpoint URI based on convention for Agent Engine if possible, or instruct user to get from console
+                # Format: https://{location}-{project_id}.cloudfunctions.net/{reasoning_engine_id} (No, this is CF)
+                # Agent Engine Endpoint: https://{location}-aiplatform.googleapis.com/v1/{resource_name}:execute (No, this is API for execution)
+                # The actual user-facing invokable HTTP endpoint is usually different, often like:
+                # https://{reasoning_engine_id}-{project_number}-uc.a.run.app (if backed by Cloud Run technically)
+                # OR the one provided by `gcloud beta ai reasoning-engines describe`
+                # The `deployed_agent.endpoint_uri` from SDK is the most reliable.
+                # If it's missing, it might indicate a provisioning delay or an issue.
+                # For now, we'll rely on the SDK providing it.
+                if not deployed_agent_endpoint_uri:
+                     print("Please verify endpoint URI in Google Cloud Console for Reasoning Engine:", reasoning_engine_id)
+        else:
+            print("ERROR: Workflow agent deployment failed or resource name not obtained.")
+            return None
+
+    except api_exceptions.Forbidden as e:
+        error_message = str(e).lower()
+        if ("api has not been used" in error_message or "service is disabled" in error_message):
+            print(f"ERROR: Vertex AI API is disabled for project {project_id}. Full error: {e}")
+            # raise ApiDisabledError(f"Vertex AI API disabled for {project_id}") # Consider if deploy_all should halt
+        else:
+            print(f"ERROR: A Forbidden error occurred during workflow agent deployment: {e}")
+        return None
+    except Exception as e:
+        print(f"ERROR: Failed to deploy Instavibe Workflow Agent: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+    return deployed_agent_endpoint_uri
 
 
 def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity
@@ -521,69 +643,116 @@ def main(argv=None):
     parser.add_argument("--skip_app", action="store_true", help="Skip deploying the Instavibe app.")
     parser.add_argument("--skip_platform_mcp_client", action="store_true", help="Skip deploying the Platform MCP Client.")
     parser.add_argument("--skip_mcp_tool_server", action="store_true", help="Skip deploying the MCP Tool Server.")
+    parser.add_argument("--skip_workflow_agent", action="store_true", help="Skip deploying the Instavibe Workflow Agent.") # New arg
     args = parser.parse_args(argv)
 
-    print(f"Initializing Vertex AI with project: {project_id}, region: {region}, staging bucket: {staging_bucket_uri}")
+    # General Vertex AI SDK initialization (for multiple agent deployments)
+    # Specific init with staging_bucket for AdkApp based deployment will be in its function
+    print(f"Initializing Vertex AI SDK globally (Project: {project_id}, Location: {region})")
     try:
-        vertexai.init(project=project_id, location=region, staging_bucket=staging_bucket_uri)
-        print("Vertex AI initialized successfully.")
+        # Note: staging_bucket is not set here globally, as different deployments might need different ones
+        # or AdkApp deployment will set it specifically.
+        vertexai.init(project=project_id, location=region)
+        print("Global Vertex AI SDK initialized successfully.")
     except Exception as e:
-        print(f"Error initializing Vertex AI: {e}")
+        print(f"Error initializing Vertex AI SDK globally: {e}")
         raise
 
     planner_resource_name, social_resource_name, platform_mcp_client_resource_name, orchestrate_resource_name = None, None, None, None
+    workflow_agent_url = None # Variable to hold the workflow agent's URL
+
+    # Deploy Instavibe Workflow Agent first, as instavibe-app depends on its URL
+    if not args.skip_workflow_agent:
+        print("--- Deploying Instavibe Workflow Agent ---")
+        # Ensure staging_bucket_uri is defined. It might be the same as COMMON_VERTEX_STAGING_BUCKET
+        # or a new one specific for ADK App deployments.
+        # For AdkApp, a staging bucket is required by vertexai.init() if not set globally.
+        # Let's assume COMMON_VERTEX_STAGING_BUCKET is suitable.
+        if not staging_bucket_uri:
+            print("ERROR: COMMON_VERTEX_STAGING_BUCKET must be set in .env for deploying the Workflow Agent.")
+            sys.exit(1)
+
+        workflow_agent_id = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_ENGINE_ID", "instavibe-workflow-agent"))
+        workflow_agent_display_name = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_DISPLAY_NAME", "Instavibe Workflow Agent"))
+
+        workflow_agent_url = deploy_instavibe_workflow_agent(
+            project_id=project_id,
+            location=region, # location is 'region' here
+            staging_bucket_uri=staging_bucket_uri,
+            reasoning_engine_id=workflow_agent_id,
+            agent_display_name=workflow_agent_display_name
+        )
+        if not workflow_agent_url:
+            print("ERROR: Instavibe Workflow Agent deployment failed. Halting.")
+            sys.exit(1)
+        print(f"Instavibe Workflow Agent deployed. Endpoint URL: {workflow_agent_url}")
+    else:
+        print("Skipping Instavibe Workflow Agent deployment due to --skip_workflow_agent flag.")
+        # If skipped, try to get URL from env for other dependent apps if they are not skipped
+        workflow_agent_url = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_URL"))
+        if not workflow_agent_url:
+            print("Warning: Workflow agent deployment skipped and WORKFLOW_AGENT_URL not found in environment. Dependent apps might fail if not skipped.")
+
 
     if not args.skip_agents:
-        print("--- Deploying Individual Agents (Planner, Social) ---")
+        print("--- Deploying Other Individual Agents (Planner, Social) ---")
+        # Planner agent might be deprecated if workflow agent handles all planning
         planner_resource_name = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})")
         social_resource_name = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})")
     else:
         print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
 
-    if not args.skip_platform_mcp_client: # Not skipped by --skip_agents, has its own flag
+    if not args.skip_platform_mcp_client:
         print("--- Deploying Platform MCP Client Agent ---")
         platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})")
     else:
         print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
 
-    # DIAGNOSTIC_TRACE: Log contents of valid_remote_agent_names before join
     temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
-    print(f"DIAGNOSTIC_TRACE: main() - Names for orchestrator_dynamic_addresses before filtering: {temp_remote_names_for_debug}")
     valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
-    print(f"DIAGNOSTIC_TRACE: main() - Valid names for orchestrator_dynamic_addresses after filtering: {valid_remote_agent_names}")
     orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
-    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'") # DIAGNOSTIC_TRACE
+    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses for Orchestrate Agent: '{orchestrator_dynamic_addresses}'")
 
-
-    if not args.skip_agents: # Orchestrator is skipped if all agents are skipped
+    if not args.skip_agents: # Orchestrator is skipped if other agents are skipped
         print("--- Deploying Orchestrate Agent ---")
         orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})")
     else:
-        print("Skipping Orchestrate agent deployment due to --skip_agents flag.")
+        print("Skipping Orchestrate agent deployment (as other agents were skipped).")
+
 
     if not args.skip_app:
         instavibe_env_vars_list = [
             f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
             f"COMMON_SPANNER_INSTANCE_ID={spanner_instance_id}",
             f"COMMON_SPANNER_DATABASE_ID={spanner_database_id}",
-            f"INSTAVIBE_FLASK_SECRET_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', 'defaultSecretKey'))}", # Added default
+            f"INSTAVIBE_FLASK_SECRET_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', 'defaultSecretKey'))}",
             f"INSTAVIBE_APP_HOST={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0'))}",
             f"INSTAVIBE_APP_PORT={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_PORT', '8080'))}",
             f"INSTAVIBE_GOOGLE_MAPS_API_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', ''))}",
             f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', ''))}",
-            f"COMMON_GOOGLE_CLOUD_LOCATION={region}"
+            f"COMMON_GOOGLE_CLOUD_LOCATION={region}" # Changed from 'location' to 'region' to match other uses
         ]
-        if planner_resource_name: instavibe_env_vars_list.append(f"AGENTS_PLANNER_RESOURCE_NAME={planner_resource_name}")
-        if social_resource_name: instavibe_env_vars_list.append(f"AGENTS_SOCIAL_RESOURCE_NAME={social_resource_name}")
-        if platform_mcp_client_resource_name: instavibe_env_vars_list.append(f"AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME={platform_mcp_client_resource_name}")
-        if orchestrate_resource_name: instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
+        # Add WORKFLOW_AGENT_URL if available
+        if workflow_agent_url:
+            instavibe_env_vars_list.append(f"WORKFLOW_AGENT_URL={workflow_agent_url}")
+        else:
+            print("WARNING: WORKFLOW_AGENT_URL is not available for instavibe-app deployment. App might not function correctly.")
 
-        instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1]) # Ensure value is not empty
-        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'") # ADDED FOR DEBUGGING
+        # Removed AGENTS_PLANNER_RESOURCE_NAME and other direct agent links for instavibe-app
+        # as it now goes through the workflow agent.
+        # If OrchestrateAgent is still used directly by instavibe-app for some reason (unlikely now), it would be added here.
+        # For now, assuming all agent interactions from instavibe-app are via WORKFLOW_AGENT_URL.
+        if orchestrate_resource_name: # Example if it were still needed directly
+             # instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
+             pass
+
+
+        instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1] or var.split('=',1)[0] == "INSTAVIBE_GOOGLE_MAPS_API_KEY" or var.split('=',1)[0] == "INSTAVIBE_GOOGLE_MAPS_MAP_ID") # Allow empty API keys
+        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'")
         deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
         print("Skipping Instavibe app deployment.")

@@ -1,0 +1,5 @@
+Flask>=2.0
+google-cloud-aiplatform[reasoningengine]>=1.38 # Ensure a version that supports reasoning engines and ADK
+requests>=2.20
+google-auth>=2.0
+gunicorn>=20.0 # For running Flask app in container

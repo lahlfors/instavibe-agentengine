@@ -1,396 +1,246 @@
-#from dotenv import load_dotenv
-#load_dotenv() # Ensure this is at the very top
-
 import os
-import pprint
-import json 
-import logging # Added for logging
-
-import google.cloud.aiplatform as vertexai
-from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
-from vertexai.preview import reasoning_engines # Added for direct RE instantiation
-# from vertexai import agent_engines # This is available via vertexai.agent_engines
-
-# google.cloud.aiplatform is already imported as vertexai
+import pprint # Retained for potential debugging if needed
+import json
+import logging
+import requests # For calling the workflow agent
+from google.oauth2 import service_account # For service account credentials
+from google.auth import default as default_credentials # For default credentials
+from google.auth.transport.requests import Request as GoogleAuthRequest # For refreshing credentials
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 
-# Global variable for the ADK app instance
-adk_app = None
+# Global variable for workflow agent URL
+WORKFLOW_AGENT_URL = os.getenv("WORKFLOW_AGENT_URL")
+if not WORKFLOW_AGENT_URL:
+    logger.error("WORKFLOW_AGENT_URL environment variable not set. Calls to workflow agent will fail.")
 
-def init_agent_engine(project_id, location):
-    """Initializes the Vertex AI ADK Application."""
-    global adk_app
-    logger.info("Attempting to initialize ADK App...")
+# --- ADK related global initialization removed ---
+# global adk_app (removed)
+# init_agent_engine function (removed)
+# COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION based init (removed)
 
+
+def get_id_token(audience_url):
+    """
+    Generates an OIDC ID token for calling a Cloud Run service (or other GCP service requiring ID token).
+    Uses Application Default Credentials.
+    """
     try:
-        logger.info(f"Initializing Vertex AI with project: {project_id}, location: {location}")
-        vertexai.init(project=project_id, location=location)
+        creds, project = default_credentials()
+
+        # If running with a service account, it might already be the right identity.
+        # For Cloud Run to Cloud Run, or local to Cloud Run (with gcloud auth),
+        # an ID token is usually needed.
+
+        # Check if credentials need refreshing
+        if hasattr(creds, 'token') and creds.expired and creds.refresh_token:
+            creds.refresh(GoogleAuthRequest())
+            logger.info("Credentials refreshed.")
+
+        # For generating an ID token for a specific audience (the target service URL)
+        # This is the standard way to authenticate to Cloud Run services.
+        auth_req = GoogleAuthRequest()
+        creds.refresh(auth_req) # Ensure credentials are fresh before requesting ID token
+
+        # The google.oauth2.id_token.fetch_id_token method is simpler if available with creds
+        # but google-auth's id_token module is often used.
+        # Let's try a robust way:
+        from google.oauth2 import id_token as id_token_utils
+
+        # If creds already have service_account_email, it indicates it might be a service account.
+        # For user accounts (local dev), this might not be present, but ADC should handle it.
+        id_token = id_token_utils.fetch_id_token(auth_req, audience_url)
+        logger.info(f"Successfully fetched ID token for audience: {audience_url}")
+        return id_token
     except Exception as e:
-        logger.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
-        adk_app = None
-        logger.warning("ADK App is None due to Vertex AI initialization failure.")
+        logger.error(f"Failed to get ID token for audience {audience_url}: {e}", exc_info=True)
+        raise Exception(f"Error getting ID token: {e}")
+
+
+def call_workflow_agent(user_id, action, payload):
+    """
+    Calls the external workflow agent via HTTP.
+    Handles authentication using ID tokens.
+    """
+    if not WORKFLOW_AGENT_URL:
+        logger.error("WORKFLOW_AGENT_URL is not set. Cannot call workflow agent.")
+        # Yield an error structure compatible with the original streaming logic
+        yield {"type": "error", "data": {"message": "Workflow agent URL not configured.", "raw_output": ""}}
         return
 
-    planner_resource_name_from_env = os.getenv("AGENTS_PLANNER_RESOURCE_NAME")
+    full_target_url = f"{WORKFLOW_AGENT_URL.rstrip('/')}/execute"
 
-    if not planner_resource_name_from_env:
-        logger.error("AGENTS_PLANNER_RESOURCE_NAME environment variable not set. Cannot initialize ADK App.")
-        adk_app = None
-        return
+    thoughts_for_caller = [] # To somewhat mimic the old thought streaming
 
     try:
-        logger.info(f"Attempting to get ADK App with resource name: {planner_resource_name_from_env}")
-        # Ensure vertexai.agent_engines is the correct module path
-        # Based on documentation, it should be vertexai.agent_engines
-        # If it's reasoning_engines for get, we might need to adjust
-        # For now, assuming vertexai.agent_engines as per typical ADK usage for deployed agents
-        from vertexai import agent_engines # Ensure this is imported
-        adk_app = agent_engines.get(planner_resource_name_from_env)
-        logger.info(f"Successfully connected to ADK App using resource name: {planner_resource_name_from_env}")
-    except Exception as e:
-        logger.error(f"Failed to get ADK App using resource name '{planner_resource_name_from_env}': {e}", exc_info=True)
-        adk_app = None
+        id_token = get_id_token(WORKFLOW_AGENT_URL) # Audience is the base URL of the workflow agent
+    except Exception as e_token:
+        logger.error(f"Failed to obtain ID token: {e_token}")
+        thoughts_for_caller.append(f"Authentication error: Failed to get ID token: {str(e_token)}")
+        yield {"type": "error", "data": {"message": f"Authentication error: {str(e_token)}", "raw_output": ""}}
+        return
 
-    if adk_app is None:
-        logger.warning("ADK App is None after initialization attempts.")
-    else:
-        logger.info("ADK App initialized successfully.")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {id_token}",
+    }
+    request_body = {
+        "user_id": str(user_id), # Ensure user_id is a string
+        "action": action,
+        "payload": payload,
+    }
+
+    thoughts_for_caller.append(f"Calling workflow agent at {full_target_url} with action '{action}' for user '{user_id}'.")
+    logger.info(f"Calling workflow agent: URL='{full_target_url}', User='{user_id}', Action='{action}'")
+    logger.debug(f"Request body for workflow agent: {json.dumps(request_body, indent=2)}")
+
+    try:
+        response = requests.post(
+            full_target_url,
+            headers=headers,
+            json=request_body, # Using json parameter for requests library
+            timeout=120 # Increased timeout for potentially long agent calls (e.g., 2 minutes)
+        )
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+
+        agent_response = response.json()
+        logger.info(f"Received response from workflow agent for action '{action}', user '{user_id}'. Success: {agent_response.get('success')}")
+        logger.debug(f"Workflow agent raw response: {json.dumps(agent_response, indent=2)}")
+
+        # Stream back thoughts from the workflow agent if any
+        if "thoughts" in agent_response and isinstance(agent_response["thoughts"], list):
+            for thought in agent_response["thoughts"]:
+                yield {"type": "thought", "data": f"WorkflowAgent: {thought}"}
+
+        if agent_response.get("success"):
+            yield {"type": "workflow_success", "action": action, "data": agent_response}
+        else:
+            error_message = agent_response.get("error", "Unknown error from workflow agent.")
+            thoughts_for_caller.append(f"Workflow agent reported failure for action '{action}': {error_message}")
+            yield {"type": "error", "data": {"message": error_message, "raw_output": json.dumps(agent_response)}}
+
+    except requests.exceptions.HTTPError as http_err:
+        error_content = http_err.response.text
+        logger.error(f"HTTP error calling workflow agent: {http_err}. Response: {error_content}", exc_info=True)
+        thoughts_for_caller.append(f"HTTP error calling workflow agent: {str(http_err)}. Response: {error_content}")
+        yield {"type": "error", "data": {"message": f"HTTP error: {str(http_err)}", "raw_output": error_content}}
+    except requests.exceptions.RequestException as req_err:
+        logger.error(f"Request exception calling workflow agent: {req_err}", exc_info=True)
+        thoughts_for_caller.append(f"Request exception: {str(req_err)}")
+        yield {"type": "error", "data": {"message": f"Request exception: {str(req_err)}", "raw_output": ""}}
+    except json.JSONDecodeError as json_err:
+        logger.error(f"Failed to decode JSON response from workflow agent: {json_err}. Response text: {response.text if 'response' in locals() else 'N/A'}", exc_info=True)
+        thoughts_for_caller.append(f"JSON decode error from workflow agent: {str(json_err)}")
+        yield {"type": "error", "data": {"message": f"JSON decode error: {str(json_err)}", "raw_output": response.text if 'response' in locals() else 'N/A'}}
+
+    # Yield any accumulated thoughts from this calling function
+    for thought in thoughts_for_caller:
+        # Check if this thought was already yielded by error cases
+        if not any(err_item['data']['message'] in thought for err_item in previous_yields_if_error(inspect.currentframe())): # pseudo-code
+             yield {"type": "thought", "data": thought}
 
 
-# Initialize the agent engine on module load
-COMMON_GOOGLE_CLOUD_PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-COMMON_GOOGLE_CLOUD_LOCATION = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-
-if COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION:
-    logger.info(f"Attempting to initialize ADK App for project {COMMON_GOOGLE_CLOUD_PROJECT} in {COMMON_GOOGLE_CLOUD_LOCATION}")
-    init_agent_engine(COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION)
-else:
-    logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION environment variables not set. ADK App will not be initialized.")
+def previous_yields_if_error(frame): # Helper for thought de-duplication (conceptual)
+    # This is a placeholder for a more complex logic if needed to avoid duplicate thoughts on errors.
+    # In a real scenario, you'd manage yielded messages' state.
+    return []
 
 
 def call_agent_for_plan(user_name, planned_date, location_n_perference, selected_friend_names_list):
-    user_id = str(user_name) # ADK uses user_id for session management
-    session_id = None # Will be set after creating a session
+    user_id = str(user_name) # Consistent user_id handling
 
-    yield {"type": "thought", "data": f"--- IntrovertAlly Agent Call Initiated (ADK) ---"}
+    yield {"type": "thought", "data": f"--- IntrovertAlly Agent Call Initiated (via Workflow Agent) ---"}
     yield {"type": "thought", "data": f"User ID for this run: {user_id}"}
     yield {"type": "thought", "data": f"User: {user_name}"}
     yield {"type": "thought", "data": f"Planned Date: {planned_date}"}
     yield {"type": "thought", "data": f"Location/Preference: {location_n_perference}"}
     yield {"type": "thought", "data": f"Selected Friends: {', '.join(selected_friend_names_list)}"}
-    yield {"type": "thought", "data": f"Initiating plan for {user_name} on {planned_date} regarding '{location_n_perference}' with friends: {', '.join(selected_friend_names_list)}."}
 
-    selected_friend_names_str = ', '.join(selected_friend_names_list)
-    friends_list_example_for_prompt = json.dumps(selected_friend_names_list)
+    payload = {
+        "user_name": user_name,
+        "planned_date": planned_date,
+        "location_n_perference": location_n_perference,
+        "selected_friend_names_list": selected_friend_names_list,
+    }
 
-    prompt_message = f"""Plan a personalized night out for {user_name} with friends {selected_friend_names_str} on {planned_date}, with the location or preference being "{location_n_perference}".
+    final_result_json = None
+    has_errored = False
 
-    Analyze friend interests (if possible, use Instavibe profiles or summarized interests) to create a tailored plan.  Ensure the plan includes the date {planned_date}.
+    for event in call_workflow_agent(user_id, "generate_plan", payload):
+        yield event # Stream thoughts and errors directly from the workflow call
+        if event["type"] == "workflow_success" and event["action"] == "generate_plan":
+            if event["data"].get("success"):
+                final_result_json = event["data"].get("data") # The plan JSON is in "data.data"
+                if not final_result_json: # Check if plan_json itself is None/empty
+                    yield {"type": "thought", "data": "Workflow agent succeeded but returned no plan data."}
+                    yield {"type": "error", "data": {"message": "Workflow agent returned no plan data.", "raw_output": json.dumps(event["data"])}}
+                    has_errored = True
+                # else: # Plan data is present
+                #    yield {"type": "thought", "data": f"Plan data received: {json.dumps(final_result_json)[:100]}..."}
 
-    Output the entire plan in a SINGLE, COMPLETE JSON object with the following structure.  **CRITICAL: The FINAL RESPONSE MUST BE ONLY THIS JSON.  If any fields are missing or unavailable, INVENT them appropriately to complete the JSON structure.  Do not return any conversational text or explanations.  Just the raw, valid JSON.**
-
-    {{
-    "friends_name_list": {friends_list_example_for_prompt},
-    "event_name": "string",
-    "event_date": "{planned_date}",
-    "event_description": "string",
-    "locations_and_activities": [
-        {{
-        "name": "string",
-        "latitude": 12.345,
-        "longitude": -67.890,
-        "address": "string or null",
-        "description": "string"
-        }}
-    ],
-    "post_to_go_out": "string"
-    }}
-    """
-
-    logger.info(f"--- Sending Prompt to ADK App for user {user_id} ---")
-    logger.debug(prompt_message)
-    yield {"type": "thought", "data": f"Sending detailed planning prompt to ADK App for {user_name}'s event."}
-
-    accumulated_json_str = ""
-
-    try:
-        if not adk_app:
-            logger.error("ADK App is not initialized. Cannot query for plan.")
-            yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot query for plan.", "raw_output": ""}}
-            return
-
-        # Create a session
-        try:
-            logger.info(f"Creating session for user_id: {user_id}")
-            session = adk_app.create_session(user_id=user_id)
-            session_id = session['id'] # Changed to access 'id' key from dict
-            yield {"type": "thought", "data": f"Session created: {session_id} for user {user_id}"}
-            logger.info(f"Session {session_id} created for user {user_id}")
-        except Exception as e_session_create:
-            logger.error(f"Error creating session for user {user_id}: {e_session_create}", exc_info=True)
-            yield {"type": "error", "data": {"message": f"Error creating session: {str(e_session_create)}", "raw_output": ""}}
-            return
-
-        yield {"type": "thought", "data": f"--- ADK App Response Stream Starting (session: {session_id}) ---"}
-
-        stream_iterator = adk_app.stream_query(
-            user_id=user_id,
-            session_id=session_id,
-            message=prompt_message
-        )
-
-        for chunk_idx, chunk in enumerate(stream_iterator):
-            # logger.debug(f"Stream Chunk {chunk_idx} (user: {user_id}, session: {session_id}): {chunk}")
-            # pprint.pprint(chunk) # Keep for debugging if necessary, but can be verbose
-
-            text_to_accumulate = None
-            # ADK stream_query might yield objects with different structures.
-            # Common ADK event types include 'thought', 'tool_code', 'tool_result', 'response'.
-            # We are primarily interested in the 'response' for accumulating the final JSON.
-            # Other event types can be logged as 'thoughts'.
-
-            if hasattr(chunk, 'response'): # Standard way to get LLM response text
-                text_to_accumulate = chunk.response
-                yield {"type": "thought", "data": f"ADK App (response content via .response): \"{text_to_accumulate}\""}
-            elif isinstance(chunk, dict) and \
-                 chunk.get('content') and \
-                 isinstance(chunk['content'].get('parts'), list) and \
-                 len(chunk['content']['parts']) > 0 and \
-                 isinstance(chunk['content']['parts'][0].get('text'), str):
-                text_to_accumulate = chunk['content']['parts'][0]['text']
-                yield {"type": "thought", "data": f"ADK App (response content via dict): \"{text_to_accumulate}\""}
-            elif hasattr(chunk, 'thought'):
-                 yield {"type": "thought", "data": f"ADK App (thought): \"{chunk.thought}\""}
-            elif hasattr(chunk, 'tool_code'):
-                 yield {"type": "thought", "data": f"ADK App (tool_code): \"{chunk.tool_code}\""}
-            elif hasattr(chunk, 'tool_result'):
-                 yield {"type": "thought", "data": f"ADK App (tool_result for {chunk.tool_name if hasattr(chunk, 'tool_name') else 'unknown tool'}): \"{chunk.tool_result}\""}
-            elif isinstance(chunk, str): # Fallback if it's just a string
-                text_to_accumulate = chunk
-                yield {"type": "thought", "data": f"ADK App (string chunk): \"{text_to_accumulate}\""}
-            else: # If structure is unknown, log it
-                unknown_chunk_str = str(chunk)
-                logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query (user: {user_id}, session: {session_id}): {unknown_chunk_str}")
-                yield {"type": "thought", "data": f"ADK App (unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
-
-            if text_to_accumulate:
-                accumulated_json_str += text_to_accumulate
-
-        yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
-
-    except Exception as e_outer:
-        logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
-        yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration (session: {session_id}): {str(e_outer)}"}
-        yield {"type": "error", "data": {"message": f"Error during ADK App interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
-        # Ensure session is deleted even if an error occurs mid-stream
-        if adk_app and session_id and user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {user_id} due to error.")
-                adk_app.delete_session(user_id=user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} deleted for user {user_id} after error."}
-                logger.info(f"Session {session_id} for user {user_id} deleted after error.")
-            except Exception as e_del_err:
-                logger.error(f"Failed to delete session {session_id} for user {user_id} after error: {e_del_err}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} after error: {str(e_del_err)}"}
-        return
-    finally:
-        # Always attempt to delete the session after processing is complete or an error handled by the main try-except occurred
-        if adk_app and session_id and user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {user_id} (end of call_agent_for_plan).")
-                adk_app.delete_session(user_id=user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} deleted successfully for user {user_id}."}
-                logger.info(f"Session {session_id} for user {user_id} deleted successfully.")
-            except Exception as e_del_final:
-                logger.error(f"Failed to delete session {session_id} for user {user_id} at end of call: {e_del_final}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} at end of call: {str(e_del_final)}"}
+            else: # workflow_success was true, but data.success was false
+                error_msg = event["data"].get("error", "Plan generation failed in workflow.")
+                yield {"type": "thought", "data": f"Plan generation failed: {error_msg}"}
+                yield {"type": "error", "data": {"message": error_msg, "raw_output": json.dumps(event["data"])}}
+                has_errored = True
+            break # Stop processing events for this call once we get workflow_success
+        elif event["type"] == "error":
+            has_errored = True
+            # Error already yielded by call_workflow_agent
+            break
 
 
-    if "```json" in accumulated_json_str:
-        logger.info("Detected JSON in markdown code block. Extracting...")
-        try:
-            json_block = accumulated_json_str.split("```json", 1)[1].rsplit("```", 1)[0].strip()
-            accumulated_json_str = json_block
-            logger.info(f"Extracted JSON block: {accumulated_json_str}")
-        except IndexError:
-            logger.warning("Error extracting JSON from markdown block. Will try to parse as is.")
-            yield {"type": "thought", "data": "Could not extract JSON from markdown block, will attempt to parse the full response."}
-
-    if accumulated_json_str:
-        try:
-            final_result_json = json.loads(accumulated_json_str)
-            yield {"type": "plan_complete", "data": final_result_json}
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding accumulated string as JSON (user: {user_id}, session: {session_id}): {e}\nRaw data: {accumulated_json_str}", exc_info=True)
-            yield {"type": "thought", "data": f"Failed to parse the ADK App's output as a valid plan. Error: {e}"}
-            yield {"type": "thought", "data": f"Raw output received: {accumulated_json_str}"}
-            yield {"type": "error", "data": {"message": f"JSON parsing error: {e}", "raw_output": accumulated_json_str}}
-    else:
-        logger.warning(f"No text content accumulated from ADK App response (user: {user_id}, session: {session_id}).")
-        yield {"type": "thought", "data": "ADK App did not provide any text content in its response."}
-        yield {"type": "error", "data": {"message": "ADK App returned no content.", "raw_output": ""}}
+    if not has_errored and final_result_json:
+        yield {"type": "plan_complete", "data": final_result_json}
+    elif not has_errored and not final_result_json: # Succeeded but no plan
+        # This case should ideally be caught by the 'no plan data' check above
+        if not any(item['type'] == 'error' for item in previous_yields_if_error(None)): # Avoid double error if already sent
+            yield {"type": "error", "data": {"message": "Plan generation completed but no plan was returned.", "raw_output": ""}}
+    # If has_errored, the error was already yielded.
 
 
 def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_session_user_id):
-    """
-    Simulates an agent posting an event and a message to Instavibe.
-    Yields 'thought' events for logging.
-    """
-    yield {"type": "thought", "data": f"--- Post Plan Event Agent Call Initiated ---"}
-    yield {"type": "thought", "data": f"Agent Session ID for this run: {agent_session_user_id}"}
+    adk_user_id = str(agent_session_user_id if agent_session_user_id else user_name)
+
+    yield {"type": "thought", "data": f"--- Post Plan Event Agent Call Initiated (via Workflow Agent) ---"}
+    yield {"type": "thought", "data": f"Agent Session User ID for this run: {adk_user_id}"}
     yield {"type": "thought", "data": f"User performing action: {user_name}"}
     yield {"type": "thought", "data": f"Received Confirmed Plan (event_name): {confirmed_plan.get('event_name', 'N/A')}"}
-    yield {"type": "thought", "data": f"Received Invite Message: {edited_invite_message[:100]}..."} # Log a preview
-    yield {"type": "thought", "data": f"Initiating process to post event and invite for {user_name}."}
+    yield {"type": "thought", "data": f"Received Invite Message: {edited_invite_message[:100]}..."}
 
-    # Use agent_session_user_id if provided (as it implies a context, e.g. from a previous step),
-    # otherwise default to user_name for creating a new session context.
-    # For ADK, user_id is crucial for session management.
-    # The original `agent_session_user_id` seems to be the `user_id` from the previous call.
-    # We will use this as the `user_id` for ADK session.
-    adk_user_id = str(agent_session_user_id if agent_session_user_id else user_name)
-    session_id = None # Will be set after creating a session
+    payload = {
+        "user_name": user_name,
+        "confirmed_plan": confirmed_plan,
+        "edited_invite_message": edited_invite_message,
+        "agent_session_user_id": adk_user_id, # Pass this for context within the workflow if needed
+    }
 
-    prompt_message = f"""
-    You are an Orchestrator assistant for the Instavibe platform. User '{user_name}' (User ID for this interaction: '{adk_user_id}') has finalized an event plan and wants to:
-    1. Create the event on Instavibe.
-    2. Create an invite post for this event on Instavibe.
+    posting_finished_successfully = False
+    has_errored = False
 
-    You have tools like `list_remote_agents` to discover available specialized agents and `send_task(agent_name: str, message: str)` to delegate tasks to them.
-    Your primary role is to understand the user's overall goal, identify the necessary steps, select the most appropriate remote agent(s) for those steps, and then send them clear instructions.
-
-    Confirmed Plan:
-    ```json
-    {json.dumps(confirmed_plan, indent=2)}
-    ```
-
-    Invite Message (this is the exact text for the post content):
-    "{edited_invite_message}"
-
-    Your explicit tasks are, in this exact order:
-
-    TASK 1: Create the Event on Instavibe.
-    - First, identify a suitable remote agent that is capable of creating events on the Instavibe platform. You should use your `list_remote_agents` tool if you need to refresh your knowledge of available agents and their capabilities.
-    - Once you have selected an appropriate agent, you MUST use your tool to instruct that agent to create the event.
-    - The `message` you send to the agent for this task should be a clear, natural language instruction. This message MUST include all necessary details for event creation, derived from the "Confirmed Plan" JSON:
-        - Event Name: "{confirmed_plan.get('event_name', 'Unnamed Event')}"
-        - Event Description: "{confirmed_plan.get('event_description', 'No description provided.')}"
-        - Event Date: "{confirmed_plan.get('event_date', 'MISSING_EVENT_DATE_IN_PLAN')}" (ensure this is in a standard date/time format like ISO 8601)
-        - Locations: {json.dumps(confirmed_plan.get('locations_and_activities', []))} (describe these locations clearly to the agent)
-        - Attendees: {json.dumps(list(set(confirmed_plan.get('friends_name_list', []) + [user_name])))} (this list includes the user '{user_name}' and their friends)
-    - Narrate your thought process: which agent you are selecting (or your criteria if you can't name it), and the natural language message you are formulating for the tool to create the event.
-    - After the  tool call is complete, briefly acknowledge its success based on the tool's response.
-
-    TASK 2: Create the Invite Post on Instavibe.
-    - Only after TASK 1 (event creation) is confirmed as  successful, you MUST use your tool again.
-    - The `message` you send to the agent for this task should be a clear, natural language instruction to create a post. This message MUST include:
-        - The author of the post: "{user_name}"
-        - The content of the post: The "Invite Message" provided above ("{edited_invite_message}")
-        - An instruction to associate this post with the event created in TASK 1 (e.g., by referencing its name: "{confirmed_plan.get('event_name', 'Unnamed Event')}").
-        - Indicate the sentiment is "positive" as it's an invitation.
-    - Narrate the natural language message you are formulating for the `send_task` tool to create the post.
-    - After the `send_task` tool call is (simulated as) complete, briefly acknowledge its success.
-
-    IMPORTANT INSTRUCTIONS FOR YOUR BEHAVIOR:
-    - Your primary role here is to orchestrate these two actions by selecting an appropriate remote agent and sending it clear, natural language instructions via your  tool.
-    - Your responses during this process should be a stream of consciousness, primarily narrating your agent selection (if applicable), the formulation of your natural language messages for , and theiroutcomes.
-    - Do NOT output any JSON yourself. Your output must be plain text only, describing your actions.
-    - Conclude with a single, friendly success message confirming that you have (simulated) instructing the remote agent to create both the event and the post. For example: "Alright, I've instructed the appropriate Instavibe agent to create the event '{confirmed_plan.get('event_name', 'Unnamed Event')}' and to make the invite post for {user_name}!"
-    """
-
-    yield {"type": "thought", "data": f"Sending posting instructions to ADK App for user {adk_user_id}."}
-    logger.info(f"--- Sending Prompt to ADK App for posting (user: {adk_user_id}) ---")
-    logger.debug(f"Prompt for posting: {prompt_message}")
-    
-    accumulated_response_text = "" # Used to capture text for error reporting if needed
-
-    try:
-        if not adk_app:
-            logger.error("ADK App is not initialized. Cannot process post_plan_event.")
-            yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot process posting.", "raw_output": ""}}
-            return
-
-        # Create a session
-        try:
-            logger.info(f"Creating session for user_id: {adk_user_id} (for posting)")
-            session = adk_app.create_session(user_id=adk_user_id)
-            session_id = session['id'] # Changed to access 'id' key from dict
-            yield {"type": "thought", "data": f"Session created for posting: {session_id} for user {adk_user_id}"}
-            logger.info(f"Session {session_id} created for user {adk_user_id} (for posting)")
-        except Exception as e_session_create_post:
-            logger.error(f"Error creating session for user {adk_user_id} (for posting): {e_session_create_post}", exc_info=True)
-            yield {"type": "error", "data": {"message": f"Error creating session for posting: {str(e_session_create_post)}", "raw_output": ""}}
-            return
-
-        yield {"type": "thought", "data": f"--- ADK App Response Stream Starting for Posting (session: {session_id}) ---"}
-
-        stream_iterator_post = adk_app.stream_query(
-            user_id=adk_user_id,
-            session_id=session_id,
-            message=prompt_message
-        )
-
-        for chunk_idx, chunk in enumerate(stream_iterator_post):
-            # logger.debug(f"Post Event - ADK Chunk {chunk_idx} (user: {adk_user_id}, session: {session_id}): {chunk}")
-            # pprint.pprint(chunk) # Debug if needed
-
-            text_from_chunk = None
-            if hasattr(chunk, 'response'):
-                text_from_chunk = chunk.response
-                yield {"type": "thought", "data": f"ADK App (post response content via .response): \"{text_from_chunk}\""}
-            elif isinstance(chunk, dict) and \
-                 chunk.get('content') and \
-                 isinstance(chunk['content'].get('parts'), list) and \
-                 len(chunk['content']['parts']) > 0 and \
-                 isinstance(chunk['content']['parts'][0].get('text'), str):
-                text_from_chunk = chunk['content']['parts'][0]['text']
-                yield {"type": "thought", "data": f"ADK App (post response content via dict): \"{text_from_chunk}\""}
-            elif hasattr(chunk, 'thought'):
-                 yield {"type": "thought", "data": f"ADK App (post thought): \"{chunk.thought}\""}
-            elif hasattr(chunk, 'tool_code'):
-                 yield {"type": "thought", "data": f"ADK App (post tool_code): \"{chunk.tool_code}\""}
-            elif hasattr(chunk, 'tool_result'):
-                 yield {"type": "thought", "data": f"ADK App (post tool_result for {getattr(chunk, 'tool_name', 'unknown tool')}): \"{chunk.tool_result}\""}
-            elif isinstance(chunk, str):
-                text_from_chunk = chunk
-                yield {"type": "thought", "data": f"ADK App (post string chunk): \"{text_from_chunk}\""}
+    for event in call_workflow_agent(adk_user_id, "post_event", payload):
+        yield event # Stream thoughts and errors
+        if event["type"] == "workflow_success" and event["action"] == "post_event":
+            if event["data"].get("success"):
+                posting_finished_successfully = True
+                # The message from the workflow can be logged as a thought or part of the success
+                workflow_message = event["data"].get("message", "Event posting instructions processed by workflow agent.")
+                yield {"type": "thought", "data": f"Workflow Agent Confirmation: {workflow_message}"}
             else:
-                unknown_chunk_str = str(chunk)
-                logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query for post (user: {adk_user_id}, session: {session_id}): {unknown_chunk_str}")
-                yield {"type": "thought", "data": f"ADK App (post unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
+                error_msg = event["data"].get("error", "Event posting failed in workflow.")
+                yield {"type": "thought", "data": f"Event posting failed: {error_msg}"}
+                yield {"type": "error", "data": {"message": error_msg, "raw_output": json.dumps(event["data"])}}
+                has_errored = True
+            break # Stop processing events for this call
+        elif event["type"] == "error":
+            has_errored = True
+            # Error already yielded
+            break
 
-            if text_from_chunk: # Accumulate for error reporting context if needed
-                accumulated_response_text += text_from_chunk
-
-        yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
-
-    except Exception as e_outer_post:
-        logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)
-        yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration for posting (session: {session_id}): {str(e_outer_post)}"}
-        yield {"type": "error", "data": {"message": f"Error during ADK App interaction for posting: {str(e_outer_post)}", "raw_output": accumulated_response_text}}
-        if adk_app and session_id and adk_user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (posting error).")
-                adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} (posting) deleted for user {adk_user_id} after error."}
-                logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted after error.")
-            except Exception as e_del_err_post:
-                logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting error): {e_del_err_post}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) after error: {str(e_del_err_post)}"}
-        return
-    finally:
-        if adk_app and session_id and adk_user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (end of post_plan_event).")
-                adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} (posting) deleted successfully for user {adk_user_id}."}
-                logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted successfully.")
-            except Exception as e_del_final_post:
-                logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting, end of call): {e_del_final_post}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) at end of call: {str(e_del_final_post)}"}
-
-    # The original function always yielded posting_finished, regardless of the agent's text output,
-    # as long as no exceptions occurred during the stream. We maintain this behavior.
-    yield {"type": "posting_finished", "data": {"success": True, "message": "ADK App has finished processing the event and post creation instructions."}}
+    if not has_errored and posting_finished_successfully:
+        yield {"type": "posting_finished", "data": {"success": True, "message": "Workflow agent has processed the event and post creation instructions."}}
+    elif not has_errored and not posting_finished_successfully: # Succeeded but no confirmation
+        if not any(item['type'] == 'error' for item in previous_yields_if_error(None)):
+             yield {"type": "error", "data": {"message": "Event posting completed but no confirmation was received.", "raw_output": ""}}
+    # If has_errored, error already yielded.

@@ -2,51 +2,118 @@
 import os
 import json
 import logging
-from vertexai.preview import reasoning_engines # For ReasoningEngine client
+import asyncio # Added for async operations
+import httpx   # Added for fetching agent cards
+
+# from vertexai.preview import reasoning_engines # Old client, to be replaced by A2AClient
+from a2a.client import A2AClient
+from a2a.types import Message as A2AMessage, Part as A2APart, AgentCard as A2AAgentCard
+
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Vertex AI SDK initialization (project, location) should be done by main.py
-# before this class is instantiated, or ensure environment variables are set for it.
+# Vertex AI SDK initialization is handled by main.py for this agent's own ADK session.
 
 class InstavibeWorkflowAgent:
     """
     Agent to handle Instavibe workflows like plan generation and event posting
-    by orchestrating other specialized ADK agents.
+    by orchestrating other specialized ADK agents using a2a-python.
     """
 
     def __init__(self):
-        self.planner_agent_resource_name = os.environ.get("AGENTS_PLANNER_RESOURCE_NAME")
-        self.orchestrate_agent_resource_name = os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME")
-        # Add other target agent resource names here if needed
+        # These will now store the A2A server URLs for the target agents
+        self.planner_agent_a2a_url = os.environ.get("PLANNER_AGENT_A2A_URL")
+        self.orchestrate_agent_a2a_url = os.environ.get("ORCHESTRATE_AGENT_A2A_URL")
 
-        if not self.planner_agent_resource_name:
-            logger.warning("AGENTS_PLANNER_RESOURCE_NAME environment variable not set. Plan generation will fail.")
-        if not self.orchestrate_agent_resource_name:
-            logger.warning("AGENTS_ORCHESTRATE_RESOURCE_NAME environment variable not set. Event posting will fail.")
+        self.a2a_client = A2AClient()
+        self.http_client = httpx.AsyncClient() # For fetching agent cards, if needed
 
-        logger.info(f"InstavibeWorkflowAgent initialized.")
-        logger.info(f"  Planner Agent Target: {self.planner_agent_resource_name}")
-        logger.info(f"  Orchestrate Agent Target: {self.orchestrate_agent_resource_name}")
+        if not self.planner_agent_a2a_url:
+            logger.warning("PLANNER_AGENT_A2A_URL environment variable not set. Plan generation will fail.")
+        if not self.orchestrate_agent_a2a_url:
+            logger.warning("ORCHESTRATE_AGENT_A2A_URL environment variable not set. Event posting will fail.")
 
+        logger.info("InstavibeWorkflowAgent initialized for A2A communication.")
+        logger.info(f"  Planner Agent A2A URL: {self.planner_agent_a2a_url}")
+        logger.info(f"  Orchestrate Agent A2A URL: {self.orchestrate_agent_a2a_url}")
 
-    def _generate_event_plan(self, user_name, planned_date, location_n_perference, selected_friend_names_list, adk_session):
-        """
-        Generates an event plan by calling the dedicated Planner Agent.
-        `adk_session` is the session object for the current workflow agent's execution.
-        """
+    async def _fetch_agent_card(self, agent_base_url: str) -> A2AAgentCard | None:
+        """Fetches and parses the Agent Card from the given A2A server base URL."""
+        if not agent_base_url:
+            logger.error("Agent base URL is not provided for fetching agent card.")
+            return None
+
+        agent_card_url = f"{agent_base_url.rstrip('/')}/.well-known/agent.json"
+        logger.info(f"Fetching agent card from: {agent_card_url}")
+        try:
+            response = await self.http_client.get(agent_card_url)
+            response.raise_for_status()
+            agent_card_data = response.json()
+            # It's good practice to validate with pydantic model if exact structure is critical
+            return A2AAgentCard(**agent_card_data)
+        except httpx.RequestError as e:
+            logger.error(f"Error fetching agent card from {agent_card_url}: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing agent card JSON from {agent_card_url}: {e}")
+        except Exception as e: # Catch other Pydantic validation errors or unexpected issues
+            logger.error(f"Unexpected error when fetching/parsing agent card from {agent_card_url}: {e}")
+        return None
+
+    async def _call_a2a_agent(self, agent_a2a_url: str, input_payload: str, agent_name_for_log: str) -> tuple[str | None, list[str]]:
+        """Helper to call an A2A agent and get a text response."""
         thoughts = []
-        if not self.planner_agent_resource_name:
-            thoughts.append("Planner Agent resource name not configured.")
-            logger.error("Cannot generate plan: Planner Agent resource name not set.")
+        if not agent_a2a_url:
+            thoughts.append(f"{agent_name_for_log} A2A URL not configured.")
+            logger.error(f"Cannot call {agent_name_for_log}: A2A URL not set.")
             return None, thoughts
 
-        # Prepare input for the Planner Agent
-        # This needs to match what the target Planner Agent expects.
-        # Assuming it takes a structured input or a detailed prompt.
-        # For this example, let's create a detailed prompt similar to the original direct LLM call.
+        # Fetching agent card can be optional if the base URL is the direct A2A endpoint.
+        # For now, let's assume agent_a2a_url is the base for /.well-known/agent.json and A2A calls.
+        # target_agent_card = await self._fetch_agent_card(agent_a2a_url)
+        # if not target_agent_card or not target_agent_card.url:
+        #     thoughts.append(f"Could not retrieve or use agent card for {agent_name_for_log} at {agent_a2a_url}.")
+        #     logger.error(f"Failed to get agent card for {agent_name_for_log}.")
+        #     return None, thoughts
+        # effective_a2a_target_url = target_agent_card.url # URL from card is the A2A endpoint
+
+        # Simplified: Assuming agent_a2a_url is the direct callable A2A endpoint.
+        # If agent_card.url is different or provides more specific endpoint, use that.
+        effective_a2a_target_url = agent_a2a_url
+
+        thoughts.append(f"Sending message to {agent_name_for_log} at {effective_a2a_target_url}.")
+        logger.info(f"Calling {agent_name_for_log} ({effective_a2a_target_url}) via A2AClient.")
+
+        try:
+            a2a_request_message = A2AMessage(role="user", parts=[A2APart(text=input_payload)])
+
+            # Using send_message for potentially simple request/response.
+            # If these become long-running tasks, then send_task & get_task polling would be needed.
+            response_message = await self.a2a_client.send_message(effective_a2a_target_url, a2a_request_message)
+
+            if response_message and response_message.parts:
+                # Assuming the first part contains the primary text response
+                # This might need adjustment based on how Planner/Orchestrator A2A servers format their response parts.
+                generated_text = response_message.parts[0].text
+                thoughts.append(f"{agent_name_for_log} A2A raw response: {generated_text[:200]}...")
+                logger.info(f"{agent_name_for_log} A2A raw response: {generated_text[:200]}...")
+                return generated_text, thoughts
+            else:
+                thoughts.append(f"{agent_name_for_log} A2A call returned no response or no parts.")
+                logger.warning(f"{agent_name_for_log} A2A call returned no response or no parts. Full response: {response_message}")
+                return None, thoughts
+        except Exception as e:
+            thoughts.append(f"Error calling {agent_name_for_log} via A2A: {str(e)}")
+            logger.error(f"Error calling {agent_name_for_log} ({effective_a2a_target_url}) via A2A: {e}", exc_info=True)
+            return None, thoughts
+
+    async def _generate_event_plan(self, user_name, planned_date, location_n_perference, selected_friend_names_list, adk_session):
+        """
+        Generates an event plan by calling the Planner Agent via A2A.
+        `adk_session` is for this workflow agent's own context, not directly used for A2A call here.
+        """
+        # Prepare input for the Planner Agent (same prompt as before)
         friends_list_example_for_prompt = json.dumps(selected_friend_names_list)
         selected_friend_names_str = ', '.join(selected_friend_names_list)
 
@@ -73,144 +140,84 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
   "post_to_go_out": "string"
 }}
 """
-        thoughts.append(f"Delegating plan generation to Planner Agent: {self.planner_agent_resource_name}")
-        logger.info(f"Calling Planner Agent ({self.planner_agent_resource_name}) for user '{user_name}'.")
+        generated_text, thoughts = await self._call_a2a_agent(
+            agent_a2a_url=self.planner_agent_a2a_url,
+            input_payload=planner_input_prompt,
+            agent_name_for_log="PlannerAgent"
+        )
+
+        if not generated_text:
+            thoughts.append("Planner Agent A2A call returned no text.")
+            return None, thoughts
 
         try:
-            # Create a client for the target Planner Agent
-            planner_client = reasoning_engines.ReasoningEngine(self.planner_agent_resource_name)
-
-            # Call the Planner Agent.
-            # The `input` parameter is standard for ReasoningEngine.run()
-            # session should be the session resource name, adk_session.name if it's a Session object
-            session_name = adk_session.name if hasattr(adk_session, 'name') else adk_session
-            response = planner_client.run(input=planner_input_prompt, session=session_name)
-
-            # The response from ReasoningEngine.run() is typically a dict-like object.
-            # The actual output from the agent is often in response['output'] or response['text'].
-            # Assuming the planner agent (if it's an ADK agent) returns its result in 'output'.
-            # If it's a simple LLM agent, it might be directly in 'text' or a similar field.
-            # Given the old code expected a direct string, we'll try to extract common output fields.
-            if isinstance(response, str):
-                generated_text = response
-            elif hasattr(response, 'text'): # Common for some response objects
-                generated_text = response.text
-            elif isinstance(response, dict) and 'output' in response: # Common for ADK agents
-                generated_text = response['output']
-            elif isinstance(response, dict) and 'text' in response: # Alternative for some agents
-                generated_text = response['text']
-            else:
-                logger.warning(f"Unexpected response type from Planner Agent: {type(response)}. Content: {str(response)[:500]}")
-                # Fallback to trying to convert the whole response to string, hoping it's the text.
-                generated_text = str(response)
-
-
-            thoughts.append(f"Planner Agent raw response (after potential extraction): {generated_text[:200]}...")
-            logger.info(f"Planner Agent raw response (user '{user_name}', after potential extraction): {generated_text[:200]}...")
-
-            if not generated_text or not generated_text.strip():
-                thoughts.append("Planner Agent returned an empty response.")
-                return None, thoughts
-
             # Attempt to parse the JSON from the response
+            # This logic for extracting JSON from markdown or cleaning up is kept from original
             if "```json" in generated_text:
                 json_block = generated_text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
-                thoughts.append("Extracted JSON from markdown block (Planner Agent).")
+                thoughts.append("Extracted JSON from markdown block (Planner Agent A2A).")
             elif "```" in generated_text and generated_text.strip().startswith("{") and generated_text.strip().endswith("}"):
                 json_block = generated_text.strip().strip('`').strip()
-                thoughts.append("Extracted JSON from simple backticks (Planner Agent).")
+                thoughts.append("Extracted JSON from simple backticks (Planner Agent A2A).")
             else:
                 json_block = generated_text.strip()
 
             plan_json = json.loads(json_block)
-            thoughts.append("Successfully parsed plan JSON from Planner Agent.")
+            thoughts.append("Successfully parsed plan JSON from Planner Agent A2A response.")
             return plan_json, thoughts
-
         except json.JSONDecodeError as e:
-            thoughts.append(f"JSONDecodeError from Planner Agent response: {str(e)}. Raw text: {generated_text}")
-            logger.error(f"JSONDecodeError from Planner Agent (user '{user_name}'): {str(e)}. Raw text: {generated_text}", exc_info=True)
+            thoughts.append(f"JSONDecodeError from Planner Agent A2A response: {str(e)}. Raw text: {generated_text}")
+            logger.error(f"JSONDecodeError from Planner Agent A2A (user '{user_name}'): {str(e)}. Raw text: {generated_text}", exc_info=True)
             return None, thoughts
-        except Exception as e:
-            thoughts.append(f"Error calling Planner Agent: {str(e)}")
-            logger.error(f"Error calling Planner Agent (user '{user_name}'): {str(e)}", exc_info=True)
+        except Exception as e: # Catch any other unexpected error during parsing
+            thoughts.append(f"Unexpected error parsing Planner Agent A2A response: {str(e)}. Raw text: {generated_text}")
+            logger.error(f"Unexpected error parsing Planner Agent A2A response (user '{user_name}'): {str(e)}. Raw text: {generated_text}", exc_info=True)
             return None, thoughts
 
-    def _process_event_posting(self, user_name, confirmed_plan, edited_invite_message, agent_session_user_id, adk_session):
-        """
-        Processes event posting by calling the dedicated Orchestrate Agent.
-        `adk_session` is the session object for the current workflow agent's execution.
-        """
-        thoughts = []
-        if not self.orchestrate_agent_resource_name:
-            thoughts.append("Orchestrate Agent resource name not configured.")
-            logger.error("Cannot process event posting: Orchestrate Agent resource name not set.")
-            return False, "Orchestrate Agent not configured.", thoughts
 
-        # Prepare input for the Orchestrate Agent.
-        # This needs to match what the target Orchestrate Agent expects.
-        # The original prompt for the LLM was quite detailed.
-        # We might pass this as a structured input or a natural language instruction.
+    async def _process_event_posting(self, user_name, confirmed_plan, edited_invite_message, agent_session_user_id, adk_session):
+        """
+        Processes event posting by calling the Orchestrate Agent via A2A.
+        `adk_session` is for this workflow agent's own context.
+        """
         orchestrator_input_details = {
             "user_name": user_name,
             "user_id_context": agent_session_user_id,
-            "confirmed_plan": confirmed_plan,
+            "confirmed_plan": confirmed_plan, # This is likely a dict/JSON
             "invite_message": edited_invite_message,
-            "task_summary": f"User '{user_name}' wants to create an event based on the confirmed plan and send an invite."
-            # The Orchestrate Agent would then use its own logic/LLM to break this down
-            # and call other agents like Social Agent or Platform MCP tools.
+            "task_description": f"User '{user_name}' wants to create an event based on a confirmed plan and send an invite: '{edited_invite_message}'. Plan details: {json.dumps(confirmed_plan)}"
         }
-        # For simplicity, let's convert this to a JSON string input, assuming the orchestrator can parse it
-        # or takes a general message. A more robust way would be if the orchestrator agent defines specific input fields.
-        orchestrator_input_message = json.dumps(orchestrator_input_details)
+        # Orchestrator's A2A server will receive this as a JSON string in the message part.
+        # The Orchestrator's AgentExecutor then needs to parse this.
+        orchestrator_input_payload = json.dumps(orchestrator_input_details)
 
+        response_text, thoughts = await self._call_a2a_agent(
+            agent_a2a_url=self.orchestrate_agent_a2a_url,
+            input_payload=orchestrator_input_payload,
+            agent_name_for_log="OrchestrateAgent"
+        )
 
-        thoughts.append(f"Delegating event posting to Orchestrate Agent: {self.orchestrate_agent_resource_name}")
-        logger.info(f"Calling Orchestrate Agent ({self.orchestrate_agent_resource_name}) for user '{user_name}'.")
+        if response_text and response_text.strip():
+            thoughts.append("Successfully delegated to Orchestrate Agent via A2A.")
+            # The response_text itself is the confirmation/narration from the Orchestrate Agent's A2A server.
+            return True, response_text.strip(), thoughts
+        else:
+            error_message = "Orchestrate Agent A2A call returned empty or no response."
+            if not response_text: # Specifically if None was returned by _call_a2a_agent
+                 error_message = thoughts[-1] if thoughts else "Orchestrate Agent A2A communication failed."
+            thoughts.append(error_message)
+            return False, error_message, thoughts
 
-        try:
-            orchestrate_client = reasoning_engines.ReasoningEngine(self.orchestrate_agent_resource_name)
-
-            session_name = adk_session.name if hasattr(adk_session, 'name') else adk_session
-            response = orchestrate_client.run(input=orchestrator_input_message, session=session_name)
-
-            # Similar to the planner, extract the text output
-            if isinstance(response, str):
-                response_text = response
-            elif hasattr(response, 'text'):
-                response_text = response.text
-            elif isinstance(response, dict) and 'output' in response:
-                response_text = response['output']
-            elif isinstance(response, dict) and 'text' in response:
-                response_text = response['text']
-            else:
-                logger.warning(f"Unexpected response type from Orchestrate Agent: {type(response)}. Content: {str(response)[:500]}")
-                response_text = str(response) # Fallback
-
-            thoughts.append(f"Orchestrate Agent raw response (after potential extraction): {response_text[:200]}...")
-            logger.info(f"Orchestrate Agent raw response (user '{user_name}', after potential extraction): {response_text[:200]}...")
-
-            if response_text and response_text.strip():
-                thoughts.append("Successfully delegated to Orchestrate Agent.")
-                # The response_text itself is the confirmation/narration from the Orchestrate Agent
-                return True, response_text.strip(), thoughts
-            else:
-                thoughts.append("Orchestrate Agent returned an empty response.")
-                return False, "Orchestrate Agent returned empty response.", thoughts
-
-        except Exception as e:
-            thoughts.append(f"Error calling Orchestrate Agent: {str(e)}")
-            logger.error(f"Error calling Orchestrate Agent (user '{user_name}'): {str(e)}", exc_info=True)
-            return False, str(e), thoughts
-
-    def run(self, action: str, payload: dict, adk_session=None):
+    async def run(self, action: str, payload: dict, adk_session=None):
         """
         Main execution method for the agent.
         Determines the action and calls the appropriate internal method.
         `adk_session` is the ADK Session object created by main.py for this workflow's execution.
+        All sub-agent calls are now async.
         """
         logger.info(f"Workflow agent received action: '{action}' for user: {payload.get('user_name', payload.get('user_id','Unknown User'))}")
 
-        if not adk_session:
+        if not adk_session: # Still important for this agent's own session context if ADK features are used
             logger.error("Workflow agent run called without an ADK session.")
             return {"success": False, "error": "ADK session is required for workflow agent execution.", "thoughts": ["ADK session missing."]}
 
@@ -223,13 +230,14 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
             if not all([user_name, planned_date, location_n_perference]):
                 return {"success": False, "error": "Missing required fields for generate_plan", "thoughts": ["Validation failed for generate_plan payload."]}
 
-            plan_json, thoughts = self._generate_event_plan(
+            # Calls are now async
+            plan_json, thoughts = await self._generate_event_plan(
                 user_name, planned_date, location_n_perference, selected_friend_names_list, adk_session
             )
             if plan_json:
                 return {"success": True, "result_type": "plan", "data": plan_json, "thoughts": thoughts}
             else:
-                return {"success": False, "error": "Failed to generate plan via Planner Agent.", "thoughts": thoughts}
+                return {"success": False, "error": "Failed to generate plan via Planner Agent (A2A).", "thoughts": thoughts}
 
         elif action == "post_event":
             user_name = payload.get("user_name")
@@ -240,13 +248,14 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
             if not all([user_name, confirmed_plan, edited_invite_message]):
                 return {"success": False, "error": "Missing required fields for post_event", "thoughts": ["Validation failed for post_event payload."]}
 
-            success, message, thoughts = self._process_event_posting(
+            # Calls are now async
+            success, message, thoughts = await self._process_event_posting(
                 user_name, confirmed_plan, edited_invite_message, agent_session_user_id, adk_session
             )
             if success:
                 return {"success": True, "result_type": "post_confirmation", "message": message, "thoughts": thoughts}
             else:
-                return {"success": False, "error": f"Failed to process event posting via Orchestrate Agent: {message}", "thoughts": thoughts}
+                return {"success": False, "error": f"Failed to process event posting via Orchestrate Agent (A2A): {message}", "thoughts": thoughts}
 
         else:
             logger.warning(f"Unknown action received: {action}")

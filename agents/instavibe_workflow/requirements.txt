@@ -3,3 +3,5 @@ google-cloud-aiplatform[reasoningengine]>=1.38 # Ensure a version that supports 
 requests>=2.20
 google-auth>=2.0
 gunicorn>=20.0 # For running Flask app in container
+a2a-python
+httpx

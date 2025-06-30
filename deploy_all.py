@@ -322,9 +322,8 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
             "COMMON_GOOGLE_CLOUD_LOCATION": location,
             "SELF_AGENT_ENGINE_ID": reasoning_engine_id,
             "PORT": "8080",
-            "AGENTS_PLANNER_RESOURCE_NAME": planner_target_name if planner_target_name else "",
-            "AGENTS_ORCHESTRATE_RESOURCE_NAME": orchestrate_target_name if orchestrate_target_name else "",
-            # Add other agent resource names here if the workflow agent needs to call them
+            "PLANNER_AGENT_A2A_URL": planner_a2a_url if planner_a2a_url else "",
+            "ORCHESTRATE_AGENT_A2A_URL": orchestrator_a2a_url if orchestrator_a2a_url else "",
         }
     )
 
@@ -666,43 +665,82 @@ def main(argv=None):
     workflow_agent_url = None # Variable to hold the workflow agent's URL
 
     # Deploy individual agents first, as their resource names might be needed by others.
+    planner_deployed_agent = None
+    social_deployed_agent = None
+    platform_mcp_client_deployed_agent = None
+    orchestrate_deployed_agent = None # Define to store orchestrator deployment result
+
     if not args.skip_agents:
         print("--- Deploying Individual Agents (Planner, Social) ---")
-        planner_resource_name = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})")
-        social_resource_name = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})")
+        planner_deployed_agent = deploy_planner_agent(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - planner_deployed_agent: '{planner_deployed_agent.name if planner_deployed_agent else 'None'}'")
+        social_deployed_agent = deploy_social_agent(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - social_deployed_agent: '{social_deployed_agent.name if social_deployed_agent else 'None'}'")
     else:
         print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
-        # Try to get from env if skipped, in case only workflow agent is being deployed but needs them
-        planner_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_PLANNER_RESOURCE_NAME"))
-        social_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_SOCIAL_RESOURCE_NAME"))
-
+        # If skipped, we can't get live URIs. Orchestrator would need env vars or stored values.
+        # For this refactor, we assume deployment happens to get live URIs.
 
     if not args.skip_platform_mcp_client:
         print("--- Deploying Platform MCP Client Agent ---")
-        platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})")
+        platform_mcp_client_deployed_agent = deploy_platform_mcp_client(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_deployed_agent: '{platform_mcp_client_deployed_agent.name if platform_mcp_client_deployed_agent else 'None'}'")
     else:
         print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
-        platform_mcp_client_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME"))
 
-    # Prepare dynamic addresses for Orchestrate Agent
-    temp_remote_names_for_orchestrator = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
-    valid_remote_names_for_orchestrator = [name for name in temp_remote_names_for_orchestrator if name]
-    orchestrator_dynamic_addresses = ",".join(valid_remote_names_for_orchestrator)
-    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses for Orchestrate Agent: '{orchestrator_dynamic_addresses}'")
+    # Prepare dynamic addresses (URIs) for Orchestrate Agent
+    remote_agent_uris = []
+    planner_uri = planner_deployed_agent.endpoint_uri if planner_deployed_agent and hasattr(planner_deployed_agent, 'endpoint_uri') else None
+    social_uri = social_deployed_agent.endpoint_uri if social_deployed_agent and hasattr(social_deployed_agent, 'endpoint_uri') else None
+    platform_mcp_client_uri = platform_mcp_client_deployed_agent.endpoint_uri if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'endpoint_uri') else None
+
+    if planner_uri:
+        remote_agent_uris.append(planner_uri)
+        print(f"Planner Agent Endpoint URI: {planner_uri}")
+    else:
+        print("WARNING: Planner agent deployment failed or endpoint URI not found. Orchestrator might not connect to Planner.")
+
+    if social_uri:
+        remote_agent_uris.append(social_uri)
+        print(f"Social Agent Endpoint URI: {social_uri}")
+    else:
+        print("WARNING: Social agent deployment failed or endpoint URI not found. Orchestrator might not connect to Social.")
+
+    # Assuming Orchestrator will call Platform MCP Client via A2A as well.
+    # If not, this URI isn't strictly needed for A2A, but HostAgent expects URLs.
+    if platform_mcp_client_uri:
+        remote_agent_uris.append(platform_mcp_client_uri)
+        print(f"Platform MCP Client Agent Endpoint URI: {platform_mcp_client_uri}")
+    else:
+        print("WARNING: Platform MCP Client agent deployment failed or endpoint URI not found. Orchestrator might not connect if using A2A.")
+
+    orchestrator_dynamic_addresses = ",".join(uri for uri in remote_agent_uris if uri) # Filter out None URIs before join
+    print(f"Orchestrator will be configured with remote agent A2A URIs: '{orchestrator_dynamic_addresses}'")
 
     if not args.skip_agents: # Orchestrator is skipped if other agents are skipped (by --skip_agents)
         print("--- Deploying Orchestrate Agent ---")
-        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})")
+        orchestrate_deployed_agent = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_deployed_agent: '{orchestrate_deployed_agent.name if orchestrate_deployed_agent else 'None'}'")
     else:
         print("Skipping Orchestrate agent deployment (as other agents were skipped by --skip_agents).")
-        orchestrate_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME"))
+        # orchestrate_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME")) # Keep for workflow agent
+
+    # For InstavibeWorkflowAgent, it needs resource names or URLs depending on how it calls other agents.
+    # If InstavibeWorkflowAgent is updated to use A2AClient, it would need URIs.
+    # If it still uses reasoning_engines.ReasoningEngine().run(), it needs resource names.
+    # The current plan (Step 6) notes this ambiguity.
+    # For now, let's assume it might still use resource names for Planner & Orchestrator.
+    # This part needs to align with how InstavibeWorkflowAgent is refactored in Step 6.
+    # planner_target_for_workflow = planner_deployed_agent.name if planner_deployed_agent else sanitize_env_var_value(os.environ.get("AGENTS_PLANNER_RESOURCE_NAME"))
+    # orchestrate_target_for_workflow = orchestrate_deployed_agent.name if orchestrate_deployed_agent else sanitize_env_var_value(os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME"))
+    # The above are resource names. For A2AClient, InstavibeWorkflowAgent will need URIs.
+
+    orchestrator_uri = orchestrate_deployed_agent.endpoint_uri if orchestrate_deployed_agent and hasattr(orchestrate_deployed_agent, 'endpoint_uri') else None
+    if not orchestrator_uri and not args.skip_agents: # Only warn if orchestrator was supposed to be deployed
+        print("WARNING: Orchestrator agent deployment failed or endpoint URI not found. InstavibeWorkflowAgent might not connect to Orchestrator.")
 
 
-    # Deploy Instavibe Workflow Agent - it needs planner_resource_name and orchestrate_resource_name
+    # Deploy Instavibe Workflow Agent
     if not args.skip_workflow_agent:
         print("--- Deploying Instavibe Workflow Agent ---")
         if not staging_bucket_uri:
@@ -718,8 +756,8 @@ def main(argv=None):
             staging_bucket_uri=staging_bucket_uri,
             reasoning_engine_id=workflow_agent_id,
             agent_display_name=workflow_agent_display_name,
-            planner_target_name=planner_resource_name,
-            orchestrate_target_name=orchestrate_resource_name
+            planner_a2a_url=planner_uri, # Pass A2A URI
+            orchestrator_a2a_url=orchestrator_uri # Pass A2A URI
         )
         if not workflow_agent_url:
             print("ERROR: Instavibe Workflow Agent deployment failed. Halting.")
@@ -784,62 +822,12 @@ def main(argv=None):
 if __name__ == "__main__":
     main()
 
-def build_a2a_common_wheel():
-    """Builds the a2a_common wheel from agents/app directory."""
-    print("\n--- Building a2a_common wheel ---")
-    a2a_source_dir = os.path.join("agents", "app")
-    if not os.path.isdir(a2a_source_dir):
-        raise FileNotFoundError(f"Critical: a2a_common source directory '{a2a_source_dir}' not found.")
-
-    # Clean up old build artifacts
-    print(f"Cleaning up old build artifacts in {a2a_source_dir}...")
-    import shutil
-    import glob
-
-    dist_dir = os.path.join(a2a_source_dir, "dist")
-    build_dir = os.path.join(a2a_source_dir, "build")
-    egg_info_dirs = glob.glob(os.path.join(a2a_source_dir, "*.egg-info"))
-
-    if os.path.isdir(dist_dir):
-        shutil.rmtree(dist_dir)
-        print(f"Removed old {dist_dir}")
-    if os.path.isdir(build_dir):
-        shutil.rmtree(build_dir)
-        print(f"Removed old {build_dir}")
-    for egg_dir in egg_info_dirs:
-        shutil.rmtree(egg_dir)
-        print(f"Removed old {egg_dir}")
-
-    # Build the wheel
-    print(f"Running 'python -m build' in {a2a_source_dir}...")
-    try:
-        # Ensure build and its dependencies are installed (might be good to add 'build' to root requirements.txt)
-        # For now, assume they are present or handle error if 'build' module is not found by python.
-        subprocess.run(
-            [sys.executable, "-m", "build"],
-            cwd=a2a_source_dir, # Run command in this directory
-            check=True, text=True, capture_output=True # Capture output to show in case of error
-        )
-        print("a2a_common wheel built successfully.")
-    except FileNotFoundError as e: # Specific for python executable not found, though sys.executable should be valid
-        print(f"ERROR: Python executable not found? This should not happen. {e}")
-        raise
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: Failed to build a2a_common wheel in {a2a_source_dir}.")
-        if e.stdout: print(f"Build Stdout:\n{e.stdout}")
-        if e.stderr: print(f"Build Stderr:\n{e.stderr}")
-        raise
-    except Exception as e: # Catch any other unexpected error during build
-        print(f"ERROR: An unexpected error occurred during a2a_common wheel build: {e}")
-        raise
-    print("--- a2a_common wheel build process finished ---")
-
 # Modify main to call the build function
 def main(argv=None):
     load_dotenv()
 
     # Build the a2a_common wheel first
-    build_a2a_common_wheel()
+    # build_a2a_common_wheel() # Removed
 
     project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
     region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))

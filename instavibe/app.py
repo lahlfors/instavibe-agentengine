@@ -28,8 +28,7 @@ from agents.app.utils.logging_setup import setup_google_cloud_logging
 # GcpCloudTraceFormatPropagator REMOVED - Deprecated
 # from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # This is correct
-# Note: 'opentelemetry.propagate' module is not used for setting global propagator here.
-# The 'opentelemetry.trace' module will be used.
+from opentelemetry import propagate # Corrected import for global propagator
 
 # Load environment variables from root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -59,8 +58,9 @@ resource = Resource(attributes={
 provider = TracerProvider(resource=resource, active_span_processor=span_processor)
 trace.set_tracer_provider(provider)
 
-# Set the global propagator using the correct API
-trace.set_global_propagator(TraceContextTextMapPropagator())
+# Set the global propagator using the correct API from opentelemetry.propagate
+# The previous usage of trace.set_global_propagator was incorrect for this version of the API.
+propagate.set_global_textmap(TraceContextTextMapPropagator())
 
 # 2. Instrument logging for OpenTelemetry
 LoggingInstrumentor().instrument(set_logging_format=True)

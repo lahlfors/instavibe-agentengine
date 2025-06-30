@@ -387,9 +387,9 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
     package_env_vars = {
         "GOOGLE_CLOUD_PROJECT": project_id,
         "COMMON_GOOGLE_CLOUD_LOCATION": location,
-        "SELF_AGENT_ENGINE_ID": reasoning_engine_id, # Critical for the tool to create sessions for this agent
-        "AGENTS_PLANNER_RESOURCE_NAME": planner_target_name if planner_target_name else "",
-        "AGENTS_ORCHESTRATE_RESOURCE_NAME": orchestrate_target_name if orchestrate_target_name else "",
+        "SELF_AGENT_ENGINE_ID": reasoning_engine_id, # For the tool to create sessions for this workflow agent
+        "PLANNER_A2A_ENDPOINT_URL": planner_target_name if planner_target_name else "", # planner_target_name is assumed to be the A2A HTTP URL
+        "ORCHESTRATE_A2A_ENDPOINT_URL": orchestrate_target_name if orchestrate_target_name else "", # orchestrate_target_name is assumed to be the A2A HTTP URL
         # Any other env vars your InstavibeWorkflowAgent or its tool might need
     }
 

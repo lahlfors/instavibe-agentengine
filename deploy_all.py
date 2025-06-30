@@ -282,8 +282,8 @@ def deploy_platform_mcp_client(project_id: str, region: str):
 
 # New function to deploy the Instavibe Workflow Agent using ADK SDK
 def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
-                                    reasoning_engine_id: str = "instavibe-workflow-agent",
-                                    agent_display_name: str = "Instavibe Workflow Agent",
+                                    reasoning_engine_id: str = "instavibe_workflow_agent", # USE UNDERSCORES
+                                    agent_display_name: str = "Instavibe Workflow Agent", # Display name can have spaces/hyphens
                                     planner_target_name: str | None = None,
                                     orchestrate_target_name: str | None = None):
     """
@@ -375,7 +375,7 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
 
     # Define the ADK Agent structure that will be deployed
     agent_definition = GoogleAdkAgentDef(
-        name=reasoning_engine_id, # This name is for the ADK definition, not the display name
+        name=reasoning_engine_id, # This is the short ID, ensure it uses underscores
         model="gemini-1.0-pro", # Model for the agent's own potential reasoning (if any beyond tool use)
         tools=[main_instavibe_workflow_tool],
         description=f"{agent_display_name} - Main workflow processing tool.",
@@ -772,8 +772,13 @@ def main(argv=None):
             print("ERROR: COMMON_VERTEX_STAGING_BUCKET must be set in .env for deploying the Workflow Agent.")
             sys.exit(1)
 
-        workflow_agent_id = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_ENGINE_ID", "instavibe-workflow-agent"))
-        workflow_agent_display_name = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_DISPLAY_NAME", "Instavibe Workflow Agent"))
+        # Ensure workflow_agent_id uses underscores for Pydantic validation compatibility
+        workflow_agent_id = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_ENGINE_ID", "instavibe_workflow_agent"))
+        if "-" in workflow_agent_id:
+            print(f"Warning: WORKFLOW_AGENT_ENGINE_ID ('{workflow_agent_id}') contains hyphens. Forcing to underscores ('{workflow_agent_id.replace('-', '_')}') for deployment ID.")
+            workflow_agent_id = workflow_agent_id.replace('-', '_')
+
+        workflow_agent_display_name = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_DISPLAY_NAME", "Instavibe Workflow Agent")) # Display name can have hyphens
 
         # Call the integrated function: deploy_instavibe_workflow_agent
         # This replaces the call to deploy_new_workflow_agent() which seemed to call an external script.

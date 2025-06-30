@@ -199,252 +199,129 @@ class TestDeployAllScript(unittest.TestCase):
         mock_planner_main_func.assert_not_called()
 
     # Tests for main() function and argument parsing
-    @patch('deploy_all.vertexai.init')
-    @patch('deploy_all.build_a2a_common_wheel')
-    @patch('deploy_all.load_dotenv')
-    @patch.dict(os.environ, {
-        'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env',
-        'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env',
-        'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env',
-        'COMMON_SPANNER_INSTANCE_ID': 'test-spanner-instance',
-        'COMMON_SPANNER_DATABASE_ID': 'test-spanner-db',
-        'INSTAVIBE_FLASK_SECRET_KEY': 'test-secret',
-        # Add other necessary env vars for the functions being called if they rely on them directly
-    }, clear=True)
-    @patch('deploy_all.subprocess.run') # Mock subprocess globally for Spanner setup etc.
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
     @patch('deploy_all.deploy_instavibe_app')
     @patch('deploy_all.deploy_platform_mcp_client')
     @patch('deploy_all.deploy_orchestrate_agent')
     @patch('deploy_all.deploy_social_agent')
     @patch('deploy_all.deploy_planner_agent')
-    def test_main_default_behavior_deploys_all(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool, mock_spanner_subprocess, mock_load_dotenv, mock_build_wheel, mock_vertex_init):
-        # Ensure subprocess.run for spanner doesn't fail tests
-        mock_spanner_subprocess.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    def test_main_default_behavior(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool):
+        # The arguments to deploy_all.main are now ignored as project_id and region come from env vars
+        deploy_all.main([]) # Pass empty list as args are parsed but values from env are used first
 
-        mock_planner.return_value = "planner-id"
-        mock_social.return_value = "social-id"
-        mock_platform_mcp.return_value = "platform-mcp-id"
-        mock_orchestrate.return_value = "orchestrate-id"
-
-        deploy_all.main([]) # No args means deploy all
-
-        mock_vertex_init.assert_called_once_with(project='test-p-env', location='test-r-env', staging_bucket='gs://test-bucket-env')
-        mock_build_wheel.assert_called_once()
-        mock_load_dotenv.assert_called_once()
-
+        # Assertions should now use the env var values
         mock_planner.assert_called_once_with('test-p-env', 'test-r-env')
         mock_social.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env', remote_addresses_str="planner-id,social-id,platform-mcp-id")
+        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
-        expected_instavibe_env_vars = [
-            "COMMON_GOOGLE_CLOUD_PROJECT=test-p-env",
-            "COMMON_SPANNER_INSTANCE_ID=test-spanner-instance",
-            "COMMON_SPANNER_DATABASE_ID=test-spanner-db",
-            "INSTAVIBE_FLASK_SECRET_KEY=test-secret", # from env
-            "INSTAVIBE_APP_HOST=0.0.0.0", # default
-            "INSTAVIBE_APP_PORT=8080", # default
-            # INSTAVIBE_GOOGLE_MAPS_API_KEY and MAP_ID might be empty if not in env
-            "COMMON_GOOGLE_CLOUD_LOCATION=test-r-env",
-            "AGENTS_PLANNER_RESOURCE_NAME=planner-id",
-            "AGENTS_SOCIAL_RESOURCE_NAME=social-id",
-            "AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME=platform-mcp-id",
-            "AGENTS_ORCHESTRATE_RESOURCE_NAME=orchestrate-id"
-        ]
-        # Filter out vars with empty values as deploy_all.py does
-        expected_instavibe_env_string = ",".join(var for var in expected_instavibe_env_vars if var.split('=',1)[1])
-
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string=expected_instavibe_env_string)
-
-        expected_mcp_tool_env_vars = [
-            "COMMON_GOOGLE_CLOUD_PROJECT=test-p-env",
-            # TOOLS_INSTAVIBE_BASE_URL might be empty
-            "TOOLS_GOOGLE_GENAI_USE_VERTEXAI=True", # default
-            "TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env"
-            # TOOLS_GOOGLE_API_KEY might be empty
-        ]
-        expected_mcp_tool_env_string = ",".join(var for var in expected_mcp_tool_env_vars if var.split('=',1)[1])
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string=expected_mcp_tool_env_string)
-
-
-    @patch('deploy_all.vertexai.init')
-    @patch('deploy_all.build_a2a_common_wheel')
-    @patch('deploy_all.load_dotenv')
-    @patch.dict(os.environ, {
-        'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env',
-        'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env',
-        'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env',
-        'COMMON_SPANNER_INSTANCE_ID': 'test-spanner-instance',
-        'COMMON_SPANNER_DATABASE_ID': 'test-spanner-db',
-        'INSTAVIBE_FLASK_SECRET_KEY': 'test-secret',
-    }, clear=True)
-    @patch('deploy_all.subprocess.run')
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
     @patch('deploy_all.deploy_instavibe_app')
     @patch('deploy_all.deploy_platform_mcp_client')
     @patch('deploy_all.deploy_orchestrate_agent')
     @patch('deploy_all.deploy_social_agent')
     @patch('deploy_all.deploy_planner_agent')
-    def test_main_deploy_agents_only(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool, mock_spanner_subprocess, mock_load_dotenv, mock_build_wheel, mock_vertex_init):
-        mock_spanner_subprocess.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        mock_planner.return_value = "p"
-        mock_social.return_value = "s"
-        mock_platform_mcp.return_value = "pmcp"
-
-        deploy_all.main(['--deploy_agents'])
-
-        mock_planner.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_social.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env', remote_addresses_str="p,s,pmcp")
-        mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
-
-        mock_instavibe.assert_not_called()
-        mock_mcp_tool.assert_not_called()
-
-    @patch('deploy_all.vertexai.init')
-    @patch('deploy_all.build_a2a_common_wheel')
-    @patch('deploy_all.load_dotenv')
-    @patch.dict(os.environ, {
-        'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env',
-        'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env',
-        'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env',
-        'COMMON_SPANNER_INSTANCE_ID': 'test-spanner-instance',
-        'COMMON_SPANNER_DATABASE_ID': 'test-spanner-db',
-        'INSTAVIBE_FLASK_SECRET_KEY': 'test-secret',
-    }, clear=True)
-    @patch('deploy_all.subprocess.run')
-    @patch('deploy_all.deploy_mcp_tool_server')
-    @patch('deploy_all.deploy_instavibe_app')
-    @patch('deploy_all.deploy_platform_mcp_client')
-    @patch('deploy_all.deploy_orchestrate_agent')
-    @patch('deploy_all.deploy_social_agent')
-    @patch('deploy_all.deploy_planner_agent')
-    def test_main_deploy_instavibe_only(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool, mock_spanner_subprocess, mock_load_dotenv, mock_build_wheel, mock_vertex_init):
-        mock_spanner_subprocess.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        deploy_all.main(['--deploy_instavibe'])
+    def test_main_skip_agents(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool):
+        deploy_all.main(['--skip_agents']) # project_id and region from env
 
         mock_planner.assert_not_called()
         mock_social.assert_not_called()
         mock_orchestrate.assert_not_called()
-        mock_platform_mcp.assert_not_called()
+        # As per deploy_all.py logic, if --skip_agents is true,
+        # deploy_planner_agent, deploy_social_agent, deploy_orchestrate_agent are skipped.
+        # deploy_platform_mcp_client is skipped by its own flag --skip_platform_mcp_client.
+        # So, platform_mcp, instavibe, mcp_tool should still be called if their flags are not set.
+        mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
-        expected_instavibe_env_vars = [
-            "COMMON_GOOGLE_CLOUD_PROJECT=test-p-env",
-            "COMMON_SPANNER_INSTANCE_ID=test-spanner-instance",
-            "COMMON_SPANNER_DATABASE_ID=test-spanner-db",
-            "INSTAVIBE_FLASK_SECRET_KEY=test-secret",
-            "INSTAVIBE_APP_HOST=0.0.0.0",
-            "INSTAVIBE_APP_PORT=8080",
-            "COMMON_GOOGLE_CLOUD_LOCATION=test-r-env",
-            # Agent names will be missing as they are not deployed
-        ]
-        expected_instavibe_env_string = ",".join(var for var in expected_instavibe_env_vars if var.split('=',1)[1])
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string=expected_instavibe_env_string)
-        mock_mcp_tool.assert_not_called()
-
-    @patch('deploy_all.vertexai.init')
-    @patch('deploy_all.build_a2a_common_wheel')
-    @patch('deploy_all.load_dotenv')
-    @patch.dict(os.environ, {
-        'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env',
-        'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env',
-        'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env',
-        'COMMON_SPANNER_INSTANCE_ID': 'test-spanner-instance',
-        'COMMON_SPANNER_DATABASE_ID': 'test-spanner-db',
-    }, clear=True)
-    @patch('deploy_all.subprocess.run')
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
     @patch('deploy_all.deploy_mcp_tool_server')
     @patch('deploy_all.deploy_instavibe_app')
     @patch('deploy_all.deploy_platform_mcp_client')
     @patch('deploy_all.deploy_orchestrate_agent')
     @patch('deploy_all.deploy_social_agent')
     @patch('deploy_all.deploy_planner_agent')
-    def test_main_deploy_mcp_tool_server_only(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool, mock_spanner_subprocess, mock_load_dotenv, mock_build_wheel, mock_vertex_init):
-        mock_spanner_subprocess.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        deploy_all.main(['--deploy_mcp_tool_server'])
-
-        mock_planner.assert_not_called()
-        mock_social.assert_not_called()
-        mock_orchestrate.assert_not_called()
-        mock_platform_mcp.assert_not_called()
-        mock_instavibe.assert_not_called()
-
-        expected_mcp_tool_env_vars = [
-            "COMMON_GOOGLE_CLOUD_PROJECT=test-p-env",
-            "TOOLS_GOOGLE_GENAI_USE_VERTEXAI=True",
-            "TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env"
-        ]
-        expected_mcp_tool_env_string = ",".join(var for var in expected_mcp_tool_env_vars if var.split('=',1)[1])
-        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string=expected_mcp_tool_env_string)
-
-    @patch('deploy_all.vertexai.init')
-    @patch('deploy_all.build_a2a_common_wheel')
-    @patch('deploy_all.load_dotenv')
-    @patch.dict(os.environ, {
-        'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env',
-        'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env',
-        'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env',
-        'COMMON_SPANNER_INSTANCE_ID': 'test-spanner-instance',
-        'COMMON_SPANNER_DATABASE_ID': 'test-spanner-db',
-        'INSTAVIBE_FLASK_SECRET_KEY': 'test-secret',
-    }, clear=True)
-    @patch('deploy_all.subprocess.run')
-    @patch('deploy_all.deploy_mcp_tool_server')
-    @patch('deploy_all.deploy_instavibe_app')
-    @patch('deploy_all.deploy_platform_mcp_client')
-    @patch('deploy_all.deploy_orchestrate_agent')
-    @patch('deploy_all.deploy_social_agent')
-    @patch('deploy_all.deploy_planner_agent')
-    def test_main_deploy_instavibe_and_agents(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool, mock_spanner_subprocess, mock_load_dotenv, mock_build_wheel, mock_vertex_init):
-        mock_spanner_subprocess.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        mock_planner.return_value = "p-id"
-        mock_social.return_value = "s-id"
-        mock_platform_mcp.return_value = "pmcp-id"
-        mock_orchestrate.return_value = "o-id"
-
-        deploy_all.main(['--deploy_instavibe', '--deploy_agents'])
+    def test_main_skip_app(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool):
+        deploy_all.main(['--skip_app']) # project_id and region from env
 
         mock_planner.assert_called_once_with('test-p-env', 'test-r-env')
         mock_social.assert_called_once_with('test-p-env', 'test-r-env')
-        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env', remote_addresses_str="p-id,s-id,pmcp-id")
+        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
         mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_not_called()
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
-        expected_instavibe_env_vars = [
-            "COMMON_GOOGLE_CLOUD_PROJECT=test-p-env",
-            "COMMON_SPANNER_INSTANCE_ID=test-spanner-instance",
-            "COMMON_SPANNER_DATABASE_ID=test-spanner-db",
-            "INSTAVIBE_FLASK_SECRET_KEY=test-secret",
-            "INSTAVIBE_APP_HOST=0.0.0.0",
-            "INSTAVIBE_APP_PORT=8080",
-            "COMMON_GOOGLE_CLOUD_LOCATION=test-r-env",
-            "AGENTS_PLANNER_RESOURCE_NAME=p-id",
-            "AGENTS_SOCIAL_RESOURCE_NAME=s-id",
-            "AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME=pmcp-id",
-            "AGENTS_ORCHESTRATE_RESOURCE_NAME=o-id"
-        ]
-        expected_instavibe_env_string = ",".join(var for var in expected_instavibe_env_vars if var.split('=',1)[1])
-        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string=expected_instavibe_env_string)
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
+    @patch('deploy_all.deploy_mcp_tool_server')
+    @patch('deploy_all.deploy_instavibe_app')
+    @patch('deploy_all.deploy_platform_mcp_client')
+    @patch('deploy_all.deploy_orchestrate_agent')
+    @patch('deploy_all.deploy_social_agent')
+    @patch('deploy_all.deploy_planner_agent')
+    def test_main_skip_platform_mcp_client(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool):
+        deploy_all.main(['--skip_platform_mcp_client']) # project_id and region from env
 
+        mock_planner.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_social.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_platform_mcp.assert_not_called()
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
+
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
+    @patch('deploy_all.deploy_mcp_tool_server')
+    @patch('deploy_all.deploy_instavibe_app')
+    @patch('deploy_all.deploy_platform_mcp_client')
+    @patch('deploy_all.deploy_orchestrate_agent')
+    @patch('deploy_all.deploy_social_agent')
+    @patch('deploy_all.deploy_planner_agent')
+    def test_main_skip_mcp_tool_server(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool):
+        deploy_all.main(['--skip_mcp_tool_server']) # project_id and region from env
+
+        mock_planner.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_social.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_platform_mcp.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_instavibe.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,INSTAVIBE_APP_HOST=0.0.0.0,INSTAVIBE_APP_PORT=8080')
         mock_mcp_tool.assert_not_called()
 
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env', 'COMMON_GOOGLE_CLOUD_LOCATION': 'test-r-env', 'COMMON_VERTEX_STAGING_BUCKET': 'gs://test-bucket-env'}, clear=True)
+    @patch('deploy_all.deploy_mcp_tool_server')
+    @patch('deploy_all.deploy_instavibe_app')
+    @patch('deploy_all.deploy_platform_mcp_client')
+    @patch('deploy_all.deploy_orchestrate_agent')
+    @patch('deploy_all.deploy_social_agent')
+    @patch('deploy_all.deploy_planner_agent')
+    def test_main_skip_app_and_skip_social_and_skip_platform_mcp(self, mock_planner, mock_social, mock_orchestrate, mock_platform_mcp, mock_instavibe, mock_mcp_tool):
+        # Testing a combination.
+        # --skip_social_agent is not an existing flag. --skip_agents will skip social.
+        # This test will skip app and platform_mcp_client. Social agent should still run.
+        args = ['--skip_app', '--skip_platform_mcp_client'] # project_id and region from env
+        deploy_all.main(args)
+
+        mock_planner.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_social.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_orchestrate.assert_called_once_with('test-p-env', 'test-r-env')
+        mock_platform_mcp.assert_not_called()
+        mock_instavibe.assert_not_called()
+        mock_mcp_tool.assert_called_once_with('test-p-env', 'test-r-env', env_vars_string='COMMON_GOOGLE_CLOUD_PROJECT=test-p-env,TOOLS_GOOGLE_CLOUD_LOCATION=test-r-env')
 
     @patch.dict(os.environ, {}, clear=True) # Test with NO env vars set
-    @patch('deploy_all.load_dotenv') # Mock load_dotenv as it's called early
-    @patch('deploy_all.build_a2a_common_wheel') # Mock build_a2a_common_wheel
-    def test_main_missing_env_vars_raises_value_error(self, mock_build_wheel, mock_load_dotenv):
-        mock_load_dotenv.return_value = None # Simulate .env not loading anything critical for this check
-        mock_build_wheel.return_value = None # Simulate successful wheel build
+    def test_main_missing_project_id(self):
+        with self.assertRaises(ValueError) as context: # Expect ValueError from os.environ.get checks
+            deploy_all.main([]) # Args don't matter, will fail on env var check
+        self.assertIn("COMMON_GOOGLE_CLOUD_PROJECT not set", str(context.exception))
 
+    @patch.dict(os.environ, {'COMMON_GOOGLE_CLOUD_PROJECT': 'test-p-env'}, clear=True) # Test with only project set
+    def test_main_missing_region(self):
         with self.assertRaises(ValueError) as context:
             deploy_all.main([])
-        self.assertIn("Missing critical environment variables", str(context.exception))
-        self.assertIn("COMMON_GOOGLE_CLOUD_PROJECT", str(context.exception))
-        self.assertIn("COMMON_GOOGLE_CLOUD_LOCATION", str(context.exception))
-        self.assertIn("COMMON_VERTEX_STAGING_BUCKET", str(context.exception))
-        self.assertIn("COMMON_SPANNER_INSTANCE_ID", str(context.exception))
-        self.assertIn("COMMON_SPANNER_DATABASE_ID", str(context.exception))
-
+        self.assertIn("COMMON_GOOGLE_CLOUD_LOCATION (used as common deploy region) not set", str(context.exception))
 
 if __name__ == '__main__':
     unittest.main()

@@ -14,7 +14,7 @@ import logging
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor # For OTLP export
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter # OTLP HTTP Exporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter # CHANGED: Using OTLP gRPC Exporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
@@ -42,8 +42,10 @@ LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 # Propagator will be set after TracerProvider initialization using trace.set_global_propagator()
 
 # 1. Initialize OpenTelemetry TracerProvider
-# Configure an OTLP exporter to send traces to Google Cloud Trace via HTTP.
-otlp_exporter = OTLPSpanExporter(endpoint="https://cloudtrace.googleapis.com/v1/traces")
+# Configure an OTLP exporter to send traces to a local OpenTelemetry Collector via gRPC.
+# The Collector (running as a sidecar) will then export to Google Cloud Trace.
+# Default OTLP gRPC endpoint is localhost:4317. `insecure=True` is used for localhost communication.
+otlp_exporter = OTLPSpanExporter(endpoint="http://localhost:4317", insecure=True)
 
 # The BatchSpanProcessor processes spans in batches before exporting.
 span_processor = BatchSpanProcessor(otlp_exporter)

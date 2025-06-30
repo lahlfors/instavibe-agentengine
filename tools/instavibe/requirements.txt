@@ -7,10 +7,11 @@ deprecated==1.2.18
 gunicorn
 python-dotenv==1.0.1
 google-cloud-logging # Version unpinned
-opentelemetry-api>=1.22.0
-opentelemetry-sdk>=1.22.0
-opentelemetry-exporter-otlp # ADDED: OTLP exporter
-opentelemetry-exporter-otlp-proto-http # ADDED: OTLP HTTP protocol
+opentelemetry-api~=1.22.0 # Pinned to a known good version series for propagator API
+opentelemetry-sdk~=1.22.0 # Pinned to a known good version series for propagator API
+# opentelemetry-exporter-otlp # Common dependency, usually brought in by specific protocol exporter
+opentelemetry-exporter-otlp-proto-grpc # Standardizing on gRPC for collector
+# opentelemetry-exporter-otlp-proto-http # REMOVED: Standardizing on gRPC
 # opentelemetry-exporter-google-cloud-trace # REMOVED: Incorrect package
 # opentelemetry-exporter-gcp-trace==1.9.0 # Old package, REMOVED
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated

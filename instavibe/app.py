@@ -25,7 +25,7 @@ from agents.app.utils.logging_setup import setup_google_cloud_logging
 # CloudTraceLoggingSpanExporter REMOVED.
 # CloudTraceExporter (OTLP) REMOVED.
 
-from opentelemetry import propagators
+from opentelemetry.propagate import set_global_textmap_propagator # CORRECTED IMPORT
 # GcpCloudTraceFormatPropagator REMOVED - Deprecated
 # from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -39,11 +39,10 @@ LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
 # Using W3C TraceContextTextMapPropagator for trace context propagation.
-propagators.set_global_textmap_propagator(
-    TraceContextTextMapPropagator()
-)
+set_global_textmap_propagator(TraceContextTextMapPropagator()) # CORRECTED CALL
+
 # If needing multiple standard propagators (e.g., baggage):
-# propagators.set_global_textmap_propagator(
+# set_global_textmap_propagator( # This would also need to change if used
 # CompositePropagator([
 # TraceContextTextMapPropagator(),
 # # BaggagePropagator(),

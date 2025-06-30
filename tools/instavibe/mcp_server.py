@@ -30,7 +30,7 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 from instavibe import create_event,create_post # instavibe.py also needs logging setup
 
-from opentelemetry import propagators
+from opentelemetry.propagate import set_global_textmap_propagator # CORRECTED IMPORT
 # GcpCloudTraceFormatPropagator REMOVED - Deprecated
 # from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -44,11 +44,10 @@ LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
 # Using W3C TraceContextTextMapPropagator for trace context propagation.
-propagators.set_global_textmap_propagator(
-    TraceContextTextMapPropagator()
-)
+set_global_textmap_propagator(TraceContextTextMapPropagator()) # CORRECTED CALL
+
 # If you need baggage or other propagators, use CompositePropagator:
-# propagators.set_global_textmap_propagator(
+# set_global_textmap_propagator( # This would also need to change if used
 #     CompositePropagator([
 #         TraceContextTextMapPropagator(),
 #         # BaggagePropagator(), # Example if baggage is used

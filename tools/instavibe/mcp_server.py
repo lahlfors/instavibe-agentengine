@@ -30,7 +30,7 @@ from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 from instavibe import create_event,create_post # instavibe.py also needs logging setup
 
-# from opentelemetry.propagate import set_global_textmap_propagator # REMOVED: Incorrect import path
+# from opentelemetry.propagate import set_global_textmap_propagator # REMOVED: Incorrect import
 # GcpCloudTraceFormatPropagator REMOVED - Deprecated
 # from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # This is correct
@@ -70,8 +70,8 @@ resource = Resource(attributes={
 provider = TracerProvider(resource=resource, active_span_processor=span_processor)
 trace.set_tracer_provider(provider)
 
-# Set the global propagator (after setting the tracer provider)
-trace.set_propagator(TraceContextTextMapPropagator())
+# Set the global propagator using the correct API
+trace.set_global_propagator(TraceContextTextMapPropagator())
 
 # 2. Instrument logging for OpenTelemetry
 LoggingInstrumentor().instrument(set_logging_format=True)

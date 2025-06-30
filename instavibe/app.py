@@ -25,10 +25,11 @@ from agents.app.utils.logging_setup import setup_google_cloud_logging
 # CloudTraceLoggingSpanExporter REMOVED.
 # CloudTraceExporter (OTLP) REMOVED.
 
-# from opentelemetry.propagate import set_global_textmap_propagator # REMOVED: Incorrect import path
 # GcpCloudTraceFormatPropagator REMOVED - Deprecated
 # from opentelemetry.propagators.composite import CompositePropagator # REMOVED: Unused import
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator # This is correct
+# Note: 'opentelemetry.propagate' module is not used for setting global propagator here.
+# The 'opentelemetry.trace' module will be used.
 
 # Load environment variables from root .env file first.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -38,17 +39,7 @@ SERVICE_NAME = "instavibe-app"
 LOG_LEVEL = logging.INFO # Or logging.DEBUG, or from env var
 
 # 0. Configure Global Propagator
-# Using W3C TraceContextTextMapPropagator for trace context propagation.
-# Correct method is trace.set_propagator()
-# trace.set_propagator(TraceContextTextMapPropagator()) # This will be set after TracerProvider
-
-# If needing multiple standard propagators (e.g., baggage):
-# trace.set_propagator(
-# CompositePropagator([
-# TraceContextTextMapPropagator(),
-# # BaggagePropagator(),
-# ])
-# )
+# Propagator will be set after TracerProvider initialization using trace.set_global_propagator()
 
 # 1. Initialize OpenTelemetry TracerProvider
 # Configure an OTLP exporter to send traces to Google Cloud Trace via HTTP.
@@ -65,8 +56,8 @@ resource = Resource(attributes={
 provider = TracerProvider(resource=resource, active_span_processor=span_processor)
 trace.set_tracer_provider(provider)
 
-# Set the global propagator (after setting the tracer provider)
-trace.set_propagator(TraceContextTextMapPropagator())
+# Set the global propagator using the correct API
+trace.set_global_propagator(TraceContextTextMapPropagator())
 
 # 2. Instrument logging for OpenTelemetry
 LoggingInstrumentor().instrument(set_logging_format=True)

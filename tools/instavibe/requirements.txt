@@ -1,7 +1,7 @@
 google-cloud-aiplatform[adk,agent_engines] # Version unpinned
 Flask==3.1.0
 mcp[cli]>=1.8.0
-google-adk==1.4.3 # Pinned google-adk version
+google-adk==1.5.0 # Updated google-adk version to 1.5.0
 python-dateutil==2.9.0.post0
 deprecated==1.2.18
 gunicorn

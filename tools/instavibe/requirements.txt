@@ -7,15 +7,15 @@ deprecated==1.2.18
 gunicorn
 python-dotenv==1.0.1
 google-cloud-logging # Version unpinned
-opentelemetry-api~=1.22.0 # Pinned to a known good version series for propagator API
-opentelemetry-sdk~=1.22.0 # Pinned to a known good version series for propagator API
+opentelemetry-api~=1.31.0 # Updated to align with google-adk==1.5.0
+opentelemetry-sdk~=1.31.0 # Updated to align with google-adk==1.5.0
 # opentelemetry-exporter-otlp # Common dependency, usually brought in by specific protocol exporter
 opentelemetry-exporter-otlp-proto-grpc # Standardizing on gRPC for collector
 # opentelemetry-exporter-otlp-proto-http # REMOVED: Standardizing on gRPC
 # opentelemetry-exporter-google-cloud-trace # REMOVED: Incorrect package
 # opentelemetry-exporter-gcp-trace==1.9.0 # Old package, REMOVED
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated
-opentelemetry-instrumentation==0.43b0 # Pinned to specific version
-opentelemetry-instrumentation-logging==0.43b0 # Pinned to specific version
+opentelemetry-instrumentation # Unpinned
+opentelemetry-instrumentation-logging # Unpinned
 # opentelemetry-instrumentation-flask is not used in this file, so no change for it.
 python-a2a==0.5.9 # For future A2A SDK refactoring

@@ -1,13 +1,13 @@
 google-cloud-aiplatform[adk,agent_engines]==1.98.0
 Flask==3.1.0
 mcp[cli]>=1.8.0
-google-adk==1.4.2
+google-adk==1.5.0 # Pinned to 1.5.0
 google-cloud-spanner==3.54.0
 python-dateutil==2.9.0.post0
 humanize==4.12.3
 nest_asyncio==1.6.0
 asyncclick==8.1.8.0
-google-adk[eval]==1.4.2
+google-adk[eval]==1.5.0 # Pinned to 1.5.0
 build==1.2.2.post1
 google-genai>=1.17.0,<2.0.0
 deprecated==1.2.18
@@ -17,5 +17,5 @@ opentelemetry-api[entry-points]~=1.31.0 # Added [entry-points] extra
 opentelemetry-sdk~=1.31.0 # Matched with opentelemetry-api
 # opentelemetry-exporter-gcp-trace==1.9.0 # REMOVED - Unnecessary for deploy_all.py and potentially conflicting
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated, unnecessary, and potentially conflicting
-opentelemetry-instrumentation>=0.43b0 # RE-ADDED - Needed if deploy_all.py imports agent code using instrumentation
-opentelemetry-instrumentation-logging>=0.43b0 # RE-ADDED - Needed if deploy_all.py imports agent code using instrumentation
+opentelemetry-instrumentation # Unpinned
+opentelemetry-instrumentation-logging # Unpinned

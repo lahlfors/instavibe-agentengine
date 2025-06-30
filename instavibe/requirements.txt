@@ -6,17 +6,17 @@ gunicorn
 python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
 google-cloud-logging # Version unpinned
-opentelemetry-api~=1.22.0 # Pinned to a known good version series for propagator API
-opentelemetry-sdk~=1.22.0 # Pinned to a known good version series for propagator API
+opentelemetry-api~=1.31.0 # Updated to align with google-adk==1.5.0
+opentelemetry-sdk~=1.31.0 # Updated to align with google-adk==1.5.0
 # opentelemetry-exporter-otlp # Common dependency, usually brought in by specific protocol exporter
 opentelemetry-exporter-otlp-proto-grpc # Standardizing on gRPC for collector
 # opentelemetry-exporter-otlp-proto-http # REMOVED: Standardizing on gRPC
 # opentelemetry-exporter-google-cloud-trace # REMOVED: Incorrect package
 # opentelemetry-exporter-gcp-trace==1.9.0 # Old package, REMOVED
 # opentelemetry-propagator-gcp==1.9.0 # REMOVED - Deprecated
-opentelemetry-instrumentation==0.43b0 # Pinned to specific version
-opentelemetry-instrumentation-logging==0.43b0 # Pinned to specific version
-opentelemetry-instrumentation-flask==0.43b0 # Pinned to specific version
+opentelemetry-instrumentation # Unpinned
+opentelemetry-instrumentation-logging # Unpinned
+opentelemetry-instrumentation-flask # Unpinned
 
 # Dependencies from agents/app/setup.py (now that source is copied directly)
 google-cloud-storage>=2.0.0

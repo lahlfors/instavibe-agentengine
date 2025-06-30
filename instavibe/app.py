@@ -51,7 +51,8 @@ otlp_exporter = OTLPSpanExporter(endpoint="http://localhost:4317", insecure=True
 span_processor = BatchSpanProcessor(otlp_exporter)
 
 resource = Resource(attributes={
-    OTEL_SERVICE_NAME_KEY: SERVICE_NAME
+    OTEL_SERVICE_NAME_KEY: SERVICE_NAME,
+    "service.instance.id": f"{SERVICE_NAME}-worker-{os.getpid()}" # Added service.instance.id
 })
 
 # Add the span processor to the TracerProvider.

@@ -516,12 +516,27 @@ def main(argv=None):
         print(f"Changed directory back to {original_cwd}.")
     print("Spanner setup completed.")
 
-    parser = argparse.ArgumentParser(description="Deploy all components of the instavibe app.")
-    parser.add_argument("--skip_agents", action="store_true", help="Skip deploying the agents.")
-    parser.add_argument("--skip_app", action="store_true", help="Skip deploying the Instavibe app.")
-    parser.add_argument("--skip_platform_mcp_client", action="store_true", help="Skip deploying the Platform MCP Client.")
-    parser.add_argument("--skip_mcp_tool_server", action="store_true", help="Skip deploying the MCP Tool Server.")
+    parser = argparse.ArgumentParser(description="Deploy components of the instavibe app. If no specific component flags are provided, all components will be deployed.")
+    parser.add_argument("--deploy_instavibe", action="store_true", help="Deploy the Instavibe app.")
+    parser.add_argument("--deploy_mcp_tool_server", action="store_true", help="Deploy the MCP Tool Server.")
+    parser.add_argument("--deploy_agents", action="store_true", help="Deploy all agents (Planner, Social, Orchestrate, Platform MCP Client).")
+    # Add individual agent deployment flags if needed in future, e.g.:
+    # parser.add_argument("--deploy_planner_agent", action="store_true", help="Deploy the Planner agent.")
+    # parser.add_argument("--deploy_social_agent", action="store_true", help="Deploy the Social agent.")
+    # parser.add_argument("--deploy_orchestrate_agent", action="store_true", help="Deploy the Orchestrate agent.")
+    # parser.add_argument("--deploy_platform_mcp_client_agent", action="store_true", help="Deploy the Platform MCP Client agent.")
+
     args = parser.parse_args(argv)
+
+    # Determine if any specific deployment flag was passed
+    specific_deployment_requested = any([
+        args.deploy_instavibe,
+        args.deploy_mcp_tool_server,
+        args.deploy_agents
+    ])
+
+    # If no specific deployment flag is set, default to deploying all
+    deploy_all_components = not specific_deployment_requested
 
     print(f"Initializing Vertex AI with project: {project_id}, region: {region}, staging bucket: {staging_bucket_uri}")
     try:
@@ -533,39 +548,36 @@ def main(argv=None):
 
     planner_resource_name, social_resource_name, platform_mcp_client_resource_name, orchestrate_resource_name = None, None, None, None
 
-    if not args.skip_agents:
+    # Deploy Agents if requested or if deploying all
+    if deploy_all_components or args.deploy_agents:
+        print("--- Deploying Agents ---")
         print("--- Deploying Individual Agents (Planner, Social) ---")
         planner_resource_name = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})")
         social_resource_name = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})") # DIAGNOSTIC_TRACE
-    else:
-        print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
+        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})")
 
-    if not args.skip_platform_mcp_client: # Not skipped by --skip_agents, has its own flag
         print("--- Deploying Platform MCP Client Agent ---")
         platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})") # DIAGNOSTIC_TRACE
-    else:
-        print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
+        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})")
 
-    # DIAGNOSTIC_TRACE: Log contents of valid_remote_agent_names before join
-    temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
-    print(f"DIAGNOSTIC_TRACE: main() - Names for orchestrator_dynamic_addresses before filtering: {temp_remote_names_for_debug}")
-    valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
-    print(f"DIAGNOSTIC_TRACE: main() - Valid names for orchestrator_dynamic_addresses after filtering: {valid_remote_agent_names}")
-    orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
-    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'") # DIAGNOSTIC_TRACE
+        # DIAGNOSTIC_TRACE: Log contents of valid_remote_agent_names before join
+        temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
+        print(f"DIAGNOSTIC_TRACE: main() - Names for orchestrator_dynamic_addresses before filtering: {temp_remote_names_for_debug}")
+        valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
+        print(f"DIAGNOSTIC_TRACE: main() - Valid names for orchestrator_dynamic_addresses after filtering: {valid_remote_agent_names}")
+        orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'")
 
-
-    if not args.skip_agents: # Orchestrator is skipped if all agents are skipped
         print("--- Deploying Orchestrate Agent ---")
         orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})")
     else:
-        print("Skipping Orchestrate agent deployment due to --skip_agents flag.")
+        print("Skipping agent deployments as neither --deploy_agents nor default all deployment was specified.")
 
-    if not args.skip_app:
+    # Deploy Instavibe App if requested or if deploying all
+    if deploy_all_components or args.deploy_instavibe:
+        print("--- Deploying Instavibe App ---")
         instavibe_env_vars_list = [
             f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
             f"COMMON_SPANNER_INSTANCE_ID={spanner_instance_id}",
@@ -583,12 +595,14 @@ def main(argv=None):
         if orchestrate_resource_name: instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
 
         instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1]) # Ensure value is not empty
-        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'") # ADDED FOR DEBUGGING
+        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'")
         deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
-        print("Skipping Instavibe app deployment.")
+        print("Skipping Instavibe app deployment as --deploy_instavibe was not specified and not deploying all.")
 
-    if not args.skip_mcp_tool_server:
+    # Deploy MCP Tool Server if requested or if deploying all
+    if deploy_all_components or args.deploy_mcp_tool_server:
+        print("--- Deploying MCP Tool Server ---")
         mcp_tool_server_env_vars_list = [
             f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
             f"TOOLS_INSTAVIBE_BASE_URL={sanitize_env_var_value(os.environ.get('TOOLS_INSTAVIBE_BASE_URL', ''))}",
@@ -597,10 +611,10 @@ def main(argv=None):
             f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}"
         ]
         mcp_tool_server_env_vars_string = ",".join(var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1])
-        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'") # ADDED FOR DEBUGGING
+        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'")
         deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
     else:
-        print("Skipping MCP Tool Server deployment.")
+        print("Skipping MCP Tool Server deployment as --deploy_mcp_tool_server was not specified and not deploying all.")
 
     print("All selected components deployed.")
 

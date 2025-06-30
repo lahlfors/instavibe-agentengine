@@ -10,6 +10,8 @@ from google.auth.transport.requests import Request as GoogleAuthRequest # For re
 # Initialize logger
 logger = logging.getLogger(__name__)
 
+logger.critical("DIAGNOSTIC_LOG: Running REFACTORED introvertally.py - V2_HTTP_CLIENT_VERSION")
+
 # Global variable for workflow agent URL
 WORKFLOW_AGENT_URL = os.getenv("WORKFLOW_AGENT_URL")
 if not WORKFLOW_AGENT_URL:

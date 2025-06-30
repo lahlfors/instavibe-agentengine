@@ -2,8 +2,8 @@
 import os
 import json
 import logging
-from vertexai.preview import reasoning_engines
-from vertexai.preview.reasoning_engines import Agent as AdkAgentExecutor # To execute other ADK Agents
+from vertexai.preview import reasoning_engines # Keep for reasoning_engines.init if still used, and Session type hint
+from vertexai import agent_engines # For getting and querying deployed agents
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
@@ -78,25 +78,28 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
         logger.info(f"Calling Planner Agent ({self.planner_agent_resource_name}) for user '{user_name}'.")
 
         try:
-            # Create an executor for the target Planner Agent
-            planner_executor = AdkAgentExecutor(agent=self.planner_agent_resource_name)
+            # Get a client for the target Planner Agent
+            planner_client = agent_engines.get(self.planner_agent_resource_name)
 
-            # Call the Planner Agent.
-            # The `input` parameter name might vary based on how the target agent is defined.
-            # Common names are 'input', 'message', 'prompt', 'query'. Assuming 'message' or 'input'.
-            # ADK Agent.run() typically expects `input` or specific args defined by the agent.
-            # Let's assume the target agent takes a generic 'input' string.
-            response = planner_executor.run(input=planner_input_prompt, session=adk_session)
+            # Call the Planner Agent using query()
+            # session_info expects a reasoning_engines.Session object, which adk_session should be.
+            response_struct = planner_client.query(input=planner_input_prompt, session_info=adk_session)
 
-            # The response from an ADK agent's run() method is typically the final string output.
-            # If it's structured (JSON), it should be returned as a string to be parsed.
-            generated_text = response # Assuming response is the direct string output.
+            # Extract the output string from the response structure
+            # Common attribute for output is 'output' or 'response'. Check SDK documentation if needed.
+            # Assuming it's 'output' for now.
+            if not hasattr(response_struct, 'output'):
+                thoughts.append(f"Planner Agent response structure missing 'output' attribute. Response: {response_struct}")
+                logger.error(f"Planner Agent response structure error for user '{user_name}'. Response: {response_struct}")
+                return None, thoughts
 
-            thoughts.append(f"Planner Agent raw response: {generated_text[:200]}...")
-            logger.info(f"Planner Agent raw response (user '{user_name}'): {generated_text[:200]}...")
+            generated_text = response_struct.output
+
+            thoughts.append(f"Planner Agent raw response (from .output): {generated_text[:200]}...")
+            logger.info(f"Planner Agent raw response (user '{user_name}', from .output): {generated_text[:200]}...")
 
             if not generated_text or not generated_text.strip():
-                thoughts.append("Planner Agent returned an empty response.")
+                thoughts.append("Planner Agent returned an empty response in .output.")
                 return None, thoughts
 
             # Attempt to parse the JSON from the response
@@ -155,20 +158,25 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
         logger.info(f"Calling Orchestrate Agent ({self.orchestrate_agent_resource_name}) for user '{user_name}'.")
 
         try:
-            orchestrate_executor = AdkAgentExecutor(agent=self.orchestrate_agent_resource_name)
+            orchestrate_client = agent_engines.get(self.orchestrate_agent_resource_name)
 
-            # Assuming Orchestrate Agent takes 'input' or 'message'
-            response_text = orchestrate_executor.run(input=orchestrator_input_message, session=adk_session)
+            response_struct = orchestrate_client.query(input=orchestrator_input_message, session_info=adk_session)
 
-            thoughts.append(f"Orchestrate Agent raw response: {response_text[:200]}...")
-            logger.info(f"Orchestrate Agent raw response (user '{user_name}'): {response_text[:200]}...")
+            if not hasattr(response_struct, 'output'):
+                thoughts.append(f"Orchestrate Agent response structure missing 'output' attribute. Response: {response_struct}")
+                logger.error(f"Orchestrate Agent response structure error for user '{user_name}'. Response: {response_struct}")
+                return False, "Orchestrate Agent response error.", thoughts
+
+            response_text = response_struct.output
+
+            thoughts.append(f"Orchestrate Agent raw response (from .output): {response_text[:200]}...")
+            logger.info(f"Orchestrate Agent raw response (user '{user_name}', from .output): {response_text[:200]}...")
 
             if response_text and response_text.strip():
                 thoughts.append("Successfully delegated to Orchestrate Agent.")
-                # The response_text itself is the confirmation/narration from the Orchestrate Agent
                 return True, response_text.strip(), thoughts
             else:
-                thoughts.append("Orchestrate Agent returned an empty response.")
+                thoughts.append("Orchestrate Agent returned an empty response in .output.")
                 return False, "Orchestrate Agent returned empty response.", thoughts
 
         except Exception as e:

@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 from google.cloud import aiplatform as vertexai # For ADK session service
 from vertexai.preview import reasoning_engines # For ADK session service & init
 
-from agent import InstavibeWorkflowAgent # Import the agent logic
+from .agent import InstavibeWorkflowAgent # Import the agent logic
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)

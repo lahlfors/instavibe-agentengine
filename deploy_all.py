@@ -270,10 +270,13 @@ def deploy_platform_mcp_client(project_id: str, region: str):
 # New function to deploy the Instavibe Workflow Agent using ADK SDK
 def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
                                     reasoning_engine_id: str = "instavibe-workflow-agent",
-                                    agent_display_name: str = "Instavibe Workflow Agent"):
+                                    agent_display_name: str = "Instavibe Workflow Agent",
+                                    planner_target_name: str | None = None,
+                                    orchestrate_target_name: str | None = None):
     """
     Deploys the Instavibe Workflow Agent using ADK SDK (agent_engines.create/update).
     Returns the endpoint URI of the deployed agent.
+    Passes planner_target_name and orchestrate_target_name as env vars to the workflow agent.
     """
     print(f"--- Deploying Instavibe Workflow Agent ({agent_display_name}) ---")
     print(f"Project: {project_id}, Location: {location}, Staging Bucket: {staging_bucket_uri}")
@@ -317,8 +320,11 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
         env_vars={
             "GOOGLE_CLOUD_PROJECT": project_id,
             "COMMON_GOOGLE_CLOUD_LOCATION": location,
-            "SELF_AGENT_ENGINE_ID": reasoning_engine_id, # Agent needs to know its own ID
-            "PORT": "8080" # Port Gunicorn uses inside the container (matches Dockerfile)
+            "SELF_AGENT_ENGINE_ID": reasoning_engine_id,
+            "PORT": "8080",
+            "AGENTS_PLANNER_RESOURCE_NAME": planner_target_name if planner_target_name else "",
+            "AGENTS_ORCHESTRATE_RESOURCE_NAME": orchestrate_target_name if orchestrate_target_name else "",
+            # Add other agent resource names here if the workflow agent needs to call them
         }
     )
 
@@ -661,13 +667,46 @@ def main(argv=None):
     planner_resource_name, social_resource_name, platform_mcp_client_resource_name, orchestrate_resource_name = None, None, None, None
     workflow_agent_url = None # Variable to hold the workflow agent's URL
 
-    # Deploy Instavibe Workflow Agent first, as instavibe-app depends on its URL
+    # Deploy individual agents first, as their resource names might be needed by others.
+    if not args.skip_agents:
+        print("--- Deploying Individual Agents (Planner, Social) ---")
+        planner_resource_name = deploy_planner_agent(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})")
+        social_resource_name = deploy_social_agent(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})")
+    else:
+        print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
+        # Try to get from env if skipped, in case only workflow agent is being deployed but needs them
+        planner_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_PLANNER_RESOURCE_NAME"))
+        social_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_SOCIAL_RESOURCE_NAME"))
+
+
+    if not args.skip_platform_mcp_client:
+        print("--- Deploying Platform MCP Client Agent ---")
+        platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
+        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})")
+    else:
+        print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
+        platform_mcp_client_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME"))
+
+    # Prepare dynamic addresses for Orchestrate Agent
+    temp_remote_names_for_orchestrator = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
+    valid_remote_names_for_orchestrator = [name for name in temp_remote_names_for_orchestrator if name]
+    orchestrator_dynamic_addresses = ",".join(valid_remote_names_for_orchestrator)
+    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses for Orchestrate Agent: '{orchestrator_dynamic_addresses}'")
+
+    if not args.skip_agents: # Orchestrator is skipped if other agents are skipped (by --skip_agents)
+        print("--- Deploying Orchestrate Agent ---")
+        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})")
+    else:
+        print("Skipping Orchestrate agent deployment (as other agents were skipped by --skip_agents).")
+        orchestrate_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME"))
+
+
+    # Deploy Instavibe Workflow Agent - it needs planner_resource_name and orchestrate_resource_name
     if not args.skip_workflow_agent:
         print("--- Deploying Instavibe Workflow Agent ---")
-        # Ensure staging_bucket_uri is defined. It might be the same as COMMON_VERTEX_STAGING_BUCKET
-        # or a new one specific for ADK App deployments.
-        # For AdkApp, a staging bucket is required by vertexai.init() if not set globally.
-        # Let's assume COMMON_VERTEX_STAGING_BUCKET is suitable.
         if not staging_bucket_uri:
             print("ERROR: COMMON_VERTEX_STAGING_BUCKET must be set in .env for deploying the Workflow Agent.")
             sys.exit(1)
@@ -677,10 +716,12 @@ def main(argv=None):
 
         workflow_agent_url = deploy_instavibe_workflow_agent(
             project_id=project_id,
-            location=region, # location is 'region' here
+            location=region,
             staging_bucket_uri=staging_bucket_uri,
             reasoning_engine_id=workflow_agent_id,
-            agent_display_name=workflow_agent_display_name
+            agent_display_name=workflow_agent_display_name,
+            planner_target_name=planner_resource_name,
+            orchestrate_target_name=orchestrate_resource_name
         )
         if not workflow_agent_url:
             print("ERROR: Instavibe Workflow Agent deployment failed. Halting.")
@@ -688,42 +729,11 @@ def main(argv=None):
         print(f"Instavibe Workflow Agent deployed. Endpoint URL: {workflow_agent_url}")
     else:
         print("Skipping Instavibe Workflow Agent deployment due to --skip_workflow_agent flag.")
-        # If skipped, try to get URL from env for other dependent apps if they are not skipped
         workflow_agent_url = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_URL"))
         if not workflow_agent_url:
             print("Warning: Workflow agent deployment skipped and WORKFLOW_AGENT_URL not found in environment. Dependent apps might fail if not skipped.")
 
-
-    if not args.skip_agents:
-        print("--- Deploying Other Individual Agents (Planner, Social) ---")
-        # Planner agent might be deprecated if workflow agent handles all planning
-        planner_resource_name = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})")
-        social_resource_name = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})")
-    else:
-        print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
-
-    if not args.skip_platform_mcp_client:
-        print("--- Deploying Platform MCP Client Agent ---")
-        platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})")
-    else:
-        print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
-
-    temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
-    valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
-    orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
-    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses for Orchestrate Agent: '{orchestrator_dynamic_addresses}'")
-
-    if not args.skip_agents: # Orchestrator is skipped if other agents are skipped
-        print("--- Deploying Orchestrate Agent ---")
-        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})")
-    else:
-        print("Skipping Orchestrate agent deployment (as other agents were skipped).")
-
-
+    # Deploy Instavibe App - it needs workflow_agent_url
     if not args.skip_app:
         instavibe_env_vars_list = [
             f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",

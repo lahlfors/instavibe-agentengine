@@ -1,7 +1,12 @@
 # agents/planner/a2a_server.py
 from python_a2a.server import A2AServer
-from python_a2a import AgentCard, AgentSkill, AgentCapabilities, Part # Added Part
-from agents.planner.agent import PlannerAgent  # Your PlannerAgent class
+from python_a2a.models.agent import AgentCard # Specific import path
+from python_a2a.models.skill import AgentSkill # Specific import path
+from python_a2a.models.message import Part # Specific import path for Part
+# AgentCapabilities already removed.
+# The actual agent instance (from agents.planner.agent.root_agent) is passed in.
+# Type hint it with the base ADK LlmAgent.
+from google.adk.agents import LlmAgent as AdkLlmAgent
 import asyncio
 from fastapi import FastAPI
 import os
@@ -26,7 +31,7 @@ AGENT_NAME_FOR_CARD = "Planner A2A Agent" # From your example
 AGENT_DESCRIPTION_FOR_CARD = "A Planner agent that exposes an A2A API and MCP tools." # From your example
 
 
-def create_planner_a2a_server(planner_core_agent: PlannerAgent) -> A2AServer:
+def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # Updated type hint
     """
     Creates an A2A Server for the Planner agent with MCP integration.
     """
@@ -36,8 +41,7 @@ def create_planner_a2a_server(planner_core_agent: PlannerAgent) -> A2AServer:
         name="Planner Agent Skill",
         description="Handles planning requests.",
     )
-    # Define Agent Capabilities
-    capabilities = AgentCapabilities(streaming=True)  # Enable streaming
+    # AgentCapabilities removed, streaming is handled by method implementation
 
     # Create an Agent Card
     # A2A_PUBLIC_BASE_URL will be read from environment by the running agent
@@ -49,8 +53,8 @@ def create_planner_a2a_server(planner_core_agent: PlannerAgent) -> A2AServer:
         version="1.0.0",
         defaultInputModes=["text/plain"], # Planner ADK agent takes text
         defaultOutputModes=["application/json"], # Planner ADK agent outputs JSON string
-        skills=[skill],
-        capabilities=capabilities,
+        skills=[skill]
+        # capabilities attribute removed from AgentCard
     )
     logger.info(f"Planner AgentCard created. URL will be: {agent_card_url}")
 
@@ -69,9 +73,9 @@ def create_planner_a2a_server(planner_core_agent: PlannerAgent) -> A2AServer:
         return {"forecast": f"The weather in {city} is mostly sunny with a chance of awesome."}
 
     class PlannerAgentExecutor(AgentExecutor): # from python_a2a.agent
-        def __init__(self, agent: PlannerAgent, mcp_instance: FastMCP): # Pass MCP instance
+        def __init__(self, agent: AdkLlmAgent, mcp_instance: FastMCP): # Updated type hint, Pass MCP instance
             if agent is None:
-                raise ValueError("PlannerAgent instance is None for PlannerAgentExecutor.")
+                raise ValueError("ADK LlmAgent instance is None for PlannerAgentExecutor.") # Updated error message
             self.agent = agent
             self.mcp = mcp_instance # Store MCP instance
             logger.info(f"PlannerAgentExecutor initialized with ADK agent: {getattr(self.agent, 'name', 'Unnamed')} and MCP.")

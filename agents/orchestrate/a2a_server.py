@@ -6,7 +6,10 @@ from fastapi import FastAPI
 
 # Corrected A2A SDK imports for python-a2a==0.5.0
 from python_a2a.server import A2AServer
-from python_a2a import AgentCard, AgentSkill, AgentCapabilities, Part
+from python_a2a.models.agent import AgentCard
+from python_a2a.models.skill import AgentSkill
+from python_a2a.models.message import Part # Corrected import for Part
+# AgentCapabilities removed
 from python_a2a.agent import AgentExecutor, Task # For v0.5.0
 from python_a2a.server.events import EventQueue, TaskUpdater
 from python_a2a.server.request_context import RequestContext
@@ -90,7 +93,7 @@ def create_orchestrator_a2a_server(passed_orchestrate_service_agent: Orchestrate
     logger.info(f"Creating A2A server component for Orchestrator Agent: {AGENT_NAME_FOR_CARD}")
     logger.info(f"AgentCard URL will be: {public_base_url}")
 
-    capabilities = AgentCapabilities(streaming=True)
+    # AgentCapabilities removed
     orchestrator_main_skill = AgentSkill(
         id='orchestrate_task_delegation', # More specific ID
         name='Orchestrate Task Delegation',
@@ -106,7 +109,7 @@ def create_orchestrator_a2a_server(passed_orchestrate_service_agent: Orchestrate
         version="1.0.0",
         defaultInputModes=["application/json"],
         defaultOutputModes=["text/plain"],
-        capabilities=capabilities,
+        # capabilities attribute removed
         skills=[orchestrator_main_skill]
     )
 

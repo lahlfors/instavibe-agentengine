@@ -6,7 +6,10 @@ from fastapi import FastAPI
 
 # Corrected A2A SDK imports for python-a2a==0.5.0
 from python_a2a.server import A2AServer
-from python_a2a import AgentCard, AgentSkill, AgentCapabilities, Part
+from python_a2a.models.agent import AgentCard # Specific import path
+from python_a2a.models.skill import AgentSkill # Specific import path
+from python_a2a.models.message import Part # Specific import path
+# AgentCapabilities already removed
 from python_a2a.agent import AgentExecutor, Task
 from python_a2a.server.events import EventQueue, TaskUpdater
 from python_a2a.server.request_context import RequestContext
@@ -15,7 +18,7 @@ from python_a2a.client.helpers import create_text_message_object
 # ADK and agent-specific imports
 from google.adk.agents import Agent as AdkAgentType
 from google.genai import types as google_genai_types # For types.Content
-from agents.social.agent import SocialAgent # Your actual ADK agent class
+# from agents.social.agent import SocialAgent # This import is unused and likely incorrect; actual agent instance is passed in.
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -102,7 +105,7 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
         name="Social Profile Summarizer",
         description="Summarizes social media profiles and activities.",
     )
-    capabilities = AgentCapabilities(streaming=True)
+    # AgentCapabilities removed, streaming is handled by method implementation
 
     agent_card = AgentCard(
         name=AGENT_NAME_FOR_CARD,
@@ -111,8 +114,8 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
         version="1.0.0",
         defaultInputModes=["text/plain"],
         defaultOutputModes=["text/plain"],
-        skills=[skill],
-        capabilities=capabilities,
+        skills=[skill]
+        # capabilities attribute removed
     )
 
     executor = SocialAgentExecutor(passed_adk_social_agent)

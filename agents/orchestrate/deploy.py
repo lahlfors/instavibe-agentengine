@@ -54,30 +54,42 @@ def deploy_orchestrate_main_func(project_id: str, region: str, staging_bucket_ur
     a2a_starlette_app = create_orchestrator_a2a_server(passed_orchestrate_service_agent=orchestrate_core_adk_agent_service)
     logger.info(f"A2AStarletteApplication for Orchestrator created: {type(a2a_starlette_app).__name__}")
 
-    temp_requirements_file = "temp_orchestrate_requirements.txt"
-    current_vertexai_version = vertexai.__version__
-    # Use the orchestrator's own requirements.txt as a base, then add uvicorn etc.
-    base_requirements_path = os.path.join(os.path.dirname(__file__), "requirements.txt")
-    requirements_list = []
-    if os.path.exists(base_requirements_path):
-        with open(base_requirements_path, "r") as f:
-            requirements_list = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    temp_requirements_file_path = os.path.join(base_dir, "temp_orchestrate_requirements.txt") # Use base_dir for path
+    current_vertexai_version = getattr(vertexai, '__version__', '1.88')
 
-    if not any("uvicorn" in req for req in requirements_list):
-        requirements_list.append("uvicorn>=0.20.0")
-    if not any("fastapi" in req for req in requirements_list): # a2a-python needs it
-        requirements_list.append("fastapi>=0.95.0")
-    # Ensure google-cloud-aiplatform is present with adk,agent_engines extras
-    # Remove any existing line and add the correct one to avoid conflicts
-    requirements_list = [req for req in requirements_list if not req.startswith("google-cloud-aiplatform")]
-    requirements_list.append(f"google-cloud-aiplatform[agent_engines,adk]>={current_vertexai_version}")
-    if not any("nest_asyncio" in req for req in requirements_list):
-        requirements_list.append("nest_asyncio>=1.5.0,<2.0.0")
+    # Core dependencies with specific versions/extras
+    core_deps = [
+        "uvicorn>=0.20.0",
+        "fastapi>=0.95.0",
+        "python_a2a==0.5.0", # Correct package name and version
+        f"google-cloud-aiplatform[agent_engines,adk]>={current_vertexai_version}",
+        "nest_asyncio>=1.5.0,<2.0.0"
+    ]
 
-    with open(temp_requirements_file, "w") as f:
-        for req_line in requirements_list:
+    # Read static requirements
+    static_requirements = []
+    static_req_path = os.path.join(base_dir, "agents/orchestrate/requirements.txt") # Path to agent's own static reqs
+    if os.path.exists(static_req_path):
+        with open(static_req_path, "r") as orf:
+            for line in orf:
+                stripped_line = line.strip()
+                if stripped_line and not stripped_line.startswith("#"):
+                    static_requirements.append(stripped_line)
+
+    # Combine and de-duplicate: core_deps take precedence for common packages
+    final_req_dict = {req.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("[")[0]: req for req in core_deps}
+
+    for req in static_requirements:
+        req_name = req.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("[")[0]
+        if req_name not in final_req_dict: # Add static req only if its base package name isn't in core_deps
+            final_req_dict[req_name] = req
+
+    final_requirements_list = list(final_req_dict.values())
+
+    with open(temp_requirements_file_path, "w") as f:
+        for req_line in final_requirements_list:
             f.write(f"{req_line}\n")
-    logger.info(f"Dynamically created requirements file: {temp_requirements_file} with contents: {requirements_list}")
+    logger.info(f"Dynamically created temporary requirements file: {temp_requirements_file_path} with contents: {final_requirements_list}")
 
     adk_llm_agent_for_orchestrator = orchestrate_core_adk_agent_service.host_agent_logic.root_agent
     adk_app_instance = AdkApp(

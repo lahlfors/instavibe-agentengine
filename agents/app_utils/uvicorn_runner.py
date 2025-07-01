@@ -1,45 +1,41 @@
+# agents/app_utils/uvicorn_runner.py
 import asyncio
 import threading
 import uvicorn
+from typing import Callable # For Callable type hint
 import logging
 
-# It's good practice to have a logger for utility modules as well.
 logger = logging.getLogger(__name__)
+if not logger.handlers: # Avoid duplicate basicConfig
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-# Import A2AServer for type hinting
-from python_a2a.server import A2AServer
-
-def start_uvicorn_in_thread(a2a_app: A2AServer, host: str, port: int):
+def start_uvicorn_in_thread(asgi_app: Callable, host: str, port: int):
     """
-    Starts a Uvicorn server in a separate daemon thread to run an ASGI application.
-
+    Starts the Uvicorn server in a separate daemon thread.
     Args:
-        a2a_app: The A2AServer instance (which has a .build() method returning an ASGI app).
-        host: The host address for Uvicorn to bind to (e.g., "0.0.0.0").
-        port: The port number for Uvicorn to listen on.
+        asgi_app: The ASGI application callable (e.g., result of A2AServer.build()).
+        host: The host to bind Uvicorn to.
+        port: The port to bind Uvicorn to.
     """
-    loop = asyncio.new_event_loop()
+    # Each thread needs its own event loop if using asyncio.run like this.
+    # However, uvicorn.Server().serve() when run in a separate thread
+    # often manages its own loop or integrates with the one set by asyncio.run.
+    # The key is that uvicorn.run or server.serve is blocking in the context of the thread.
 
     def run_server_sync():
-        asyncio.set_event_loop(loop)
+        # It's generally safer for the thread to create and manage its own loop
+        # if it's doing significant async work directly with asyncio.
+        # However, uvicorn.run itself can often handle this.
+        # For simplicity and common patterns with uvicorn in a thread:
+        logger.info(f"Uvicorn thread: Starting server on {host}:{port} for app {getattr(asgi_app, '__name__', type(asgi_app).__name__)}")
         try:
-            # If a2a_app is an A2AServer instance, call build() to get the ASGI app
-            app_to_run = a2a_app
-            if hasattr(a2a_app, 'build') and callable(a2a_app.build):
-                app_to_run = a2a_app.build()
-                logger.info(f"Called .build() on A2AServer, running type: {type(app_to_run).__name__}")
-
-            logger.info(f"Starting Uvicorn server in thread on {host}:{port} for app: {type(app_to_run).__name__}")
-            config = uvicorn.Config(app_to_run, host=host, port=port, log_level="info", loop="asyncio")
-            server = uvicorn.Server(config)
-            loop.run_until_complete(server.serve())
+            uvicorn.run(asgi_app, host=host, port=port, log_level="info")
         except Exception as e:
-            logger.error(f"Error running Uvicorn server in thread: {e}", exc_info=True)
+            logger.error(f"Uvicorn thread: Error running server on {host}:{port}: {e}", exc_info=True)
         finally:
-            logger.info(f"Uvicorn server thread on {host}:{port} stopping.")
-            # loop.close() # Be careful with closing loops run by other threads if not managed properly
+            logger.info(f"Uvicorn thread: Server on {host}:{port} has shut down.")
 
     thread = threading.Thread(target=run_server_sync, daemon=True)
     thread.start()
-    logger.info(f"Uvicorn server thread started for {host}:{port}.")
+    logger.info(f"Uvicorn server thread for {host}:{port} initiated.")
     return thread

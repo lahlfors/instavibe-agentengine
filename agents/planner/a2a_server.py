@@ -1,134 +1,152 @@
-import asyncio
-import os
-import logging
-from fastapi import FastAPI
-
-# Corrected A2A SDK imports based on user's guide and package name `python_a2a`
+# agents/planner/a2a_server.py
 from python_a2a.server import A2AServer
-from python_a2a import AgentCard, AgentSkill, AgentCapabilities, Part # Assuming Part is in python_a2a
-from python_a2a.server.executors import AgentExecutor
-from python_a2a.server.tasks import Task # For creating new tasks
-from python_a2a.server.events import EventQueue, TaskUpdater # Assuming these are here
-from python_a2a.server.request_context import RequestContext # Assuming this is here
-from python_a2a.client.helpers import create_text_message_object # For creating response messages
+from python_a2a import AgentCard, AgentSkill, AgentCapabilities, Part # Added Part
+from agents.planner.agent import PlannerAgent  # Your PlannerAgent class
+import asyncio
+from fastapi import FastAPI
+import os
+from python_a2a.agent import AgentExecutor, Task # Corrected for v0.5.0
+# from python_a2a.client.helpers import create_text_message_object # Not used in this server example
+from python_a2a.mcp import FastMCP # For MCP integration example
+from python_a2a.server.request_context import RequestContext # Assuming this path for RequestContext
+from python_a2a.server.events import EventQueue, TaskUpdater # Assuming these paths for EventQueue and TaskUpdater
 
-# Import the ADK agent type for type hinting
-from google.adk.agents import Agent as AdkAgentType
-# Import the actual PlannerAgent class (or the module that defines root_agent)
-from agents.planner.agent import PlannerAgent, root_agent as planner_core_adk_agent_instance # For type hint and potentially local testing default
+import logging
 
+# Configure Logger
+# logging.basicConfig(level=logging.INFO) # BasicConfig should be called once, usually at app entry.
+# Assuming logger is configured by AdkApp or deploy script.
 logger = logging.getLogger(__name__)
-if not logger.handlers:
+if not logger.handlers: # Avoid duplicate basicConfig if already set by another module
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-# Configuration for the A2A server component
+
 A2A_UVICORN_PORT_PLANNER = int(os.environ.get("A2A_UVICORN_PORT_PLANNER", 8001))
-AGENT_NAME_FOR_CARD = "Planner A2A Agent" # From example
-AGENT_DESCRIPTION_FOR_CARD = "A Planner agent that exposes an A2A API." # From example
+AGENT_NAME_FOR_CARD = "Planner A2A Agent" # From your example
+AGENT_DESCRIPTION_FOR_CARD = "A Planner agent that exposes an A2A API and MCP tools." # From your example
 
-class PlannerAgentExecutor(AgentExecutor):
-    def __init__(self, agent: AdkAgentType): # Use AdkAgentType
-        if agent is None:
-            raise ValueError("ADK Planner agent instance is None for PlannerAgentExecutor.")
-        self.agent = agent
-        logger.info(f"PlannerAgentExecutor initialized with ADK agent: {getattr(self.agent, 'name', 'Unnamed ADK Agent')}")
 
-    async def execute(self, context: RequestContext, event_queue: EventQueue):
-        query = context.get_user_input()
-
-        # Ensure task object exists, create if necessary
-        task = context.current_task
-        if not task:
-            # Create a new task using A2A SDK types
-            # Assuming context.message.messageId is available for contextId
-            # If not, a new UUID or context.request_id might be needed
-            task_id = f"task_{os.urandom(8).hex()}" # Generate a simple unique task ID
-            context_id_for_task = getattr(context.message, 'messageId', None) or getattr(context, 'request_id', task_id)
-
-            task = Task(id=task_id, contextId=context_id_for_task, status="working")
-            event_queue.enqueue_event(task)
-
-        updater = TaskUpdater(event_queue, task.id, task.contextId)
-
-        if not query:
-            logger.warning(f"No user input found in request context for Planner task {task.id}.")
-            updater.fail(message="User input is missing for planner.")
-            return
-
-        logger.info(f"PlannerAgentExecutor: Executing task {task.id} for query: {query[:100]}...")
-        try:
-            # ADK LlmAgent.run is synchronous. Run it in an executor.
-            loop = asyncio.get_event_loop()
-            response_content_str = await loop.run_in_executor(None, self.agent.run, query)
-
-            logger.info(f"ADK planner agent executed for task {task.id}. Response type: {type(response_content_str)}")
-
-            # Assuming the planner's ADK agent (LlmAgent) returns a JSON string as per its prompt.
-            # The A2A spec suggests using Message objects for responses too.
-            # The example used create_text_message_object, but for a planner outputting JSON,
-            # adding an artifact with mime_type="application/json" is more direct.
-
-            # Create a Part object for the artifact
-            # Assuming 'Part' is imported from 'a2a' or 'a2a.types'
-            response_part = Part(text=response_content_str)
-            updater.add_artifact(parts=[response_part], mime_type="application/json") # Planner outputs JSON
-
-            updater.complete() # Mark task as completed
-            logger.info(f"Task {task.id} completed successfully by PlannerAgentExecutor.")
-
-        except Exception as e:
-            logger.error(f"Error during ADK agent execution for task {task.id}: {e}", exc_info=True)
-            updater.fail(message=f"Error executing planner agent: {str(e)}")
-
-def create_planner_a2a_server(passed_planner_agent: AdkAgentType) -> A2AServer:
+def create_planner_a2a_server(planner_core_agent: PlannerAgent) -> A2AServer:
     """
-    Creates an A2A Server for the Planner agent.
-    Args:
-        passed_planner_agent: The instantiated core ADK Agent for the planner.
+    Creates an A2A Server for the Planner agent with MCP integration.
     """
-    if passed_planner_agent is None:
-        logger.critical("Passed ADK Planner Agent is None. Cannot create A2A server.")
-        raise ValueError("ADK Planner Agent instance is required by create_planner_a2a_server.")
-
-    public_base_url = os.environ.get("A2A_PUBLIC_BASE_URL", f"http://localhost:{A2A_UVICORN_PORT_PLANNER}")
-
-    logger.info(f"Creating A2A server component for Planner Agent: {AGENT_NAME_FOR_CARD}")
-    logger.info(f"AgentCard URL will be: {public_base_url}")
-
+    # Define a skill
     skill = AgentSkill(
         id="planner_skill",
         name="Planner Agent Skill",
-        description="Handles planning requests by generating creative event plans.",
+        description="Handles planning requests.",
     )
-    capabilities = AgentCapabilities(streaming=True) # A2A server supports streaming task updates
+    # Define Agent Capabilities
+    capabilities = AgentCapabilities(streaming=True)  # Enable streaming
 
+    # Create an Agent Card
+    # A2A_PUBLIC_BASE_URL will be read from environment by the running agent
+    agent_card_url = os.environ.get("A2A_PUBLIC_BASE_URL", f"http://localhost:{A2A_UVICORN_PORT_PLANNER}")
     agent_card = AgentCard(
         name=AGENT_NAME_FOR_CARD,
         description=AGENT_DESCRIPTION_FOR_CARD,
-        url=public_base_url,
+        url=agent_card_url,
         version="1.0.0",
-        defaultInputModes=["text/plain"], # Planner's ADK agent takes a text query
-        defaultOutputModes=["application/json"], # Planner's ADK agent is instructed to output JSON
+        defaultInputModes=["text/plain"], # Planner ADK agent takes text
+        defaultOutputModes=["application/json"], # Planner ADK agent outputs JSON string
         skills=[skill],
         capabilities=capabilities,
     )
+    logger.info(f"Planner AgentCard created. URL will be: {agent_card_url}")
 
-    executor = PlannerAgentExecutor(passed_planner_agent)
 
-    # Optional FastAPI app for custom health checks or other non-A2A routes
-    custom_fastapi_app = FastAPI()
-    @custom_fastapi_app.get("/_a2a_health")
+    # --- MCP Setup ---
+    mcp = FastMCP(f"{AGENT_NAME_FOR_CARD} MCP Server") # Give MCP server a name
+
+    @mcp.tool()
+    def get_weather_forecast(city: str = "New York") -> dict:
+        """
+        Returns a weather forecast for the given city. (MCP tool)
+        """
+        # Example weather API call
+        logging.info(f"MCP tool 'get_weather_forecast' called for city: {city}")
+        # In a real scenario, this would call a weather service.
+        return {"forecast": f"The weather in {city} is mostly sunny with a chance of awesome."}
+
+    class PlannerAgentExecutor(AgentExecutor): # from python_a2a.agent
+        def __init__(self, agent: PlannerAgent, mcp_instance: FastMCP): # Pass MCP instance
+            if agent is None:
+                raise ValueError("PlannerAgent instance is None for PlannerAgentExecutor.")
+            self.agent = agent
+            self.mcp = mcp_instance # Store MCP instance
+            logger.info(f"PlannerAgentExecutor initialized with ADK agent: {getattr(self.agent, 'name', 'Unnamed')} and MCP.")
+
+        async def execute(self, context: RequestContext, event_queue: EventQueue):
+            query = context.get_user_input()
+
+            task = context.current_task
+            if not task:
+                task_id = f"task_{os.urandom(8).hex()}"
+                context_id_for_task = getattr(context.message, 'messageId', task_id)
+                task = Task(id=task_id, contextId=context_id_for_task, status="working")
+                event_queue.enqueue_event(task)
+
+            updater = TaskUpdater(event_queue, task.id, task.contextId)
+
+            if not query:
+                logger.warning(f"No user input for Planner task {task.id}.")
+                updater.fail(message="User input is missing for planner.")
+                return
+
+            # Check if the query is an MCP call first
+            # Assuming query is a string that might contain a JSON RPC call for MCP
+            logger.info(f"PlannerAgentExecutor received query for task {task.id}: {query[:100]}...")
+            if isinstance(query, str): # MCP typically expects JSON string
+                try:
+                    # FastMCP.handle_request expects a string (JSON RPC) or a dict.
+                    # If query is already a dict from A2A context, it might work directly.
+                    # For now, assume query from get_user_input is the string payload.
+                    mcp_response = await self.mcp.handle_request(query)
+                    if mcp_response is not None: # MCP handled it
+                        logger.info(f"MCP handled request for task {task.id}. Response: {mcp_response}")
+                        # The MCP response itself might be a JSON string or a dict.
+                        # We need to send it back as an A2A Part.
+                        response_part = Part(text=str(mcp_response) if not isinstance(mcp_response, str) else mcp_response)
+                        updater.add_artifact(parts=[response_part], mime_type="application/json") # MCP often returns JSON
+                        updater.complete()
+                        return
+                except Exception as mcp_e:
+                    # Log MCP specific error, but don't let it stop A2A flow if it's not an MCP request
+                    logger.debug(f"Query was not an MCP request or MCP error for task {task.id}: {mcp_e}")
+
+
+            # If not an MCP call, or mcp.handle_request returned None (not handled), proceed with regular agent logic
+            logger.info(f"Proceeding with ADK agent logic for task {task.id} (query: {query[:100]}...).")
+            try:
+                loop = asyncio.get_event_loop()
+                response_content_str = await loop.run_in_executor(None, self.agent.run, query)
+
+                logger.info(f"ADK planner agent executed for task {task.id}. Response: {response_content_str[:100]}")
+
+                response_part = Part(text=response_content_str)
+                updater.add_artifact(parts=[response_part], mime_type="application/json")
+                updater.complete()
+                logger.info(f"Task {task.id} completed via ADK logic by PlannerAgentExecutor.")
+
+            except Exception as e:
+                logger.error(f"Error during ADK agent execution for task {task.id}: {e}", exc_info=True)
+                updater.fail(message=f"Error executing planner ADK logic: {str(e)}")
+
+
+    # Create FastAPI app for custom non-A2A routes (like health)
+    custom_fastapi_app = FastAPI(title=f"{AGENT_NAME_FOR_CARD} Custom Routes")
+    @custom_fastapi_app.get("/_a2a_health") # Prefix with something to avoid A2A namespace
     async def health():
-      return {"status": "ok", "agent_name": AGENT_NAME_FOR_CARD, "a2a_interface": "active"}
+        return {"status": "ok", "agent_name": AGENT_NAME_FOR_CARD, "a2a_interface": "active"}
 
+    # Create and return the A2A Server
     a2a_server_instance = A2AServer(
         agent_card=agent_card,
-        agent_executor=executor,
-        app=custom_fastapi_app, # Pass the FastAPI app here
+        agent_executor=PlannerAgentExecutor(planner_core_agent, mcp), # Pass planner_core_agent and mcp
+        app=custom_fastapi_app, # Pass the custom FastAPI app
+        mcp=mcp  # Pass the MCP instance to A2AServer for it to mount MCP routes
     )
     logger.info(f"A2AServer instance created for {AGENT_NAME_FOR_CARD}.")
     return a2a_server_instance
 
-# Standalone execution block (if __name__ == "__main__") is removed
-# as Uvicorn will be started by AdkApp's setup_fn.
-# For local testing, the deploy.py script's __main__ block can be used.
+# Standalone execution block removed as per plan.

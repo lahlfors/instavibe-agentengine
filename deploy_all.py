@@ -292,50 +292,63 @@ def deploy_agent_with_forced_update(
     return None
 
 # Specific deployment functions using the generic helper
-def deploy_planner_agent(project_id: str, region: str, staging_bucket_uri: str): # Added staging_bucket_uri
-    # This agent might become obsolete if all planning goes through the workflow agent
-    print("Note: Planner Agent deployment might be obsolete if all planning is via Workflow Agent.")
-    # Pass staging_bucket_uri to deploy_planner_main_func via additional_deploy_args
-    # base_dir is also needed by deploy_planner_main_func if it resolves paths from repo root
-    repo_root = os.path.dirname(os.path.abspath(__file__))
-    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root}
+
+# Import the new planner deployment function
+from agents.planner.deploy import deploy_planner_agent as deploy_planner_agent_module_func
+
+def deploy_planner_agent(project_id: str, region: str, staging_bucket_uri: str):
+    print("Note: Planner Agent deployment uses new ADK embedded A2A server logic.")
+    # The deploy_planner_agent_module_func from agents/planner/deploy.py now handles its own init and two-step.
+    # deploy_agent_with_forced_update is mainly for pre-deletion.
+    # We need to adapt the arguments or the way it's called.
+    # The target function expects: (staging_bucket_uri: str, project_id: str = None, location: str = None)
+    # deploy_agent_with_forced_update passes: project_id, region, and additional_args.
+
+    # For now, let's make additional_args align with what the new deploy_planner_agent_module_func expects.
+    # It doesn't need base_dir. It takes project_id, location (from region), staging_bucket_uri.
+    additional_args = {
+        "project_id": project_id,
+        "location": region, # Map region to location
+        "staging_bucket_uri": staging_bucket_uri
+    }
     return deploy_agent_with_forced_update(
-        project_id, region, "Planner Agent (A2A-Embedded v2)",
-        deploy_planner_main_func,
-        base_dir_for_deploy_func=repo_root, # Pass repo_root also as base_dir_for_deploy_func for consistency
+        project_id, region, "Planner Agent (A2A-MCP v0.5.0)", # Display name from your example
+        deploy_planner_agent_module_func, # This is the actual function from agents/planner/deploy.py
         additional_deploy_args=additional_args
+        # base_dir_for_deploy_func is not strictly needed by the new planner deploy func
     )
 
 def deploy_social_agent(project_id: str, region: str, staging_bucket_uri: str): # Added staging_bucket_uri
     repo_root = os.path.dirname(os.path.abspath(__file__))
-    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root}
+    # This will need similar refactoring once agents/social/deploy.py is updated
+    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root, "location": region}
     return deploy_agent_with_forced_update(
-        project_id, region, "Social Agent (A2A-Embedded v2)", # Updated display name for consistency
-        deploy_social_main_func,
+        project_id, region, "Social Agent (A2A-Embedded v2)",
+        deploy_social_main_func, # This will be replaced by deploy_social_agent_module_func
         base_dir_for_deploy_func=repo_root,
         additional_deploy_args=additional_args
     )
 
 def deploy_orchestrate_agent(project_id: str, region: str, staging_bucket_uri: str, remote_addresses_str: str): # Added staging_bucket_uri
     repo_root = os.path.dirname(os.path.abspath(__file__))
+    # This will need similar refactoring
     additional_args = {
         "staging_bucket_uri": staging_bucket_uri,
         "dynamic_remote_agent_addresses": remote_addresses_str,
-        "base_dir": repo_root
+        "base_dir": repo_root,
+        "location": region
     }
     return deploy_agent_with_forced_update(
-        project_id, region, "Orchestrate Agent (A2A-Embedded v2)", # Updated display name
-        deploy_orchestrate_main_func,
+        project_id, region, "Orchestrate Agent (A2A-Embedded v2)",
+        deploy_orchestrate_main_func, # This will be replaced
         base_dir_for_deploy_func=repo_root,
         additional_deploy_args=additional_args
     )
 
 def deploy_platform_mcp_client(project_id: str, region: str, staging_bucket_uri: str): # Added staging_bucket_uri
-    # Platform MCP Client might not need the A2A embedding, depends on its design.
-    # Assuming it's a standard ADK RE for now, adjust if it also needs A2A embedding.
     print("Note: Platform MCP Client agent deployment assumes it's a standard ADK RE without embedded A2A server for now.")
     repo_root = os.path.dirname(os.path.abspath(__file__))
-    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root} # If its deploy_main_func needs it
+    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root, "location": region}
     return deploy_agent_with_forced_update(
         project_id, region, "Platform MCP Client Agent",
         deploy_platform_mcp_client_main_func,

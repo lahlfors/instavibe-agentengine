@@ -411,7 +411,7 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
 
     try:
         print(f"Checking for existing workflow agent (ReasoningEngine): {agent_display_name} in {location}")
-        existing_engines = list(vertexai.agent_engines.list(filter=f'display_name="{agent_display_name}" AND location="{location}"'))
+        existing_engines = list(agent_engines.list(filter=f'display_name="{agent_display_name}" AND location="{location}"')) # CHANGED
 
         if existing_engines:
             print(f"Found existing ReasoningEngine: {existing_engines[0].name}. Agent Engine does not support update via agent_engines.update() for this type of agent. Please delete and redeploy if changes are needed, or use a new reasoning_engine_id.")
@@ -441,7 +441,7 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
             # We must ensure `agents.instavibe_workflow.agent` is findable by the Python environment running `deploy_all.py`.
             # `sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))` at the top of deploy_all.py helps.
 
-            deployed_reasoning_engine = vertexai.agent_engines.create(
+            deployed_reasoning_engine = agent_engines.create( # CHANGED
                 reasoning_engine_id=reasoning_engine_id, # This is the "short name"
                 agent=agent_definition,
                 display_name=agent_display_name,
@@ -463,7 +463,7 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
 
             # Re-fetch the agent to get potentially updated info, including endpoint_uri
             try:
-                refetched_engine = vertexai.agent_engines.get(deployed_reasoning_engine.name)
+                refetched_engine = agent_engines.get(deployed_reasoning_engine.name) # CHANGED
                 if refetched_engine and hasattr(refetched_engine, 'endpoint_uri') and refetched_engine.endpoint_uri:
                     deployed_agent_endpoint_uri = refetched_engine.endpoint_uri
                     print(f"Instavibe Workflow Agent Endpoint URI: {deployed_agent_endpoint_uri}")

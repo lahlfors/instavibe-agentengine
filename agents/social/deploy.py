@@ -15,23 +15,33 @@ from agents.app_utils.uvicorn_runner import start_uvicorn_in_thread
 from python_a2a.server import A2AServer # For type hinting in run_local_uvicorn
 
 logger = logging.getLogger(__name__)
+from typing import Optional # Add Optional for the new display_name parameter
+
 if not logger.handlers:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: str, base_dir: str):
+def deploy_social_agent(staging_bucket_uri: str, display_name: Optional[str] = None):
     """
     Deploys the Social agent with an integrated A2A server to Vertex AI Agent Engines
     (using generative_models for deployment).
     Uses a two-step process (create then update) to set the A2A_PUBLIC_BASE_URL.
     """
-    display_name = "Social Agent (A2A-Embedded v2)" # Consistent naming
-    description = "Social agent with an embedded A2A interface for profile analysis and summarization (python-a2a v0.5.0)."
+    effective_display_name = display_name or "Social Agent (A2A-Embedded)"
+    description = f"Social agent: {effective_display_name}. Provides profile analysis and summarization via A2A (python-a2a v0.5.0)."
 
-    logger.info(f"Starting deployment of '{display_name}' to Project: {project_id}, Region: {region}")
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+
+    logger.info(f"Starting deployment of '{effective_display_name}' to Project: {project_id}, Location: {location}")
+
+    if not all([project_id, location, staging_bucket_uri]):
+        raise ValueError(
+            "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set."
+        )
 
     try:
-        vertexai.init(project=project_id, location=region, staging_bucket=staging_bucket_uri)
-        logger.info(f"Vertex AI SDK initialized for Social Agent: project:{project_id}, location:{region}, staging:{staging_bucket_uri}")
+        vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket_uri)
+        logger.info(f"Vertex AI SDK initialized for Social Agent: project:{project_id}, location:{location}, staging:{staging_bucket_uri}")
     except Exception as e:
         logger.error(f"Error initializing Vertex AI SDK for Social Agent: {e}", exc_info=True)
         raise
@@ -44,7 +54,8 @@ def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: st
     a2a_server = create_social_a2a_server(social_core_adk_agent_instance)
     logger.info("A2AServer instance for Social Agent created.")
 
-    temp_requirements_file_path = os.path.join(base_dir, "temp_social_deploy_requirements.txt")
+    # Use NamedTemporaryFile for requirements, similar to planner
+    temp_req_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", prefix="social_req_")
     current_vertexai_version = getattr(vertexai, '__version__', '1.88')
 
     requirements_content = [
@@ -52,31 +63,28 @@ def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: st
         "fastapi>=0.95.0",
         "python-a2a==0.5.0",
         "httpx>=0.20.0",
-        f"google-cloud-aiplatform>={current_vertexai_version}", # Base, not with [extras] as per example
+        f"google-cloud-aiplatform>={current_vertexai_version}",
         "nest_asyncio>=1.5.0,<2.0.0"
     ]
     # Merge with static requirements from agents/social/requirements.txt
-    static_req_path = os.path.join(base_dir, "agents/social/requirements.txt")
+    # Assumes requirements.txt is in the same directory as this deploy.py script
+    static_req_path = os.path.join(os.path.dirname(__file__), "requirements.txt")
     if os.path.exists(static_req_path):
         with open(static_req_path, "r") as orf:
             for line in orf:
                 stripped_line = line.strip()
                 if stripped_line and not stripped_line.startswith("#"):
-                    # Avoid duplicating if already covered by core_deps with specific versions
-                    is_core_dep = False
-                    for core_dep_base in ["uvicorn", "fastapi", "python-a2a", "google-cloud-aiplatform", "nest_asyncio", "httpx"]:
-                        if stripped_line.startswith(core_dep_base):
-                            is_core_dep = True
-                            break
+                    is_core_dep = any(stripped_line.startswith(core_dep_base) for core_dep_base in
+                                      ["uvicorn", "fastapi", "python-a2a", "google-cloud-aiplatform", "nest_asyncio", "httpx"])
                     if not is_core_dep:
                         requirements_content.append(stripped_line)
 
-    requirements_content = sorted(list(set(requirements_content))) # Deduplicate
+    requirements_content = sorted(list(set(requirements_content)))
 
-    with open(temp_requirements_file_path, "w") as f:
-        for req in requirements_content:
-            f.write(req + "\n")
-    logger.info(f"Dynamically created temporary requirements file: {temp_requirements_file_path}")
+    for req_line in requirements_content:
+        temp_req_file.write(req_line + "\n")
+    temp_req_file.close() # Close the file so ADK can read it
+    logger.info(f"Dynamically created temporary requirements file: {temp_req_file.name}")
 
     adk_app = AdkApp(
         agent=social_core_adk_agent_instance,
@@ -86,8 +94,8 @@ def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: st
 
     env_vars_initial = {
         "A2A_UVICORN_PORT_SOCIAL": str(A2A_UVICORN_PORT_SOCIAL),
-        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
-        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id, # project_id is already defined from env
+        "COMMON_GOOGLE_CLOUD_LOCATION": location, # location is already defined from env
         "PYTHONUNBUFFERED": "1",
         "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO").upper(),
         "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
@@ -95,35 +103,38 @@ def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: st
         "ADK_SESSION_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
         "ADK_SESSION_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
     }
-    env_vars_initial = {k:v for k,v in env_vars_initial.items() if v is not None}
+    env_vars_initial = {k:v for k,v in env_vars_initial.items() if v is not None} # Filter out None values
     logger.info(f"Initial env_vars for Social Agent create: {env_vars_initial}")
 
+    # Define extra_packages relative to the repository root (where deploy_all.py runs)
+    # This script (agents/social/deploy.py) is one level down.
+    # To make them relative to repo root: "agents/app_utils", "agents/social"
+    repo_root_relative_app_utils = "agents/app_utils"
+    repo_root_relative_social_agent = "agents/social"
+
     extra_packages_for_deployment = [
-        os.path.join(base_dir, "agents/app_utils"),
-        os.path.join(base_dir, "agents/social"),
+        repo_root_relative_app_utils,
+        repo_root_relative_social_agent,
     ]
-    for pkg_path in extra_packages_for_deployment:
-        if not os.path.exists(pkg_path):
-            logger.error(f"Critical: Extra package path for Social Agent deployment not found: {pkg_path}")
-            if os.path.exists(temp_requirements_file_path): os.remove(temp_requirements_file_path)
-            raise FileNotFoundError(f"Extra package path {pkg_path} not found.")
+    # Verification of paths should ideally be done by the caller (deploy_all.py) or paths constructed carefully.
+    # For robustness, could add a check here if needed, assuming a certain CWD.
     logger.info(f"Extra packages for Social Agent deployment: {extra_packages_for_deployment}")
 
     remote_app = None
     try:
-        logger.info(f"Calling initial generative_models.ReasoningEngine.create for '{display_name}'")
+        logger.info(f"Calling initial generative_models.ReasoningEngine.create for '{effective_display_name}'")
         remote_app = generative_models.ReasoningEngine.create(
             AdkApp( # Pass AdkApp instance directly
                 agent=social_core_adk_agent_instance,
                 setup_fn=lambda: start_uvicorn_in_thread(a2a_server.build(), "0.0.0.0", A2A_UVICORN_PORT_SOCIAL)
             ),
-            display_name=display_name,
-            description=description,
-            requirements=[temp_requirements_file_path],
+            display_name=effective_display_name, # Use effective_display_name
+            description=description, # Use updated description
+            requirements=[temp_req_file.name], # Use .name of the temp file
             extra_packages=extra_packages_for_deployment,
             environment_variables=env_vars_initial
         )
-        logger.info(f"Initial deployment of '{display_name}' successful. Resource name: {remote_app.name}")
+        logger.info(f"Initial deployment of '{effective_display_name}' successful. Resource name: {remote_app.name}")
 
         retrieved_a2a_public_url = None
         if hasattr(remote_app, 'gca_resource') and remote_app.gca_resource and \
@@ -133,14 +144,14 @@ def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: st
              retrieved_a2a_public_url = remote_app.uri
 
         if not retrieved_a2a_public_url:
-            logger.error(f"Failed to retrieve public_endpoint_uri for '{display_name}'.")
-            raise RuntimeError(f"Could not get public_endpoint_uri for {display_name}.")
-        logger.info(f"Retrieved public_endpoint_uri for '{display_name}': {retrieved_a2a_public_url}")
+            logger.error(f"Failed to retrieve public_endpoint_uri for '{effective_display_name}'.")
+            raise RuntimeError(f"Could not get public_endpoint_uri for {effective_display_name}.")
+        logger.info(f"Retrieved public_endpoint_uri for '{effective_display_name}': {retrieved_a2a_public_url}")
 
         env_vars_updated = env_vars_initial.copy()
         env_vars_updated["A2A_PUBLIC_BASE_URL"] = retrieved_a2a_public_url
 
-        logger.info(f"Calling generative_models.ReasoningEngine.update for '{remote_app.name}' to set A2A_PUBLIC_BASE_URL...")
+        logger.info(f"Calling generative_models.ReasoningEngine.update for '{remote_app.name}' (Display Name: {effective_display_name}) to set A2A_PUBLIC_BASE_URL...")
 
         remote_app_updated = generative_models.ReasoningEngine.update(
             resource_name=remote_app.name,
@@ -148,33 +159,34 @@ def deploy_social_main_func(project_id: str, region: str, staging_bucket_uri: st
                 agent=social_core_adk_agent_instance,
                 setup_fn=lambda: start_uvicorn_in_thread(a2a_server.build(), "0.0.0.0", A2A_UVICORN_PORT_SOCIAL)
             ),
-            requirements=[temp_requirements_file_path],
+            requirements=[temp_req_file.name], # Use .name of the temp file
             extra_packages=extra_packages_for_deployment,
             environment_variables=env_vars_updated
         )
-        logger.info(f"'{display_name}' updated successfully. Current resource name: {remote_app_updated.name}")
+        logger.info(f"'{effective_display_name}' updated successfully. Current resource name: {remote_app_updated.name}")
 
         if hasattr(a2a_server, 'agent_card') and a2a_server.agent_card:
             a2a_server.agent_card.url = retrieved_a2a_public_url
 
         return remote_app_updated
     except Exception as e:
-        logger.error(f"ERROR during deployment process for '{display_name}': {e}", exc_info=True)
+        logger.error(f"ERROR during deployment process for '{effective_display_name}': {e}", exc_info=True)
         if remote_app and hasattr(remote_app, 'name') and remote_app.name:
             try:
-                logger.warning(f"Attempting to delete partially deployed agent '{remote_app.name}' due to error.")
+                logger.warning(f"Attempting to delete partially deployed agent '{remote_app.name}' (Display Name: {effective_display_name}) due to error.")
                 generative_models.ReasoningEngine(remote_app.name).delete(force=True)
-                logger.info(f"Successfully deleted partially deployed agent '{remote_app.name}'.")
+                logger.info(f"Successfully deleted partially deployed agent '{remote_app.name}' (Display Name: {effective_display_name}).")
             except Exception as del_e:
-                logger.error(f"Failed to delete partially deployed agent '{remote_app.name}': {del_e}", exc_info=True)
+                logger.error(f"Failed to delete partially deployed agent '{remote_app.name}' (Display Name: {effective_display_name}): {del_e}", exc_info=True)
         raise
     finally:
-        if os.path.exists(temp_requirements_file_path):
+        # Clean up the temporary requirements file
+        if os.path.exists(temp_req_file.name):
             try:
-                os.remove(temp_requirements_file_path)
-                logger.info(f"Removed temporary requirements file: {temp_requirements_file_path}")
+                os.remove(temp_req_file.name)
+                logger.info(f"Removed temporary requirements file: {temp_req_file.name}")
             except OSError as e_rm:
-                logger.warning(f"Could not remove temporary requirements file {temp_requirements_file_path}: {e_rm}")
+                logger.warning(f"Could not remove temporary requirements file {temp_req_file.name}: {e_rm}")
 
 # Local testing block (optional)
 async def run_local_uvicorn_for_social(a2a_s: A2AServer):

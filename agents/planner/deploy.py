@@ -21,24 +21,31 @@ logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
+from typing import Optional # Add Optional for the new display_name parameter
+
 # Function name as per user's example in the guide
-def deploy_planner_agent(staging_bucket_uri: str, project_id: str = None, location: str = None): # Added project_id, location as optional
+def deploy_planner_agent(staging_bucket_uri: str, display_name: Optional[str] = None):
     """Deploys the Planner agent with integrated A2A server and MCP."""
-    display_name = "Planner Agent (A2A-MCP v0.5.0)"
-    logger.info(f"Starting deployment of '{display_name}'...")
+    effective_display_name = display_name or "Planner Agent (A2A-MCP v0.5.0)" # Use passed display_name or default
+    logger.info(f"Starting deployment of '{effective_display_name}'...")
 
     # Initialize ADK
-    project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = location or os.environ.get("GOOGLE_CLOUD_LOCATION")
-    # staging_bucket_uri is now a required argument for this function
+    # project_id and location will be picked up by vertexai.init() from environment variables
+    # or from a previous vertexai.init() call if one was made (e.g. in deploy_all.py)
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
 
     if not all([project_id, location, staging_bucket_uri]):
         raise ValueError(
-            "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set."
+            "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set either as environment variables or explicitly."
         )
 
     logger.info(f"Deployment Config: Project={project_id}, Location={location}, Staging Bucket={staging_bucket_uri}")
 
+    # It's good practice for vertexai.init to be called,
+    # but deploy_all.py might call it once globally.
+    # If this function is called standalone, it needs to ensure initialization.
+    # Re-calling vertexai.init() is generally safe and idempotent for the same settings.
     vertexai.init(
         project=project_id, location=location, staging_bucket=staging_bucket_uri
     )
@@ -121,9 +128,11 @@ def deploy_planner_agent(staging_bucket_uri: str, project_id: str = None, locati
             raise FileNotFoundError(f"Extra package path {pkg_path} not found.")
     logger.info(f"Extra packages for deployment: {extra_packages_for_deployment}")
 
+    description = f"Planner Agent with A2A/MCP capabilities. Display Name: {effective_display_name}" # Define description
+
     remote_app = None
     try:
-        logger.info(f"Calling initial generative_models.create for '{display_name}'")
+        logger.info(f"Calling initial generative_models.create for '{effective_display_name}'") # Use effective_display_name in log
         # agent_engines.create is now generative_models.ReasoningEngine.create
         # The parameters might differ slightly. The example uses agent_engine=, requirements=, env_vars=.
         # AdkApp is a valid type for agent_engine.
@@ -132,8 +141,8 @@ def deploy_planner_agent(staging_bucket_uri: str, project_id: str = None, locati
                 agent=planner_core_agent,
                 setup_fn=lambda: start_uvicorn_in_thread(a2a_server.build(), "0.0.0.0", A2A_UVICORN_PORT_PLANNER)
             ),
-            display_name=display_name,
-            description=description,
+            display_name=effective_display_name, # Use effective_display_name
+            description=description, # Use defined description
             requirements=[temp_req_file.name],
             extra_packages=extra_packages_for_deployment,
             environment_variables=env_vars_initial
@@ -167,7 +176,7 @@ def deploy_planner_agent(staging_bucket_uri: str, project_id: str = None, locati
         env_vars_updated = env_vars_initial.copy()
         env_vars_updated["A2A_PUBLIC_BASE_URL"] = retrieved_a2a_public_url
 
-        logger.info(f"Calling generative_models.ReasoningEngine.update for '{remote_app.name}' to set A2A_PUBLIC_BASE_URL...")
+        logger.info(f"Calling generative_models.ReasoningEngine.update for '{remote_app.name}' (Display Name: {effective_display_name}) to set A2A_PUBLIC_BASE_URL...") # Use effective_display_name
         logger.info(f"Updated env_vars for update: {env_vars_updated}")
 
         # The update method for ReasoningEngine also needs the AdkApp instance.
@@ -183,7 +192,7 @@ def deploy_planner_agent(staging_bucket_uri: str, project_id: str = None, locati
             extra_packages=extra_packages_for_deployment,
             environment_variables=env_vars_updated
         )
-        logger.info(f"'{display_name}' updated successfully with A2A_PUBLIC_BASE_URL. Current resource name: {remote_app_updated.name}")
+        logger.info(f"'{effective_display_name}' updated successfully with A2A_PUBLIC_BASE_URL. Current resource name: {remote_app_updated.name}") # Use effective_display_name
 
         # Update local A2AServer's card URL (for local testing or if this instance is used further)
         if hasattr(a2a_server, 'agent_card') and a2a_server.agent_card:
@@ -192,15 +201,15 @@ def deploy_planner_agent(staging_bucket_uri: str, project_id: str = None, locati
         return remote_app_updated
 
     except Exception as e:
-        logger.error(f"ERROR during deployment process for '{display_name}': {e}", exc_info=True)
+        logger.error(f"ERROR during deployment process for '{effective_display_name}': {e}", exc_info=True) # Use effective_display_name
         if remote_app and hasattr(remote_app, 'name') and remote_app.name:
             try:
-                logger.warning(f"Attempting to delete partially deployed agent '{remote_app.name}' due to error.")
+                logger.warning(f"Attempting to delete partially deployed agent '{remote_app.name}' (Display Name: {effective_display_name}) due to error.") # Use effective_display_name
                 # Use generative_models.ReasoningEngine for delete
                 generative_models.ReasoningEngine(remote_app.name).delete(force=True)
-                logger.info(f"Successfully deleted partially deployed agent '{remote_app.name}'.")
+                logger.info(f"Successfully deleted partially deployed agent '{remote_app.name}' (Display Name: {effective_display_name}).") # Use effective_display_name
             except Exception as del_e:
-                logger.error(f"Failed to delete partially deployed agent '{remote_app.name}': {del_e}", exc_info=True)
+                logger.error(f"Failed to delete partially deployed agent '{remote_app.name}' (Display Name: {effective_display_name}): {del_e}", exc_info=True) # Use effective_display_name
         raise
     finally:
         if os.path.exists(temp_req_file.name):

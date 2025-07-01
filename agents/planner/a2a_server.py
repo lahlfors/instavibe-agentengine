@@ -40,9 +40,11 @@ if AGENT_INSTRUCTION:
 
 HOST = os.environ.get("A2A_HOST", "0.0.0.0")  # Listen on all interfaces
 PORT = int(os.environ.get("A2A_PORT", os.environ.get("PORT", 8080))) # Use A2A_PORT, fallback to PORT, then 8080
-BASE_URL = os.environ.get("A2A_BASE_URL", f"http://{HOST}:{PORT}")
+# BASE_URL will now be determined using A2A_PUBLIC_BASE_URL for deployed environments
+A2A_PUBLIC_BASE_URL = os.environ.get("A2A_PUBLIC_BASE_URL")
+BASE_URL = A2A_PUBLIC_BASE_URL if A2A_PUBLIC_BASE_URL else f"http://{HOST}:{PORT}"
 # For deployed agents, BASE_URL should be the public URL. This might need to be set via env var during deployment.
-# If running in Cloud Run, Cloud Run provides the public URL.
+# If running in Cloud Run, Cloud Run provides the public URL via $SERVICE_URL, which should be mapped to A2A_PUBLIC_BASE_URL.
 
 # Define the AgentExecutor for the Planner ADK Agent
 class PlannerAgentExecutor(AgentExecutor):

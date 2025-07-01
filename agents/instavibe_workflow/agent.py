@@ -70,19 +70,19 @@ class InstavibeWorkflowAgent:
 
         # Fetching agent card can be optional if the base URL is the direct A2A endpoint.
         # For now, let's assume agent_a2a_url is the base for /.well-known/agent.json and A2A calls.
-        # target_agent_card = await self._fetch_agent_card(agent_a2a_url)
-        # if not target_agent_card or not target_agent_card.url:
-        #     thoughts.append(f"Could not retrieve or use agent card for {agent_name_for_log} at {agent_a2a_url}.")
-        #     logger.error(f"Failed to get agent card for {agent_name_for_log}.")
-        #     return None, thoughts
-        # effective_a2a_target_url = target_agent_card.url # URL from card is the A2A endpoint
+        target_agent_card = await self._fetch_agent_card(agent_a2a_url)
+        if not target_agent_card or not target_agent_card.url:
+            thoughts.append(f"Could not retrieve or use agent card for {agent_name_for_log} at {agent_a2a_url}.")
+            logger.error(f"Failed to get agent card for {agent_name_for_log}.")
+            return None, thoughts
+        effective_a2a_target_url = target_agent_card.url # URL from card is the A2A endpoint
 
         # Simplified: Assuming agent_a2a_url is the direct callable A2A endpoint.
         # If agent_card.url is different or provides more specific endpoint, use that.
-        effective_a2a_target_url = agent_a2a_url
+        # effective_a2a_target_url = agent_a2a_url # Replaced by using card.url
 
-        thoughts.append(f"Sending message to {agent_name_for_log} at {effective_a2a_target_url}.")
-        logger.info(f"Calling {agent_name_for_log} ({effective_a2a_target_url}) via A2AClient.")
+        thoughts.append(f"Sending message to {agent_name_for_log} (Name from card: '{target_agent_card.name}') at {effective_a2a_target_url}.")
+        logger.info(f"Calling {agent_name_for_log} (Name from card: '{target_agent_card.name}', URL from card: {effective_a2a_target_url}) via A2AClient.")
 
         try:
             a2a_request_message = A2AMessage(role="user", parts=[A2APart(text=input_payload)])

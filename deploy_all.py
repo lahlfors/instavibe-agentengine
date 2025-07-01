@@ -411,7 +411,9 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
 
     try:
         print(f"Checking for existing workflow agent (ReasoningEngine): {agent_display_name} in {location}")
-        existing_engines = list(agent_engines.list(filter=f'display_name="{agent_display_name}" AND location="{location}"')) # CHANGED
+        # The parent for list is already set by vertexai.init(project=project_id, location=location)
+        # So, filtering by location again here is redundant and might be invalid.
+        existing_engines = list(agent_engines.list(filter=f'display_name="{agent_display_name}"')) # CHANGED: Removed location from filter
 
         if existing_engines:
             print(f"Found existing ReasoningEngine: {existing_engines[0].name}. Agent Engine does not support update via agent_engines.update() for this type of agent. Please delete and redeploy if changes are needed, or use a new reasoning_engine_id.")

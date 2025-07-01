@@ -65,16 +65,17 @@ except Exception as e_tp_set:
 
 from dotenv import load_dotenv
 from google.cloud import aiplatform as vertexai
-from vertexai import agent_engines # ADDED for deploying ADK agents via agent_engines.create/get/list
-# AdkApp import REMOVED as it's no longer used for workflow agent deployment
-from google.adk.agents import Agent as GoogleAdkAgentDef # For defining the agent structure
-from vertexai.preview import reasoning_engines # For create_session, delete_session by the tool
+from vertexai import agent_engines
+from google.adk.agents import Agent as GoogleAdkAgentDef
+from google.adk.tools import FunctionTool # ADDED
+from vertexai.preview import reasoning_engines
 from google.cloud.aiplatform_v1.services import reasoning_engine_service
 from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest
 from google.api_core import exceptions as api_exceptions
 import time
-import logging # Added for tool logging
-import traceback # ADDED for enhanced error logging
+import logging
+import traceback
+import asyncio # ADDED
 
 # Pre-install root dependencies
 print(f"DEBUG: deploy_all.py sys.executable (before pip): {sys.executable}")
@@ -282,12 +283,12 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
 
 
-# New function to deploy the Instavibe Workflow Agent using ADK SDK
-def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
-                                    reasoning_engine_id: str = "instavibe_workflow_agent", # USE UNDERSCORES
-                                    agent_display_name: str = "Instavibe Workflow Agent", # Display name can have spaces/hyphens
-                                    planner_target_name: str | None = None,
-                                    orchestrate_target_name: str | None = None):
+# New function to deploy the Instavibe Workflow Agent using google.adk.agents.Agent
+async def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
+                                    reasoning_engine_short_id: str,
+                                    agent_display_name: str,
+                                    planner_a2a_uri: str | None,
+                                    orchestrate_a2a_uri: str | None) -> str | None:
     """
     Deploys the Instavibe Workflow Agent using ADK SDK (agent_engines.create/update).
     Returns the endpoint URI of the deployed agent.

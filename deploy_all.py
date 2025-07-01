@@ -930,14 +930,8 @@ def main(argv=None):
 
     print("All selected components deployed.")
 
-if __name__ == "__main__":
-    main()
 
-import os
-import sys
-import subprocess
-from dotenv import load_dotenv
-
+# This is the function to build the a2a_common wheel
 def build_a2a_common_wheel():
     """Builds the a2a_common wheel from the agents/app directory."""
     print("\n--- Building a2a_common wheel ---")
@@ -947,8 +941,8 @@ def build_a2a_common_wheel():
 
     # Clean up old build artifacts
     print(f"Cleaning up old build artifacts in {a2a_source_dir}...")
-    import shutil
-    import glob
+    import shutil # Moved import here
+    import glob     # Moved import here
 
     dist_dir = os.path.join(a2a_source_dir, "dist")
     build_dir = os.path.join(a2a_source_dir, "build")
@@ -967,14 +961,20 @@ def build_a2a_common_wheel():
     # Build the wheel
     print(f"Running 'python -m build' in {a2a_source_dir}...")
     try:
+        # Ensure the `build` package is installed in the environment running deploy_all.py
+        # It's good practice to add `build` to the main requirements.txt if not already there.
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "build"], # Ensure build tool is present
+            check=True, text=True, capture_output=True
+        )
         subprocess.run(
             [sys.executable, "-m", "build"],
             cwd=a2a_source_dir,
             check=True,
             text=True,
-            capture_output=True
+            capture_output=True # Keep True to check stdout/stderr on error
         )
-        print("a2a_common wheel built successfully.")
+        print("a2a_common wheel built successfully. Output in agents/app/dist/")
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Failed to build a2a_common wheel in {a2a_source_dir}.")
         if e.stdout:
@@ -988,14 +988,13 @@ def build_a2a_common_wheel():
     print("--- a2a_common wheel build process finished ---")
 
 
-def main(argv=None):
-    """Main execution function."""
-    load_dotenv()
-    build_a2a_common_wheel()
+if __name__ == "__main__":
+    # First, build the common wheel
+    try:
+        build_a2a_common_wheel()
+    except Exception as e:
+        print(f"Failed to build a2a_common wheel: {e}. Halting deployment.")
+        sys.exit(1)
 
-# You would continue with the rest of your script here...
-# if __name__ == "__main__":
-#     main()
-
-    project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
-    region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))
+    # Then, proceed with the main deployment logic
+    main() # Calls the first main() function defined in the script

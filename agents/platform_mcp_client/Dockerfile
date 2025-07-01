@@ -11,14 +11,16 @@ WORKDIR /app
 COPY ./platform_mcp_client/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the a2a_common source
-COPY ./app /app/agents/app
-
-# Install a2a_common package
-RUN pip install --no-cache-dir /app/agents/app
+# --- Install a2a_common wheel ---
+# Assuming the Docker build context is the repository root,
+# and deploy_all.py has already built a2a_common_wheel into agents/app/dist/
+COPY agents/app/dist/a2a_common-0.1.0-py3-none-any.whl /tmp/a2a_common.whl
+RUN pip install --no-cache-dir /tmp/a2a_common.whl && \
+    rm /tmp/a2a_common.whl
 
 # --- Application Code ---
-COPY ./platform_mcp_client /app/agents/platform_mcp_client
+# Ensure this path is correct relative to the Docker build context (repo root)
+COPY agents/platform_mcp_client /app/agents/platform_mcp_client
 
 # --- Environment ---
 ENV PYTHONPATH=/app/agents 

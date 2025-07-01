@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a2a_common"
+version = "0.1.0"
+description = "Common utilities for A2A project agents."
+readme = "README.md" # Assuming a README.md might be added here later
+requires-python = ">=3.9"
+dependencies = [
+    "google-cloud-aiplatform[adk,agent_engines]>=1.98.0",
+    "python-dotenv>=1.0.0",
+    "opentelemetry-sdk",
+    "opentelemetry-instrumentation-logging",
+    "pydantic" # For app.utils.typing.Feedback
+]
+
+[project.urls]
+"Homepage" = "https://a2aproject.github.io/A2A/" # Example, replace if there's a more specific internal URL

@@ -65,6 +65,7 @@ except Exception as e_tp_set:
 
 from dotenv import load_dotenv
 from google.cloud import aiplatform as vertexai
+from vertexai import agent_engines # ADDED for deploying ADK agents via agent_engines.create/get/list
 # AdkApp import REMOVED as it's no longer used for workflow agent deployment
 from google.adk.agents import Agent as GoogleAdkAgentDef # For defining the agent structure
 from vertexai.preview import reasoning_engines # For create_session, delete_session by the tool

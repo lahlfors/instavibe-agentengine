@@ -11,12 +11,6 @@ WORKDIR /app
 COPY ./planner/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the a2a_common source
-COPY ./app /app/agents/app
-
-# Install a2a_common package
-RUN pip install --no-cache-dir /app/agents/app
-
 # --- Application Code ---
 COPY ./planner /app/agents/planner
 

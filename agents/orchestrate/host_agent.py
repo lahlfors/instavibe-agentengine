@@ -17,22 +17,26 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.tool_context import ToolContext
-from agents.app.remote.remote_agent_connection import (
-    RemoteAgentConnections,
-    TaskUpdateCallback
-)
-from agents.app.common.client import A2ACardResolver
-from agents.app.common.types import (
-    AgentCard,
-    Message,
-    TaskState,
-    Task,
-    TaskSendParams,
-    TextPart,
-    DataPart,
-    Part,
-    TaskStatusUpdateEvent,
-)
+# Removed:
+# from agents.app.remote.remote_agent_connection import (
+    # RemoteAgentConnections,
+    # TaskUpdateCallback
+# )
+# from agents.app.common.client import A2ACardResolver
+# from agents.app.common.types import (
+    # AgentCard,
+    # Message,
+    # TaskState,
+    # Task,
+    # TaskSendParams,
+    # TextPart,
+    # DataPart,
+    # Part,
+    # TaskStatusUpdateEvent,
+# )
+
+# Placeholder for a2a-python imports - to be added when SDK usage is implemented
+# from a2a import /* ... necessary a2a-python client and type imports ... */
 
 logger = logging.getLogger(__name__)
 
@@ -46,52 +50,65 @@ class HostAgent:
   def __init__(
       self,
       remote_agent_addresses: List[str],
-      task_callback: TaskUpdateCallback | None = None
+      # task_callback: TaskUpdateCallback | None = None # This callback was for the old system
   ):
     logger.info(f"HostAgent initializing with remote_agent_addresses: {remote_agent_addresses}")
-    self.task_callback = task_callback
-    self.remote_agent_connections: dict[str, RemoteAgentConnections] = {}
-    self.cards: dict[str, AgentCard] = {}
-    if remote_agent_addresses:
-      for address in remote_agent_addresses:
-        try:
-          logger.debug(f"Resolving agent card for address: {address}")
-          card_resolver = A2ACardResolver(address)
-          card = card_resolver.get_agent_card()
-          if card and card.name:
-            remote_connection = RemoteAgentConnections(card)
-            self.remote_agent_connections[card.name] = remote_connection
-            self.cards[card.name] = card
-            logger.info(f"Registered remote agent: {card.name} at {address}")
-          else:
-            logger.warning(f"Could not resolve card or card name for address: {address}")
-        except Exception as e:
-          logger.error(f"Error initializing remote agent connection for address {address}: {e}", exc_info=True)
-    else:
-      logger.warning("HostAgent initialized with no remote_agent_addresses.")
+    # self.task_callback = task_callback # Removed
 
-    self._update_agents_string()
+    # Store addresses for later use with a2a-python SDK
+    self.remote_agent_addresses = remote_agent_addresses
+
+    # These will be replaced by a2a-python SDK mechanisms
+    # self.remote_agent_connections: dict[str, RemoteAgentConnections] = {} # Removed
+    # self.cards: dict[str, AgentCard] = {} # Removed
+
+    # Placeholder for a2a-python client initialization
+    # self.a2a_client = a2a.Client(...) # Example
+
+    # The self.agents string will need to be populated differently,
+    # likely by querying discoverable agents via a2a-python post-initialization
+    # or if addresses are resource names, fetching their details.
+    self.agents_metadata: list[dict] = [] # Store agent metadata (name, description) for list_remote_agents
+    # TODO: Implement discovery of agent capabilities using a2a-python
+    # and populate self.agents_metadata. This might be an async method
+    # called after HostAgent instantiation, or done when list_remote_agents is called.
+    # For now, if remote_agent_addresses are full resource names, we might parse them,
+    # or rely on a discovery mechanism provided by a2a-python.
+    # Example:
+    # if self.remote_agent_addresses:
+    #   logger.info("Attempting to populate agents_metadata from remote_agent_addresses (placeholder).")
+    #   # This is a placeholder, actual fetching/discovery will use a2a-python
+    #   for addr in self.remote_agent_addresses:
+    #       # Assuming addr might be a resource name like "projects/X/locations/Y/reasoningEngines/Z"
+    #       # Or an ID that a2a-python can resolve.
+    #       # For now, just making a dummy entry.
+    #       agent_name_from_addr = addr.split("/")[-1] if "/" in addr else addr
+    #       self.agents_metadata.append({"name": agent_name_from_addr, "description": f"Agent at {addr} (description to be fetched)"})
+
+    self._update_agents_string_from_metadata() # Initialize self.agents string
     logger.debug(f"Initial self.agents string: {self.agents}")
 
-  def _update_agents_string(self):
-    """Helper to update the self.agents string."""
-    agent_info = []
-    for ra_card in self.cards.values(): # Iterate over cards directly
-      agent_info.append(json.dumps({"name": ra_card.name, "description": ra_card.description}))
-    self.agents = '\n'.join(agent_info)
+  def _update_agents_string_from_metadata(self):
+    """Helper to update the self.agents string from self.agents_metadata."""
+    agent_info_json_strings = []
+    for agent_meta in self.agents_metadata:
+        # Assuming agent_meta is a dict like {"name": "agent_name", "description": "agent_desc"}
+        agent_info_json_strings.append(json.dumps(agent_meta))
+    self.agents = '\n'.join(agent_info_json_strings)
     logger.debug(f"Updated self.agents string: {self.agents}")
 
-  def register_agent_card(self, card: AgentCard):
-    logger.info(f"Registering new agent card: {card.name if card else 'None'}")
-    if not card or not card.name:
-      logger.warning("Attempted to register an invalid or unnamed card.")
-      return
+  # Removed register_agent_card, as agent registration/discovery will be handled by a2a-python
+  # def register_agent_card(self, card: AgentCard):
+    # logger.info(f"Registering new agent card: {card.name if card else 'None'}")
+    # if not card or not card.name:
+      # logger.warning("Attempted to register an invalid or unnamed card.")
+      # return
 
-    remote_connection = RemoteAgentConnections(card)
-    self.remote_agent_connections[card.name] = remote_connection
-    self.cards[card.name] = card
-    self._update_agents_string()
-    logger.info(f"Agent card '{card.name}' registered successfully.")
+    # remote_connection = RemoteAgentConnections(card)
+    # self.remote_agent_connections[card.name] = remote_connection
+    # self.cards[card.name] = card
+    # self._update_agents_string()
+    # logger.info(f"Agent card '{card.name}' registered successfully.")
 
   def create_agent(self) -> Agent:
     logger.info("Creating ADK Agent instance for HostAgent")
@@ -206,208 +223,230 @@ class HostAgent:
   def list_remote_agents(self):
     """List the available remote agents you can use to delegate the task."""
     logger.info("list_remote_agents tool called.")
-    if not self.remote_agent_connections:
-      logger.warning("No remote agent connections available to list.")
-      return []
 
-    remote_agent_info = []
-    for card_name, card in self.cards.items():
-      info = {"name": card.name, "description": card.description}
-      remote_agent_info.append(info)
-      logger.debug(f"Adding agent to list: {info}")
+    # TODO: Implement dynamic discovery of agents using a2a-python SDK here
+    # This might involve calling an a2a-python method to get a list of
+    # discoverable agents and then populating/updating self.agents_metadata.
+    # For example:
+    # discovered_agents = await self.a2a_client.discover_agents() # Assuming async discovery
+    # new_metadata = []
+    # for agent_details in discovered_agents: # Process results from SDK
+    #    new_metadata.append({"name": agent_details.name, "description": agent_details.description})
+    # self.agents_metadata = new_metadata
+    # self._update_agents_string_from_metadata() # Update the string for the prompt too
 
-    logger.info(f"Returning {len(remote_agent_info)} remote agents.")
-    logger.debug(f"Remote agent list: {remote_agent_info}")
-    return remote_agent_info
+    if not self.agents_metadata:
+      logger.warning("No remote agent metadata available to list (self.agents_metadata is empty).")
+      # Optionally, attempt discovery here if not done in __init__ or if a refresh is needed.
+      # For now, returning a message indicating no agents are found.
+      return "No remote agents are currently discovered or configured. Please check the system configuration."
+
+    logger.info(f"Returning {len(self.agents_metadata)} remote agents from current metadata.")
+    logger.debug(f"Remote agent list (from metadata): {self.agents_metadata}")
+    return self.agents_metadata
 
   async def send_task(
       self,
-      agent_name: str,
-      message: str,
+      agent_name: str, # This might become an agent_id or resource_name
+      message: str,    # The core message/query for the target agent
       tool_context: ToolContext):
-    """Sends a task either streaming (if supported) or non-streaming.
-
-    This will send a message to the remote agent named agent_name.
+    """Sends a task to a remote agent using the a2a-python SDK.
 
     Args:
-      agent_name: The name of the agent to send the task to.
-      message: The message to send to the agent for the task.
-      tool_context: The tool context this method runs in.
+      agent_name: The identifier of the target agent.
+      message: The message payload for the agent.
+      tool_context: The ADK tool context.
 
-    Yields:
-      A dictionary of JSON data.
+    Returns:
+      The response from the remote agent, adapted for the ADK tool output.
     """
     logger.info(f"send_task tool called. Target agent: '{agent_name}'. Message (first 100 chars): '{message[:100]}...'")
     logger.debug(f"Full message for send_task to '{agent_name}': {message}")
-    logger.debug(f"Tool context state at send_task call: {tool_context.state if tool_context else 'None'}")
-
-    if agent_name not in self.remote_agent_connections:
-      logger.error(f"Agent '{agent_name}' not found in remote_agent_connections.")
-      raise ValueError(f"Agent {agent_name} not found")
 
     state = tool_context.state
-    state['agent'] = agent_name # Record current agent being interacted with
+    # The 'agent' in state might still be useful for context, or a2a might have its own task/session tracking.
+    state['current_target_agent'] = agent_name
 
-    card = self.cards.get(agent_name)
-    if not card:
-        logger.error(f"Card for agent '{agent_name}' not found in self.cards, though connection exists.")
-        raise ValueError(f"Card for agent {agent_name} not found")
+    # TODO: Initialize a2a-python client if not already done (e.g., in __init__ or lazily)
+    # if not hasattr(self, 'a2a_client') or not self.a2a_client:
+    #   self.a2a_client = A2AClient(...) # Example initialization
+    #   logger.info("a2a-python client initialized in send_task (lazy).")
 
-    client = self.remote_agent_connections[agent_name]
-    if not client:
-      logger.error(f"Client not available for agent '{agent_name}' in remote_agent_connections.")
-      raise ValueError(f"Client not available for {agent_name}")
+    # TODO: Resolve agent_name to an address/ID that a2a-python can use, if not already.
+    # target_agent_address = self._resolve_agent_address(agent_name) # Example helper
+    # if not target_agent_address:
+    #   logger.error(f"Could not resolve address for agent '{agent_name}'.")
+    #   return f"Error: Agent '{agent_name}' not found or address unknown."
 
-    # Ensure taskId, sessionId, and messageId are properly managed
-    taskId = state.get('task_id')
-    if not taskId:
-        taskId = str(uuid.uuid4())
-        state['task_id'] = taskId
-        logger.info(f"Generated new taskId: {taskId} for agent '{agent_name}' within session {state.get('session_id')}")
-    else:
-        logger.info(f"Using existing taskId: {taskId} for agent '{agent_name}' within session {state.get('session_id')}")
+    # TODO: Construct the message payload according to a2a-python SDK's requirements.
+    # This will replace TaskSendParams, common.types.Message, etc.
+    # It might involve specifying content type, handling sessions, etc.
+    # Example (highly speculative):
+    # a2a_message_payload = A2AMessage(
+    #     content=message,
+    #     # session_id=state.get('a2a_session_id_for_agent_name'), # a2a-python might handle session continuity
+    #     # metadata= { ... }
+    # )
 
-    sessionId = state.get('session_id')
-    if not sessionId:
-        sessionId = str(uuid.uuid4())
-        state['session_id'] = sessionId
-        logger.warning(f"session_id was not in state for send_task, generated new one: {sessionId}")
-
-    # Reconstruct metadata handling similar to original logic
-    request_metadata = state.get('input_message_metadata', {}).copy()
-    messageId = request_metadata.get('message_id', str(uuid.uuid4()))
-    if 'message_id' not in request_metadata: # if it was generated
-        request_metadata['message_id'] = messageId
-        logger.info(f"Generated new messageId: {messageId} for this task part.")
-    request_metadata.update({'conversation_id': sessionId}) # Ensure conversation_id is present
-
-    task_send_params = TaskSendParams(
-        id=taskId,
-        sessionId=sessionId,
-        message=Message(
-            role="user",
-            parts=[TextPart(text=message)],
-            metadata=request_metadata,
-        ),
-        acceptedOutputModes=["text", "text/plain", "image/png"],
-        metadata={'conversation_id': sessionId, 'orchestrator_task_id': taskId},
-    )
-    logger.debug(f"Constructed TaskSendParams for agent '{agent_name}': {task_send_params}")
-
-    # Variable to hold the task response object from the remote agent
-    actual_task_response: Optional[Task] = None
+    raw_a2a_response = None
     try:
-      logger.info(f"Sending task to remote agent '{agent_name}' (Client: {client})")
-      actual_task_response = await client.send_task(task_send_params, self.task_callback)
-      logger.info(f"Received response from remote agent '{agent_name}'. Task object: {'Exists' if actual_task_response else 'None'}")
-      logger.debug(f"Full task response object from '{agent_name}': {actual_task_response}")
+      logger.info(f"Sending task to remote agent '{agent_name}' via a2a-python SDK.")
+      # TODO: Replace with actual a2a-python SDK call
+      # raw_a2a_response = await self.a2a_client.send_message(
+      # target_agent_address, # or agent_name directly if SDK supports it
+      # a2a_message_payload
+      # )
+      # Faking a response for now to allow further refactoring of processing logic
+      logger.warning("A2A SDK CALL IS A PLACEHOLDER. Simulating a response.")
+      raw_a2a_response = { # Simulated response structure
+          "status": "COMPLETED", # or "FAILED", "INPUT_REQUIRED"
+          "content": [{"type": "text", "text": f"Simulated response from {agent_name} for: {message}"}],
+          "error": None,
+          "session_id": state.get('session_id', 'dummy_session'), # a2a might return its own session context
+          # "artifacts": [] # If a2a-python handles artifacts separately
+      }
+      if not raw_a2a_response: # Check if SDK call itself failed to return anything
+          logger.error(f"No response received from a2a-python SDK for agent '{agent_name}'.")
+          return "Error: No response from communication SDK."
+
+      logger.info(f"Received response from agent '{agent_name}' via a2a-python.")
+      logger.debug(f"Raw a2a response from '{agent_name}': {str(raw_a2a_response)[:500]}")
+
     except Exception as e:
-      logger.error(f"Exception during client.send_task to '{agent_name}': {e}", exc_info=True)
-      raise # Re-raise to allow ADK or caller to handle
+      # TODO: Catch specific a2a-python exceptions
+      logger.error(f"Exception during a2a-python SDK call to '{agent_name}': {e}", exc_info=True)
+      return f"Error communicating with agent {agent_name}: {str(e)}"
 
-    # Restore original logic for processing the task response
-    if actual_task_response and actual_task_response.status:
-      logger.info(f"Task status from '{agent_name}': {actual_task_response.status.state}")
-      logger.debug(f"Full task status details: {actual_task_response.status}")
-      state['session_active'] = actual_task_response.status.state not in [
-          TaskState.COMPLETED,
-          TaskState.CANCELED,
-          TaskState.FAILED,
-          TaskState.UNKNOWN,
-      ]
-      logger.debug(f"Session active for '{sessionId}' set to: {state['session_active']}")
+    # TODO: Adapt response processing based on the actual structure of raw_a2a_response
+    # The old logic for TaskState (COMPLETED, CANCELED, FAILED, INPUT_REQUIRED) needs to be mapped.
 
-      if actual_task_response.status.state == TaskState.INPUT_REQUIRED:
-        logger.info(f"Task for '{agent_name}' requires more input. Escalating.")
+    # Example mapping (highly speculative):
+    a2a_status = raw_a2a_response.get("status")
+    current_session_id = state.get('session_id', 'unknown_session') # ADK session
+
+    if a2a_status == "COMPLETED": # Assuming a2a-python uses such strings
+        state['session_active'] = False # If task is complete, ADK session might become inactive for this agent
+        logger.debug(f"ADK Session active for '{current_session_id}' with '{agent_name}' set to False (task completed).")
+    elif a2a_status == "INPUT_REQUIRED":
+        state['session_active'] = True # ADK session remains active
+        logger.info(f"Task for '{agent_name}' requires more input (a2a status). Escalating.")
         tool_context.actions.skip_summarization = True
         tool_context.actions.escalate = True
-      elif actual_task_response.status.state == TaskState.CANCELED:
-        logger.warning(f"Task '{taskId}' for agent '{agent_name}' was canceled.")
-        raise ValueError(f"Agent {agent_name} task {taskId} is cancelled") # Original behavior
-      elif actual_task_response.status.state == TaskState.FAILED:
-        error_detail = actual_task_response.status.error.message if actual_task_response.status.error else "Unknown error"
-        logger.error(f"Task '{taskId}' for agent '{agent_name}' failed. Error: {error_detail}")
-        raise ValueError(f"Agent {agent_name} task {taskId} failed: {error_detail}") # Original behavior
-    else:
-      logger.warning(f"Received no task object or no status from '{agent_name}'. Task: {actual_task_response}")
-      state['session_active'] = False # Original behavior
-      logger.info(f"Session active for '{sessionId}' set to False due to invalid/missing task status.")
+    elif a2a_status == "FAILED":
+        state['session_active'] = False
+        error_detail = raw_a2a_response.get("error", {}).get("message", "Unknown error from agent")
+        logger.error(f"Task for agent '{agent_name}' failed (a2a status). Error: {error_detail}")
+        # ADK tools expect to return data, not raise exceptions typically, unless it's a critical tool failure.
+        # The LLM will see this returned error message.
+        return f"Agent {agent_name} task failed: {error_detail}"
+    elif a2a_status == "CANCELED": # If a2a-python has a canceled state
+        state['session_active'] = False
+        logger.warning(f"Task for agent '{agent_name}' was canceled (a2a status).")
+        return f"Agent {agent_name} task was canceled."
+    else: # Other statuses or unknown
+        state['session_active'] = True # Default to active if unsure, or map appropriately
+        logger.warning(f"Unhandled or unknown task status '{a2a_status}' from agent '{agent_name}'. Assuming session active.")
 
-    response_parts_to_return = []
-    if actual_task_response and actual_task_response.status and actual_task_response.status.message:
-      logger.debug(f"Processing message parts from task status for agent '{agent_name}'")
-      response_parts_to_return.extend(convert_parts(actual_task_response.status.message.parts, tool_context))
+    # TODO: Adapt artifact and content processing based on a2a-python response structure.
+    # The `_convert_a2a_parts_for_adk` function will replace `convert_parts`.
+    # It needs to handle text, data, and file artifacts from the a2a_response.
+    response_parts_for_adk = []
+    if raw_a2a_response.get("content"):
+        logger.debug(f"Processing content parts from a2a response for agent '{agent_name}'")
+        response_parts_for_adk.extend(self._convert_a2a_parts_for_adk(raw_a2a_response["content"], tool_context))
 
-    if actual_task_response and actual_task_response.artifacts:
-      logger.debug(f"Processing artifacts for agent '{agent_name}'")
-      for artifact in actual_task_response.artifacts:
-        response_parts_to_return.extend(convert_parts(artifact.parts, tool_context))
+    # Example: if a2a-python has a separate artifacts list
+    # if raw_a2a_response.get("artifacts"):
+    #   logger.debug(f"Processing artifacts from a2a response for agent '{agent_name}'")
+    #   response_parts_for_adk.extend(self._convert_a2a_artifacts_for_adk(raw_a2a_response["artifacts"], tool_context))
 
-    logger.info(f"send_task for '{agent_name}' processed. Returning {len(response_parts_to_return)} parts.")
-    logger.debug(f"send_task for '{agent_name}' final response parts: {response_parts_to_return}")
-    return response_parts_to_return
+    logger.info(f"send_task for '{agent_name}' (a2a) processed. Returning {len(response_parts_for_adk)} ADK parts.")
+    logger.debug(f"send_task for '{agent_name}' (a2a) final ADK response parts: {response_parts_for_adk}")
 
-def convert_parts(parts: list[Part], tool_context: ToolContext):
-  logger.debug(f"convert_parts called with {len(parts)} parts.")
-  rval = []
-  for i, p in enumerate(parts):
-    logger.debug(f"Converting part {i+1}/{len(parts)}: Type '{p.type if hasattr(p, 'type') else 'Unknown type'}'")
-    converted = convert_part(p, tool_context)
-    logger.debug(f"Converted part {i+1} to: {type(converted)} (Value snippet: {str(converted)[:100]}...)")
-    rval.append(converted)
-  return rval
+    if not response_parts_for_adk:
+        # If there was a status but no content, provide a status message.
+        return f"Task status with agent {agent_name}: {a2a_status if a2a_status else 'No content in response'}"
 
-def convert_part(part: Part, tool_context: ToolContext):
-  # Ensure part is not None and has a 'type' attribute
-  if not part or not hasattr(part, 'type'):
-    logger.warning(f"convert_part received invalid part: {part}")
-    return f"Unknown type: Invalid part object"
+    return response_parts_for_adk
 
-  logger.debug(f"Converting part of type: {part.type}")
-  if part.type == "text":
-    logger.debug(f"Text part content (first 100 chars): {part.text[:100] if hasattr(part, 'text') else 'N/A'}")
-    return part.text
-  elif part.type == "data":
-    logger.debug(f"Data part content (type): {type(part.data if hasattr(part, 'data') else None)}")
-    logger.debug(f"Data part content (value snippet): {str(part.data)[:100] if hasattr(part, 'data') else 'N/A'}")
-    return part.data
-  elif part.type == "file":
-    if not hasattr(part, 'file') or not part.file:
-        logger.warning("File part received but 'part.file' attribute is missing or None.")
-        return "Error: Invalid file part structure"
+  def _convert_a2a_parts_for_adk(self, a2a_parts: list, tool_context: ToolContext) -> list:
+    """Converts parts from an a2a-python response to ADK compatible output parts."""
+    adk_output_parts = []
+    logger.debug(f"_convert_a2a_parts_for_adk called with {len(a2a_parts)} a2a parts.")
+    for i, a2a_part in enumerate(a2a_parts):
+        # TODO: Adapt this based on the actual structure of a2a_part from the SDK
+        # Assuming a2a_part is a dict like {"type": "text", "text": "...", "mime_type": "...", "uri": "..."}
+        part_type = a2a_part.get("type")
+        logger.debug(f"Converting a2a part {i+1}/{len(a2a_parts)}: Type '{part_type}'")
 
-    file_id = part.file.name if hasattr(part.file, 'name') else 'unknown_file'
-    mime_type = part.file.mimeType if hasattr(part.file, 'mimeType') else 'application/octet-stream'
-    logger.info(f"Processing file part: ID '{file_id}', MIME Type '{mime_type}'")
+        if part_type == "text":
+            text_content = a2a_part.get("text", "")
+            adk_output_parts.append(text_content) # ADK tools often return simple strings for text
+            logger.debug(f"Converted a2a text part to ADK string: {text_content[:100]}")
+        elif part_type == "data": # Or "json", "structured_data" etc.
+            data_content = a2a_part.get("data", {}) # Assuming it's JSON serializable
+            adk_output_parts.append(data_content) # ADK tools can return dicts
+            logger.debug(f"Converted a2a data part to ADK dict: {str(data_content)[:100]}")
+        elif part_type == "file" or a2a_part.get("uri"): # Handling files via URI or embedded
+            # This part is highly dependent on how a2a-python represents files/artifacts
+            file_uri = a2a_part.get("uri")
+            file_name = a2a_part.get("name", "unknown_file")
+            mime_type = a2a_part.get("mime_type", "application/octet-stream")
 
-    if not hasattr(part.file, 'bytes') or part.file.bytes is None:
-        logger.warning(f"File part '{file_id}' has no 'bytes' attribute or bytes are None.")
-        # Depending on how ADK handles this, you might return an error or a placeholder
-        return f"Error: File part '{file_id}' has no content"
+            if file_uri:
+                # If a2a-python provides a URI (e.g., GCS URI for an artifact)
+                # ADK might expect a direct link or a structured dict.
+                # For simplicity, returning a dict that the LLM can interpret.
+                file_artifact_info = {
+                    "file_name": file_name,
+                    "mime_type": mime_type,
+                    "uri": file_uri,
+                    "source": "a2a_artifact"
+                }
+                adk_output_parts.append(file_artifact_info)
+                logger.info(f"Converted a2a file URI part to ADK dict: {file_artifact_info}")
+                # If ADK's tool_context needs to save this as an artifact:
+                # try:
+                #   # This is hypothetical, ADK's save_artifact might need actual bytes or a specific format
+                #   # tool_context.save_artifact(file_name, genai_file_part_from_uri)
+                #   logger.info(f"Artifact '{file_name}' from URI registered with tool_context (hypothetical).")
+                # except Exception as e_artifact:
+                #   logger.warning(f"Could not save URI artifact '{file_name}' to tool_context: {e_artifact}")
 
-    try:
-      file_bytes = base64.b64decode(part.file.bytes)
-      logger.debug(f"Decoded {len(file_bytes)} bytes for file '{file_id}'.")
-    except Exception as e:
-      logger.error(f"Error base64 decoding file bytes for '{file_id}': {e}", exc_info=True)
-      return f"Error decoding file content for {file_id}"
+            elif a2a_part.get("bytes_base64"): # If file bytes are embedded (less common for large files)
+                try:
+                    file_bytes = base64.b64decode(a2a_part["bytes_base64"])
+                    logger.debug(f"Decoded {len(file_bytes)} bytes for embedded file '{file_name}'.")
 
-    genai_file_part = types.Part(
-      inline_data=types.Blob(
-        mime_type=mime_type,
-        data=file_bytes))
+                    # Create a GenAI Part for ADK's save_artifact
+                    genai_file_part = types.Part(
+                        inline_data=types.Blob(mime_type=mime_type, data=file_bytes)
+                    )
+                    if tool_context and hasattr(tool_context, 'save_artifact'):
+                        tool_context.save_artifact(file_name, genai_file_part)
+                        logger.info(f"Saved embedded artifact '{file_name}' to tool_context.")
+                        if hasattr(tool_context, 'actions'):
+                            tool_context.actions.skip_summarization = True
+                            tool_context.actions.escalate = True
+                            logger.debug(f"Set skip_summarization/escalate for embedded artifact '{file_name}'.")
 
-    if tool_context and hasattr(tool_context, 'save_artifact'):
-      tool_context.save_artifact(file_id, genai_file_part)
-      logger.info(f"Saved artifact '{file_id}' to tool_context.")
-      if hasattr(tool_context, 'actions'):
-        tool_context.actions.skip_summarization = True
-        tool_context.actions.escalate = True
-        logger.debug(f"Set skip_summarization and escalate to True for file artifact '{file_id}'.")
-    else:
-        logger.warning(f"Could not save artifact '{file_id}': tool_context is None or missing save_artifact/actions.")
+                        # Return info about the saved artifact
+                        adk_output_parts.append({"artifact_saved_id": file_name, "mime_type": mime_type})
+                    else:
+                        logger.warning(f"Could not save embedded artifact '{file_name}': tool_context issue.")
+                        adk_output_parts.append({"error": f"Could not process embedded file {file_name}"})
+                except Exception as e_b64:
+                    logger.error(f"Error decoding base64 for embedded file '{file_name}': {e_b64}")
+                    adk_output_parts.append({"error": f"Error decoding file {file_name}"})
+            else:
+                logger.warning(f"Unknown file part structure in a2a response: {a2a_part}")
+                adk_output_parts.append({"error": f"Unknown file structure for {file_name}"})
+        else:
+            logger.warning(f"Encountered unknown a2a part type: {part_type}. Part: {str(a2a_part)[:100]}")
+            adk_output_parts.append(f"Unknown part type from agent: {part_type}")
 
-    return DataPart(data = {"artifact-file-id": file_id}) # Return a DataPart as per original logic
+    return adk_output_parts
 
-  logger.warning(f"Encountered unknown part type: {part.type}")
-  return f"Unknown type: {part.type}"
+# Removed old convert_parts and convert_part methods
+# def convert_parts(parts: list[Part], tool_context: ToolContext): ...
+# def convert_part(part: Part, tool_context: ToolContext): ...

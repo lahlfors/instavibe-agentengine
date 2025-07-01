@@ -17,7 +17,8 @@ from vertexai import agent_engines # For the new create method
 # import google.auth # For google.auth.exceptions, potentially still needed if vertexai.init() fails early
 from dotenv import load_dotenv # For loading .env file
 
-from agents.social.social_agent import SocialAgent
+# from agents.social.social_agent import SocialAgent # Old direct class import
+from agents.social import agent as social_main_agent_module # Import the module
 
 # Load environment variables from the root .env file
 # This ensures that any implicit environment variable reads by underlying
@@ -46,9 +47,9 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
     # Ensure vertexai.init(project=project_id, location=region, staging_bucket="gs://your-bucket")
     # has been called, likely in a main deployment script (e.g., deploy_all.py).
 
-    local_agent_instance = SocialAgent()
-    if local_agent_instance is None: # Check updated variable name
-        raise ValueError("SocialAgent instantiation returned None. Check agent initialization.")
+    local_agent_instance = social_main_agent_module.root_agent
+    if local_agent_instance is None:
+        raise ValueError("Error: The root_agent in agents.social.agent is None. Ensure it's initialized.")
     adk_app = AdkApp(agent=local_agent_instance)
 
     # base_dir is assumed to be the repository root.

@@ -73,6 +73,7 @@ from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineG
 from google.api_core import exceptions as api_exceptions
 import time
 import logging # Added for tool logging
+import traceback # ADDED for enhanced error logging
 
 # Pre-install root dependencies
 print(f"DEBUG: deploy_all.py sys.executable (before pip): {sys.executable}")
@@ -483,7 +484,11 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
         # ... (error handling as before) ...
         return None
     except Exception as e:
-        # ... (error handling as before) ...
+        tb_str = traceback.format_exc()
+        error_message = f"ERROR: Failed to deploy Instavibe Workflow Agent. Exception: {e}\nTraceback:\n{tb_str}"
+        print(error_message)
+        # If a global logger is configured for deploy_all.py, you could also use:
+        # logger.error(error_message)
         return None
 
     return deployed_agent_endpoint_uri # Return the HTTP endpoint URI for instavibe-app

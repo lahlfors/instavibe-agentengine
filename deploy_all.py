@@ -359,7 +359,7 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
             result = workflow_logic_handler.process_request(
                 action=action,
                 payload=payload,
-                adk_session_for_sub_calls=session_for_sub_calls
+                adk_session_context=session_for_sub_calls # CHANGED: adk_session_for_sub_calls to adk_session_context
             )
         except Exception as e_process:
             tool_logger.error(f"Tool: Error during workflow_logic_handler.process_request: {e_process}", exc_info=True)
@@ -909,12 +909,10 @@ def build_a2a_common_wheel():
         raise
     print("--- a2a_common wheel build process finished ---")
 
-# Modify main to call the build function
+# Original main function starts here, build_a2a_common_wheel() will be moved into it.
 def main(argv=None):
-    load_dotenv()
-
-    # Build the a2a_common wheel first
-    build_a2a_common_wheel()
+    load_dotenv() # Moved from the overwritten main
+    build_a2a_common_wheel() # Moved from the overwritten main
 
     project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
     region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))

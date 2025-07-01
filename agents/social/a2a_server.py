@@ -2,14 +2,16 @@ import asyncio
 import os
 import logging
 
-from fastapi import FastAPI # Used by A2AStarletteApplication
-import uvicorn
+from fastapi import FastAPI # Used by A2AServer if a custom app is passed
+import uvicorn # Though Uvicorn direct usage is removed from this file
 
-from a2a.server import A2AStarletteApplication
-from a2a.types import AgentCard, AgentSkill, AgentCapabilities, Part
-from a2a.agent_executor import AgentExecutor
-from a2a.events import EventQueue, TaskUpdater
-from a2a.request_context import RequestContext
+from python_a2a.server import A2AServer # Corrected server class
+from python_a2a import AgentCard, AgentSkill, AgentCapabilities, Part # Corrected base imports
+from python_a2a.server.executors import AgentExecutor # Corrected executor import
+from python_a2a.server.tasks import Task # Corrected task import
+from python_a2a.server.events import EventQueue, TaskUpdater # Corrected event imports
+from python_a2a.server.request_context import RequestContext # Corrected context import
+# from python_a2a.client.helpers import create_text_message_object # Not used in this file
 
 # Import the ADK agent type for type hinting
 from google.adk.agents import Agent as AdkAgentType
@@ -91,9 +93,9 @@ class SocialAgentExecutor(AgentExecutor):
             updater.fail(message=f"Error executing social agent: {str(e)}")
 
 
-def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AStarletteApplication:
+def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer: # Return A2AServer
     """
-    Creates and returns the A2AStarletteApplication for the Social agent.
+    Creates and returns the A2AServer for the Social agent.
     Args:
         passed_adk_social_agent: The instantiated core ADK Agent for the social agent.
     """

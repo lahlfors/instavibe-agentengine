@@ -6,6 +6,6 @@ python-dateutil==2.9.0.post0
 humanize==4.12.3
 nest_asyncio>=1.5.0,<2.0.0
 asyncclick==8.1.8.0
-a2a-python
+python_a2a # Corrected package name
 deprecated==1.2.18
 python-dotenv==1.0.1

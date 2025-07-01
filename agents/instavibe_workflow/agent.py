@@ -5,8 +5,17 @@ import asyncio # Added for async operations
 import httpx   # Added for fetching agent cards
 
 # from vertexai.preview import reasoning_engines # Old client, to be replaced by A2AClient
-from a2a.client import A2AClient
-from a2a.types import Message as A2AMessage, Part as A2APart, AgentCard as A2AAgentCard
+from python_a2a.client import A2AClient # Corrected import
+# Assuming types like Message, Part, AgentCard are directly under python_a2a or in python_a2a.types
+# Based on server-side examples, AgentCard is often directly under the main package.
+# Let's assume the same for Message and Part for now, or they might be in python_a2a.types
+from python_a2a import AgentCard as A2AAgentCard # Corrected import
+from python_a2a import Message as A2AMessage     # Corrected import (tentative path)
+from python_a2a import Part as A2APart           # Corrected import (tentative path)
+# If Message and Part are in python_a2a.types, these lines would be:
+# from python_a2a.types import Message as A2AMessage
+# from python_a2a.types import Part as A2APart
+
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)

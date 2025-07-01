@@ -8,9 +8,9 @@ cloudpickle>=3.0.0 # For ADK pickling
 google-cloud-logging==3.9.0 # Or newer compatible version
 
 # Dependencies for A2A server
-a2a-python # Or a2a-sdk, ensure this is the correct package name from your SDK
+python_a2a # Corrected package name
 uvicorn>=0.20.0 # For running the ASGI server
-fastapi>=0.95.0 # A2AStarletteApplication can use FastAPI for underlying app or health checks
+fastapi>=0.95.0 # A2AServer can use FastAPI for underlying app or health checks
 
 # Note: google-search tool dependencies (if any beyond google-api-python-client which is often transitive)
 # should also be here if not covered by google-adk.

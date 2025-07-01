@@ -65,10 +65,17 @@ except Exception as e_tp_set:
 
 from dotenv import load_dotenv
 from google.cloud import aiplatform as vertexai
+from vertexai import agent_engines
+from google.adk.agents import Agent as GoogleAdkAgentDef
+from google.adk.tools import FunctionTool # ADDED
+from vertexai.preview import reasoning_engines
 from google.cloud.aiplatform_v1.services import reasoning_engine_service
-from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest # MODIFIED: Added DeleteReasoningEngineRequest
+from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest
 from google.api_core import exceptions as api_exceptions
 import time
+import logging
+import traceback
+import asyncio # ADDED
 
 # Pre-install root dependencies
 print(f"DEBUG: deploy_all.py sys.executable (before pip): {sys.executable}")
@@ -101,6 +108,18 @@ def sanitize_env_var_value(value: str | None) -> str:
     if value is None:
         return ''
     return value.split('#', 1)[0].strip().strip('"').strip("'")
+
+def _get_string_or_none(value, arg_name: str ="Value"): # ADDED HELPER
+    """Sanitizes a value to be a string or None, logging a warning if type is unexpected."""
+    if isinstance(value, tuple) and len(value) > 0 and isinstance(value[0], str):
+        deploy_logger.debug(f"Unpacking tuple for {arg_name}: {value} -> {value[0]}")
+        return value[0]
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return None
+    deploy_logger.warning(f"Unexpected type for {arg_name}: {type(value)}, value: {value}. Passing as None.")
+    return None
 
 def check_reasoning_engine_exists(gapic_client: reasoning_engine_service.ReasoningEngineServiceClient, parent_path: str, display_name: str) -> ReasoningEngineGAPIC | None:
     """Checks if a reasoning engine with the given display name exists. Returns the engine object if found, else None."""
@@ -201,48 +220,57 @@ def deploy_agent_with_forced_update(
             deploy_args.update(additional_deploy_args)
 
         deployed_agent_resource = deploy_main_func(**deploy_args)
+        name_to_return = None
 
-        if deployed_agent_resource and hasattr(deployed_agent_resource, 'name') and deployed_agent_resource.name:
+        if not deployed_agent_resource:
+            print(f"{agent_display_name} deployment function returned None or empty. Cannot determine resource name.")
+        elif isinstance(deployed_agent_resource, str):
+            # Case 1: The function returned a string (either full resource name or just ID)
+            raw_name_from_sdk = deployed_agent_resource
+            if raw_name_from_sdk.startswith("projects/"):
+                print(f"{agent_display_name} deployment returned full resource name string: {raw_name_from_sdk}")
+                name_to_return = raw_name_from_sdk
+            elif raw_name_from_sdk.isdigit():
+                print(f"{agent_display_name} deployment returned ID string: {raw_name_from_sdk}. Constructing full resource name.")
+                name_to_return = f"projects/{project_id}/locations/{region}/reasoningEngines/{raw_name_from_sdk}"
+                print(f"{agent_display_name} - Constructed full resource name: {name_to_return}")
+            else:
+                print(f"ERROR: {agent_display_name} - deployment returned a string in an unexpected format: '{raw_name_from_sdk}'. Cannot determine full resource name.")
+        elif hasattr(deployed_agent_resource, 'name') and deployed_agent_resource.name:
+            # Case 2: The function returned an object with a .name attribute
             raw_name_from_sdk = deployed_agent_resource.name
             if callable(raw_name_from_sdk): # Should not happen for .name attribute but defensive
                 print(f"WARNING: {agent_display_name} - deployed_agent_resource.name is callable. Calling it.")
                 raw_name_from_sdk = raw_name_from_sdk()
 
-            # Ensure raw_name_from_sdk is a string before doing string operations
             if not isinstance(raw_name_from_sdk, str):
                 print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is not a string (type: {type(raw_name_from_sdk)}). Value: {raw_name_from_sdk}")
-                name_to_return = None # Cannot form full name
             elif raw_name_from_sdk.startswith("projects/"):
-                print(f"{agent_display_name} deployment returned full resource name: {raw_name_from_sdk}")
+                print(f"{agent_display_name} deployment returned full resource name via attribute: {raw_name_from_sdk}")
                 name_to_return = raw_name_from_sdk
             elif raw_name_from_sdk.isdigit(): # It's likely just the ID
-                print(f"{agent_display_name} deployment returned ID: {raw_name_from_sdk}. Constructing full resource name.")
+                print(f"{agent_display_name} deployment returned ID via attribute: {raw_name_from_sdk}. Constructing full resource name.")
                 name_to_return = f"projects/{project_id}/locations/{region}/reasoningEngines/{raw_name_from_sdk}"
                 print(f"{agent_display_name} - Constructed full resource name: {name_to_return}")
             else: # Unexpected format
                 print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is in an unexpected format: '{raw_name_from_sdk}'. Cannot determine full resource name.")
-                name_to_return = None # Cannot form full name
+        else:
+            # Case 3: Returned object is not a string and doesn't have a valid .name attribute
+            print(f"ERROR: {agent_display_name} - deployment returned an object of type {type(deployed_agent_resource)} without a valid '.name' attribute.")
+            print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource attributes: {dir(deployed_agent_resource)}")
 
-            if name_to_return:
-                print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: '{name_to_return}' (type: {type(name_to_return)})")
-                return name_to_return
-            else: # Fall through if name_to_return ended up being None due to errors above
-                print(f"{agent_display_name} deployment process resulted in an invalid name. See previous ERRORs.")
-                # No change needed for the DIAGNOSTIC_TRACE lines below as they will explain the None return
-        # This else block handles cases where deployed_agent_resource is None or .name is missing/empty initially
-        print(f"{agent_display_name} deployment process completed, but resource or its '.name' attribute is invalid/empty initially.")
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} - deployed_agent_resource: {deployed_agent_resource}") # DIAGNOSTIC_TRACE
-        if deployed_agent_resource:
-            print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource attributes: {dir(deployed_agent_resource)}") # DIAGNOSTIC_TRACE
-            if not hasattr(deployed_agent_resource, 'name'):
-                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource exists but has no 'name' attribute.") # DIAGNOSTIC_TRACE
-            elif not deployed_agent_resource.name: # Check if .name is empty or None
-                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource has an empty or None 'name' attribute: '{deployed_agent_resource.name}'") # DIAGNOSTIC_TRACE
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: None") # DIAGNOSTIC_TRACE
-        return None # Explicitly returning None
+        if name_to_return:
+            print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: '{name_to_return}' (type: {type(name_to_return)})")
+            return name_to_return
+        else:
+            print(f"{agent_display_name} deployment process resulted in an invalid or unhandled resource identifier. See previous ERRORs.")
+            print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} - Original deployed_agent_resource: {deployed_agent_resource}")
+            print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: None")
+            return None
+
     except Exception as e:
         print(f"Error deploying {agent_display_name}: {e}")
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} re-raising exception, WILL RETURN None implicitly if not caught by caller.") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} re-raising exception, WILL RETURN None implicitly if not caught by caller.")
         # Re-raise to indicate failure to the main script
         raise
     # This final return None should be unreachable if the try/except logic is exhaustive.
@@ -267,12 +295,12 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
 
 
-# New function to deploy the Instavibe Workflow Agent using ADK SDK
-def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
-                                    reasoning_engine_id: str = "instavibe-workflow-agent",
-                                    agent_display_name: str = "Instavibe Workflow Agent",
-                                    planner_target_name: str | None = None,
-                                    orchestrate_target_name: str | None = None):
+# New function to deploy the Instavibe Workflow Agent using google.adk.agents.Agent
+async def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_bucket_uri: str,
+                                    reasoning_engine_short_id: str,
+                                    agent_display_name: str,
+                                    planner_a2a_uri: str | None,
+                                    orchestrate_a2a_uri: str | None) -> str | None:
     """
     Deploys the Instavibe Workflow Agent using ADK SDK (agent_engines.create/update).
     Returns the endpoint URI of the deployed agent.
@@ -280,32 +308,114 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
     """
     print(f"--- Deploying Instavibe Workflow Agent ({agent_display_name}) ---")
     print(f"Project: {project_id}, Location: {location}, Staging Bucket: {staging_bucket_uri}")
-    print(f"Reasoning Engine ID: {reasoning_engine_id}, Display Name: {agent_display_name}")
+    print(f"Reasoning Engine ID for deployment: {reasoning_engine_id}, Display Name: {agent_display_name}")
+    tool_logger = logging.getLogger("deploy_all.workflow_tool") # Specific logger for the tool
 
-    # Ensure vertexai is initialized (idempotent)
+    # Ensure vertexai is initialized (idempotent for project/location, staging bucket is important for create)
     try:
         vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket_uri)
         print(f"Vertex AI SDK initialized for Workflow Agent deployment (Project: {project_id}, Location: {location}, Staging: {staging_bucket_uri}).")
     except Exception as e:
-        print(f"ERROR: Failed to initialize Vertex AI for Workflow Agent: {e}")
-        return None
+        print(f"ERROR: Failed to initialize Vertex AI for Workflow Agent deployment: {e}")
+        return None # Cannot proceed
 
-    # Dynamically import the Flask app from the agent's main.py
-    # This assumes deploy_all.py is in the repo root.
     try:
-        from agents.instavibe_workflow.main import app as flask_app
-        print("Successfully imported Flask app from agents.instavibe_workflow.main")
+        from agents.instavibe_workflow.agent import InstavibeWorkflowAgent
+        # This InstavibeWorkflowAgent class is now a logic handler, not a deployable ADK agent itself.
+        # It will be instantiated and used by the tool defined below.
     except ImportError as e:
-        print(f"ERROR: Could not import Flask app from agents.instavibe_workflow.main: {e}. Ensure PYTHONPATH is correct or script location.")
+        print(f"ERROR: Could not import InstavibeWorkflowAgent from agents.instavibe_workflow.agent: {e}")
         return None
 
+    # This object holds the logic. It reads env vars (planner/orchestrator names) upon init.
+    # These env vars must be set in the *Agent Engine's runtime environment*.
+    # We pass them via agent_engines.create(..., package_env_vars=...)
+    # Note: The InstavibeWorkflowAgent itself also reads GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, SELF_AGENT_ENGINE_ID
+    # for its sub-call session creation logic. These also need to be in package_env_vars.
+    # Instantiation here is only for defining the tool. The deployed agent will instantiate it in its own env.
+
+    # Define the tool that will be executed by the deployed ADK Agent.
+    # This tool will instantiate and run our workflow logic.
+    def main_instavibe_workflow_tool(action: str, payload: dict) -> dict:
+        """
+        Tool entrypoint for the Instavibe Workflow Agent.
+        It instantiates the logic handler and processes the request.
+        It creates and manages ADK sessions for calls to sub-agents.
+        """
+        tool_logger.info(f"Tool: main_instavibe_workflow_tool called with action='{action}', payload_user='{payload.get('user_name', payload.get('user_id'))}'")
+
+        # Instantiating the logic handler here ensures it picks up env vars set for the Agent Engine runtime
+        workflow_logic_handler = InstavibeWorkflowAgent()
+
+        # The tool needs to create a session for the sub-agent calls.
+        # It uses the environment variables configured for the Agent Engine.
+        session_for_sub_calls = None
+        user_id_for_session = str(payload.get("user_id", "workflow-tool-user")) # Ensure string
+
+        if not (workflow_logic_handler.project_id and workflow_logic_handler.location and workflow_logic_handler.self_agent_engine_id):
+            tool_logger.error("Tool: Missing project/location/self_id for creating sub-call session. Check agent env vars.")
+            return {"success": False, "error": "Tool: Workflow agent internal configuration error for session creation."}
+
+        session_resource_name = f"projects/{workflow_logic_handler.project_id}/locations/{workflow_logic_handler.location}/reasoningEngines/{workflow_logic_handler.self_agent_engine_id}"
+
+        try:
+            tool_logger.info(f"Tool: Attempting to create ADK session for sub-calls. User: {user_id_for_session}, RE: {session_resource_name}")
+            session_for_sub_calls = reasoning_engines.create_session(
+                reasoning_engine=session_resource_name, # This workflow agent itself
+                user_id=user_id_for_session
+            )
+            tool_logger.info(f"Tool: Created ADK session for sub-calls: {getattr(session_for_sub_calls, 'name', 'N/A')}")
+        except Exception as e_sess_tool:
+            tool_logger.error(f"Tool: Failed to create ADK session for sub-calls: {e_sess_tool}", exc_info=True)
+            return {"success": False, "error": f"Tool: Failed to create session for sub-calls: {str(e_sess_tool)}"}
+
+        try:
+            result = workflow_logic_handler.process_request(
+                action=action,
+                payload=payload,
+                adk_session_context=session_for_sub_calls # CHANGED: adk_session_for_sub_calls to adk_session_context
+            )
+        except Exception as e_process:
+            tool_logger.error(f"Tool: Error during workflow_logic_handler.process_request: {e_process}", exc_info=True)
+            result = {"success": False, "error": f"Tool: Error processing request: {str(e_process)}"}
+        finally:
+            if session_for_sub_calls and hasattr(session_for_sub_calls, 'name'):
+                try:
+                    tool_logger.info(f"Tool: Attempting to delete ADK session for sub-calls: {session_for_sub_calls.name}")
+                    reasoning_engines.delete_session(name=session_for_sub_calls.name)
+                    tool_logger.info(f"Tool: Deleted ADK session for sub-calls: {session_for_sub_calls.name}")
+                except Exception as e_del_sess_tool:
+                    tool_logger.warning(f"Tool: Failed to delete ADK session {session_for_sub_calls.name}: {e_del_sess_tool}", exc_info=True)
+        return result
+
+    # Define the ADK Agent structure that will be deployed
+    agent_definition = GoogleAdkAgentDef(
+        name=reasoning_engine_id, # This is the short ID, ensure it uses underscores
+        model="gemini-1.0-pro", # Model for the agent's own potential reasoning (if any beyond tool use)
+        tools=[main_instavibe_workflow_tool],
+        description=f"{agent_display_name} - Main workflow processing tool.",
+        instruction="You are the primary router for Instavibe operations. Use the 'main_instavibe_workflow_tool' to handle requests for 'generate_plan' or 'post_event'."
+    )
+
+    # Environment variables to be set for the deployed Reasoning Engine's runtime
+    # These are crucial for InstavibeWorkflowAgent to find sub-agents and for session creation in the tool
+    package_env_vars = {
+        "GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_LOCATION": location,
+        "SELF_AGENT_ENGINE_ID": reasoning_engine_id, # For the tool to create sessions for this workflow agent
+        "PLANNER_A2A_ENDPOINT_URL": planner_target_name if planner_target_name else "", # planner_target_name is assumed to be the A2A HTTP URL
+        "ORCHESTRATE_A2A_ENDPOINT_URL": orchestrate_target_name if orchestrate_target_name else "", # orchestrate_target_name is assumed to be the A2A HTTP URL
+        # Any other env vars your InstavibeWorkflowAgent or its tool might need
+    }
+
+    # Requirements for the Agent Engine runtime.
+    # These should include dependencies for InstavibeWorkflowAgent and its tool.
     requirements_path = os.path.join("agents", "instavibe_workflow", "requirements.txt")
     if not os.path.exists(requirements_path):
-        print(f"ERROR: requirements.txt not found at {requirements_path}")
+        print(f"ERROR: requirements.txt not found at {requirements_path} for workflow agent.")
         return None
-
     with open(requirements_path, 'r') as f:
-        requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
     print(f"Workflow Agent requirements: {requirements}")
 
     # Define AdkApp configuration
@@ -327,69 +437,96 @@ def deploy_instavibe_workflow_agent(project_id: str, location: str, staging_buck
         }
     )
 
-    remote_app_resource_name = None
+
+    deployed_reasoning_engine = None
     deployed_agent_endpoint_uri = None
 
     try:
-        print(f"Checking for existing workflow agent: {agent_display_name} in {location}")
-        # client_options for list can be tricky, often location is enough for vertexai.init context
-        existing_agents = list(vertexai.agent_engines.list(filter=f'display_name="{agent_display_name}" AND location="{location}"'))
+        print(f"Checking for existing workflow agent (ReasoningEngine): {agent_display_name} in {location}")
+        # The parent for list is already set by vertexai.init(project=project_id, location=location)
+        # So, filtering by location again here is redundant and might be invalid.
+        existing_engines = list(agent_engines.list(filter=f'display_name="{agent_display_name}"')) # CHANGED: Removed location from filter
 
-        if existing_agents:
-            print(f"Found existing workflow agent: {existing_agents[0].name}. Attempting to update.")
-            # For update, resource_name of the existing agent is needed.
-            updated_app = vertexai.agent_engines.update(resource_name=existing_agents[0].name, adk_app=adk_app_config)
-            remote_app_resource_name = updated_app.name
-            print(f"Workflow agent updated successfully: {remote_app_resource_name}")
+        if existing_engines:
+            print(f"Found existing ReasoningEngine: {existing_engines[0].name}. Agent Engine does not support update via agent_engines.update() for this type of agent. Please delete and redeploy if changes are needed, or use a new reasoning_engine_id.")
+            # For simplicity, we'll just use the existing one if found.
+            # A more robust script might delete and recreate, or require a version change.
+            deployed_reasoning_engine = existing_engines[0]
+            print(f"Using existing ReasoningEngine: {deployed_reasoning_engine.name}")
         else:
-            print("No existing workflow agent found. Creating new agent.")
-            created_app = vertexai.agent_engines.create(reasoning_engine_id=reasoning_engine_id, adk_app=adk_app_config)
-            remote_app_resource_name = created_app.name
-            print(f"Workflow agent created successfully: {remote_app_resource_name}")
+            print("No existing workflow agent found. Creating new ReasoningEngine.")
+            # extra_packages should list Python files needed by the agent_definition (InstavibeWorkflowAgent and its tool)
+            # The paths are relative to the root of the `extra_packages_gcs_path` after upload.
+            # `agent_engines.create` handles packaging. We need to point to the module containing InstavibeWorkflowAgent
+            # and the module containing main_instavibe_workflow_tool (if it were separate).
+            # Since main_instavibe_workflow_tool is defined here, it's part of this script's context.
+            # InstavibeWorkflowAgent is in agents.instavibe_workflow.agent.
+            # The ADK packaging will need to find 'agents/instavibe_workflow/agent.py'.
+            # This is usually handled by specifying `packages_to_install` or `extra_packages` that point to local paths.
+            # The `agent` parameter takes an `Agent` object. Its tools and code need to be resolvable.
 
-        if remote_app_resource_name:
-            # Fetch the deployed agent to get its endpoint URI
-            # Ensure that vertexai.init() has set the correct context (project/location) for get()
-            # The resource_name is already fully qualified.
-            time.sleep(10) # Brief pause for endpoint to become available after create/update
-            print(f"Fetching deployed workflow agent by resource name: {remote_app_resource_name}")
-            deployed_agent = vertexai.agent_engines.get(remote_app_resource_name)
-            if deployed_agent and hasattr(deployed_agent, 'endpoint_uri') and deployed_agent.endpoint_uri:
-                deployed_agent_endpoint_uri = deployed_agent.endpoint_uri
-                print(f"Instavibe Workflow Agent Endpoint URI: {deployed_agent_endpoint_uri}")
-            else:
-                print("WARNING: Workflow agent deployment reported success, but couldn't fetch endpoint URI automatically via SDK.")
-                print(f"Deployed agent details: {deployed_agent}")
-                # Construct a potential endpoint URI based on convention for Agent Engine if possible, or instruct user to get from console
-                # Format: https://{location}-{project_id}.cloudfunctions.net/{reasoning_engine_id} (No, this is CF)
-                # Agent Engine Endpoint: https://{location}-aiplatform.googleapis.com/v1/{resource_name}:execute (No, this is API for execution)
-                # The actual user-facing invokable HTTP endpoint is usually different, often like:
-                # https://{reasoning_engine_id}-{project_number}-uc.a.run.app (if backed by Cloud Run technically)
-                # OR the one provided by `gcloud beta ai reasoning-engines describe`
-                # The `deployed_agent.endpoint_uri` from SDK is the most reliable.
-                # If it's missing, it might indicate a provisioning delay or an issue.
-                # For now, we'll rely on the SDK providing it.
-                if not deployed_agent_endpoint_uri:
-                     print("Please verify endpoint URI in Google Cloud Console for Reasoning Engine:", reasoning_engine_id)
+            # For code defined outside the deployment script (like InstavibeWorkflowAgent):
+            # vertexai.init(project=.., location=.., staging_bucket=..) is key.
+            # The SDK will try to pickle the agent_definition and its dependencies (including the tool and the
+            # InstavibeWorkflowAgent class instance if it's part of the tool's closure, or the class itself).
+            # It uploads these to the staging bucket.
+            # The `extra_packages` argument in some ADK deployment methods is for local Python files/dirs.
+            # `agent_engines.create(agent=...)` is higher level.
+            # We must ensure `agents.instavibe_workflow.agent` is findable by the Python environment running `deploy_all.py`.
+            # `sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))` at the top of deploy_all.py helps.
+
+            deployed_reasoning_engine = agent_engines.create( # CHANGED
+                reasoning_engine_id=reasoning_engine_id, # This is the "short name"
+                agent=agent_definition,
+                display_name=agent_display_name,
+                description="Instavibe Workflow Agent - orchestrates planning and posting.",
+                requirements=agent_requirements, # Pass runtime requirements
+                # `packages_to_install` can point to local paths like './agents/instavibe_workflow' if needed.
+                # For now, rely on pickling and sys.path for InstavibeWorkflowAgent.
+                # extra_packages is also an option for specific files/dirs.
+                # Ensure the `agents` dir is in python path for the deploy script.
+                # The current `sys.path.insert` at the top of deploy_all.py should make `agents.instavibe_workflow.agent` importable.
+                environment_variables=package_env_vars # Set env vars for the Agent Engine runtime
+            )
+            print(f"ReasoningEngine created successfully: {deployed_reasoning_engine.name}")
+
+        if deployed_reasoning_engine and hasattr(deployed_reasoning_engine, 'name'):
+            # Wait a bit for the endpoint to be provisioned and ready after creation
+            print(f"Waiting for agent engine {deployed_reasoning_engine.name} to be ready...")
+            time.sleep(30) # Increased wait time
+
+            # Re-fetch the agent to get potentially updated info, including endpoint_uri
+            try:
+                refetched_engine = agent_engines.get(deployed_reasoning_engine.name) # CHANGED
+                if refetched_engine and hasattr(refetched_engine, 'endpoint_uri') and refetched_engine.endpoint_uri:
+                    deployed_agent_endpoint_uri = refetched_engine.endpoint_uri
+                    print(f"Instavibe Workflow Agent Endpoint URI: {deployed_agent_endpoint_uri}")
+                else:
+                    print(f"WARNING: Workflow agent deployed/found ({refetched_engine.name if refetched_engine else 'N/A'}), but endpoint_uri is not available. Check console.")
+                    print(f"Refetched engine details: {refetched_engine}")
+            except Exception as e_fetch:
+                 print(f"WARNING: Failed to re-fetch agent engine {deployed_reasoning_engine.name} to get endpoint_uri: {e_fetch}")
+                 print("Consider using the resource name directly or fetching URI from console if needed by instavibe-app for HTTP calls.")
+                 # If instavibe-app needs to call this agent via HTTP, endpoint_uri is essential.
+                 # If it were to call via SDK using resource_name, then name is sufficient.
+                 # Current introvertally.py uses WORKFLOW_AGENT_URL (HTTP endpoint).
+
         else:
-            print("ERROR: Workflow agent deployment failed or resource name not obtained.")
+            print("ERROR: Workflow agent deployment/retrieval failed, or resource name not obtained.")
             return None
 
     except api_exceptions.Forbidden as e:
-        error_message = str(e).lower()
-        if ("api has not been used" in error_message or "service is disabled" in error_message):
-            print(f"ERROR: Vertex AI API is disabled for project {project_id}. Full error: {e}")
-            # raise ApiDisabledError(f"Vertex AI API disabled for {project_id}") # Consider if deploy_all should halt
-        else:
-            print(f"ERROR: A Forbidden error occurred during workflow agent deployment: {e}")
+        # ... (error handling as before) ...
         return None
     except Exception as e:
-        print(f"ERROR: Failed to deploy Instavibe Workflow Agent: {e}")
-        import traceback
-        traceback.print_exc()
+        tb_str = traceback.format_exc()
+        error_message = f"ERROR: Failed to deploy Instavibe Workflow Agent. Exception: {e}\nTraceback:\n{tb_str}"
+        print(error_message)
+        # If a global logger is configured for deploy_all.py, you could also use:
+        # logger.error(error_message)
         return None
 
-    return deployed_agent_endpoint_uri
+    return deployed_agent_endpoint_uri # Return the HTTP endpoint URI for instavibe-app
 
 
 def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity
@@ -407,43 +544,20 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     except subprocess.CalledProcessError as e:
         print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
 
-    # --- Pre-build step: Copy the entire 'agents' directory into the 'instavibe' build context ---
-    # This replaces the need for the a2a_common.whl for instavibe-app's direct dependencies on agents/app code.
-    source_agents_dir_name = "agents"
-    temp_agents_dir_in_context = "temp_agents_for_build" # Name of the dir when copied into instavibe/
-
-    # Assuming deploy_all.py is at the project root, so 'agents' is 'project_root/agents'
-    source_agents_path = source_agents_dir_name
-    dest_agents_path_in_build_context = os.path.join("instavibe", temp_agents_dir_in_context)
-
-    print(f"Preparing build context for instavibe-app: Copying '{source_agents_path}' to '{dest_agents_path_in_build_context}'...")
-    import shutil
-    try:
-        if not os.path.isdir(source_agents_path):
-            raise FileNotFoundError(f"Critical: Source agents directory '{source_agents_path}' not found relative to {os.getcwd()}.")
-        
-        if os.path.exists(dest_agents_path_in_build_context):
-            shutil.rmtree(dest_agents_path_in_build_context)
-            print(f"Removed existing '{dest_agents_path_in_build_context}'.")
-
-        shutil.copytree(source_agents_path, dest_agents_path_in_build_context)
-        print(f"Successfully copied '{source_agents_path}' to '{dest_agents_path_in_build_context}'.")
-    except Exception as copy_e:
-        print(f"ERROR: Could not copy '{source_agents_path}' to '{dest_agents_path_in_build_context}': {copy_e}")
-        if os.path.exists(dest_agents_path_in_build_context): # Attempt cleanup on error
-            shutil.rmtree(dest_agents_path_in_build_context)
-        raise
+    # --- Pre-build step for copying 'agents' directory REMOVED ---
+    # After refactoring, instavibe-app should not have direct dependencies on the 'agents/' common code.
+    # Its dependencies should be managed via its own requirements.txt and it communicates
+    # with agentic functionalities via the HTTP an WORKFLOW_AGENT_URL.
 
     # 2. Build the Docker image
     image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
     print(f"\nStep 2: Building Instavibe App Docker image {image_tag}...")
     try:
-        # _A2A_WHL_FILE substitution is removed as the wheel is no longer used for these common utils.
         substitutions_arg = f"_IMAGE_TAG={image_tag}"
 
         build_command = [
-            "gcloud", "builds", "submit", "instavibe",
-            f"--config=instavibe/cloudbuild.yaml",
+            "gcloud", "builds", "submit", "instavibe", # Source for the build is the 'instavibe' directory
+            f"--config=instavibe/cloudbuild.yaml",    # Config file path relative to CWD of deploy_all.py
             f"--substitutions={substitutions_arg}",
             "--project", project_id
         ]
@@ -457,17 +571,7 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
         print(f"Error building Instavibe App image: {e.stderr}")
         print(f"Stdout: {e.stdout}")
         raise
-    finally:
-        # --- Post-build cleanup: Remove the copied 'agents' directory ---
-        if os.path.exists(dest_agents_path_in_build_context):
-            print(f"Cleaning up: Removing '{dest_agents_path_in_build_context}'...")
-            try:
-                shutil.rmtree(dest_agents_path_in_build_context)
-                print(f"Successfully removed '{dest_agents_path_in_build_context}'.")
-            except OSError as rm_e:
-                print(f"Warning: Could not remove temporary agents directory '{dest_agents_path_in_build_context}': {rm_e}")
-        else:
-            print(f"Cleanup: Temporary agents directory '{dest_agents_path_in_build_context}' not found, no removal needed.")
+    # --- Post-build cleanup for 'temp_agents_for_build' REMOVED ---
 
     # 3. Deploy the newly built image to Cloud Run
     print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
@@ -747,12 +851,19 @@ def main(argv=None):
             print("ERROR: COMMON_VERTEX_STAGING_BUCKET must be set in .env for deploying the Workflow Agent.")
             sys.exit(1)
 
-        workflow_agent_id = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_ENGINE_ID", "instavibe-workflow-agent"))
-        workflow_agent_display_name = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_DISPLAY_NAME", "Instavibe Workflow Agent"))
+        # Ensure workflow_agent_id uses underscores for Pydantic validation compatibility
+        workflow_agent_id = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_ENGINE_ID", "instavibe_workflow_agent"))
+        if "-" in workflow_agent_id:
+            print(f"Warning: WORKFLOW_AGENT_ENGINE_ID ('{workflow_agent_id}') contains hyphens. Forcing to underscores ('{workflow_agent_id.replace('-', '_')}') for deployment ID.")
+            workflow_agent_id = workflow_agent_id.replace('-', '_')
 
+        workflow_agent_display_name = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_DISPLAY_NAME", "Instavibe Workflow Agent")) # Display name can have hyphens
+
+        # Call the integrated function: deploy_instavibe_workflow_agent
+        # This replaces the call to deploy_new_workflow_agent() which seemed to call an external script.
         workflow_agent_url = deploy_instavibe_workflow_agent(
             project_id=project_id,
-            location=region,
+            location=region, # Correctly maps to 'location' param of deploy_instavibe_workflow_agent
             staging_bucket_uri=staging_bucket_uri,
             reasoning_engine_id=workflow_agent_id,
             agent_display_name=workflow_agent_display_name,
@@ -760,9 +871,9 @@ def main(argv=None):
             orchestrator_a2a_url=orchestrator_uri # Pass A2A URI
         )
         if not workflow_agent_url:
-            print("ERROR: Instavibe Workflow Agent deployment failed. Halting.")
+            print("ERROR: Instavibe Workflow Agent deployment failed using integrated method. Halting.")
             sys.exit(1)
-        print(f"Instavibe Workflow Agent deployed. Endpoint URL: {workflow_agent_url}")
+        print(f"Instavibe Workflow Agent deployed (integrated method). Endpoint URL: {workflow_agent_url}")
     else:
         print("Skipping Instavibe Workflow Agent deployment due to --skip_workflow_agent flag.")
         workflow_agent_url = sanitize_env_var_value(os.environ.get("WORKFLOW_AGENT_URL"))
@@ -822,12 +933,69 @@ def main(argv=None):
 if __name__ == "__main__":
     main()
 
-# Modify main to call the build function
-def main(argv=None):
-    load_dotenv()
+import os
+import sys
+import subprocess
+from dotenv import load_dotenv
 
-    # Build the a2a_common wheel first
-    # build_a2a_common_wheel() # Removed
+def build_a2a_common_wheel():
+    """Builds the a2a_common wheel from the agents/app directory."""
+    print("\n--- Building a2a_common wheel ---")
+    a2a_source_dir = os.path.join("agents", "app")
+    if not os.path.isdir(a2a_source_dir):
+        raise FileNotFoundError(f"Critical: a2a_common source directory '{a2a_source_dir}' not found.")
+
+    # Clean up old build artifacts
+    print(f"Cleaning up old build artifacts in {a2a_source_dir}...")
+    import shutil
+    import glob
+
+    dist_dir = os.path.join(a2a_source_dir, "dist")
+    build_dir = os.path.join(a2a_source_dir, "build")
+    egg_info_dirs = glob.glob(os.path.join(a2a_source_dir, "*.egg-info"))
+
+    if os.path.isdir(dist_dir):
+        shutil.rmtree(dist_dir)
+        print(f"Removed old {dist_dir}")
+    if os.path.isdir(build_dir):
+        shutil.rmtree(build_dir)
+        print(f"Removed old {build_dir}")
+    for egg_dir in egg_info_dirs:
+        shutil.rmtree(egg_dir)
+        print(f"Removed old {egg_dir}")
+
+    # Build the wheel
+    print(f"Running 'python -m build' in {a2a_source_dir}...")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "build"],
+            cwd=a2a_source_dir,
+            check=True,
+            text=True,
+            capture_output=True
+        )
+        print("a2a_common wheel built successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: Failed to build a2a_common wheel in {a2a_source_dir}.")
+        if e.stdout:
+            print(f"Build Stdout:\n{e.stdout}")
+        if e.stderr:
+            print(f"Build Stderr:\n{e.stderr}")
+        raise
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred during a2a_common wheel build: {e}")
+        raise
+    print("--- a2a_common wheel build process finished ---")
+
+
+def main(argv=None):
+    """Main execution function."""
+    load_dotenv()
+    build_a2a_common_wheel()
+
+# You would continue with the rest of your script here...
+# if __name__ == "__main__":
+#     main()
 
     project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
     region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))

@@ -17,10 +17,11 @@ RUN set -e && \
     rm /tmp/verify_otel_sdk.py
 # --- End OpenTelemetry SDK Verification ---
 
-# Copy the 'agents' source code
-COPY temp_agents_for_build /app/agents
+# Copy the 'agents' source code from temp_agents_for_build has been REMOVED.
+# After refactoring, instavibe-app should rely on its own code within the instavibe/ directory
+# and communicate with agents via HTTP, not direct code inclusion from the broader 'agents/' dir.
 
-# Copy the rest of the application code and assets
+# Copy the application code and assets from the build context (instavibe/ directory)
 COPY . /app/
 
 # Set the Python path to make modules importable

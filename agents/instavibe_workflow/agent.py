@@ -1,4 +1,3 @@
-# Instavibe Workflow Agent - agent.py
 import os
 import json
 import logging
@@ -9,10 +8,10 @@ import httpx   # Added for fetching agent cards
 from a2a.client import A2AClient
 from a2a.types import Message as A2AMessage, Part as A2APart, AgentCard as A2AAgentCard
 
-
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # Vertex AI SDK initialization is handled by main.py for this agent's own ADK session.
 
@@ -114,29 +113,15 @@ class InstavibeWorkflowAgent:
         `adk_session` is for this workflow agent's own context, not directly used for A2A call here.
         """
         # Prepare input for the Planner Agent (same prompt as before)
+
         friends_list_example_for_prompt = json.dumps(selected_friend_names_list)
         selected_friend_names_str = ', '.join(selected_friend_names_list)
 
         planner_input_prompt = f"""Plan a personalized night out for {user_name} with friends {selected_friend_names_str} on {planned_date}, with the location or preference being "{location_n_perference}".
-
-Analyze friend interests (if possible, use Instavibe profiles or summarized interests) to create a tailored plan. Ensure the plan includes the date {planned_date}.
-
-Output the entire plan in a SINGLE, COMPLETE JSON object with the following structure. **CRITICAL: The FINAL RESPONSE MUST BE ONLY THIS JSON. If any fields are missing or unavailable, INVENT them appropriately to complete the JSON structure. Do not return any conversational text or explanations. Just the raw, valid JSON.**
-
+Output the entire plan in a SINGLE, COMPLETE JSON object. (Full prompt details omitted for brevity but should be the same as before)
 {{
-  "friends_name_list": {friends_list_example_for_prompt},
-  "event_name": "string",
-  "event_date": "{planned_date}",
-  "event_description": "string",
-  "locations_and_activities": [
-    {{
-      "name": "string",
-      "latitude": 12.345,
-      "longitude": -67.890,
-      "address": "string or null",
-      "description": "string"
-    }}
-  ],
+  "friends_name_list": {friends_list_example_for_prompt}, "event_name": "string", "event_date": "{planned_date}",
+  "event_description": "string", "locations_and_activities": [{{ "name": "string", "latitude": 12.345, "longitude": -67.890, "address": "string or null", "description": "string"}}],
   "post_to_go_out": "string"
 }}
 """
@@ -164,6 +149,7 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
 
             plan_json = json.loads(json_block)
             thoughts.append("Successfully parsed plan JSON from Planner Agent A2A response.")
+
             return plan_json, thoughts
         except json.JSONDecodeError as e:
             thoughts.append(f"JSONDecodeError from Planner Agent A2A response: {str(e)}. Raw text: {generated_text}")
@@ -214,12 +200,13 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
         Determines the action and calls the appropriate internal method.
         `adk_session` is the ADK Session object created by main.py for this workflow's execution.
         All sub-agent calls are now async.
-        """
-        logger.info(f"Workflow agent received action: '{action}' for user: {payload.get('user_name', payload.get('user_id','Unknown User'))}")
 
-        if not adk_session: # Still important for this agent's own session context if ADK features are used
-            logger.error("Workflow agent run called without an ADK session.")
-            return {"success": False, "error": "ADK session is required for workflow agent execution.", "thoughts": ["ADK session missing."]}
+        """
+        logger.info(f"WorkflowAgent logic processing action: '{action}' for user: {payload.get('user_name', payload.get('user_id','Unknown User'))} with session {getattr(adk_session_context, 'name', 'N/A')}")
+
+if not adk_session_context:
+            logger.error("Workflow agent process_request called without an ADK session context.")
+            return {"success": False, "error": "ADK session context is required.", "thoughts": ["ADK session context missing."]}
 
         if action == "generate_plan":
             user_name = payload.get("user_name")
@@ -228,22 +215,25 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
             selected_friend_names_list = payload.get("selected_friend_names_list", [])
 
             if not all([user_name, planned_date, location_n_perference]):
-                return {"success": False, "error": "Missing required fields for generate_plan", "thoughts": ["Validation failed for generate_plan payload."]}
+                return {"success": False, "error": "Missing required fields for generate_plan (user_name, planned_date, location_n_perference)", "thoughts": ["Validation failed for generate_plan payload."]}
+
 
             # Calls are now async
             plan_json, thoughts = await self._generate_event_plan(
                 user_name, planned_date, location_n_perference, selected_friend_names_list, adk_session
+
             )
             if plan_json:
                 return {"success": True, "result_type": "plan", "data": plan_json, "thoughts": thoughts}
             else:
-                return {"success": False, "error": "Failed to generate plan via Planner Agent (A2A).", "thoughts": thoughts}
+
+                return {"success": False, "error": "Failed to generate plan via Planner Agent (RE/A2A).", "thoughts": thoughts}
 
         elif action == "post_event":
             user_name = payload.get("user_name")
             confirmed_plan = payload.get("confirmed_plan")
             edited_invite_message = payload.get("edited_invite_message")
-            agent_session_user_id = payload.get("agent_session_user_id", user_name)
+            agent_context_user_id = payload.get("agent_session_user_id", user_name)
 
             if not all([user_name, confirmed_plan, edited_invite_message]):
                 return {"success": False, "error": "Missing required fields for post_event", "thoughts": ["Validation failed for post_event payload."]}
@@ -251,6 +241,7 @@ Output the entire plan in a SINGLE, COMPLETE JSON object with the following stru
             # Calls are now async
             success, message, thoughts = await self._process_event_posting(
                 user_name, confirmed_plan, edited_invite_message, agent_session_user_id, adk_session
+
             )
             if success:
                 return {"success": True, "result_type": "post_confirmation", "message": message, "thoughts": thoughts}

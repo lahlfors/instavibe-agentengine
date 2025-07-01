@@ -18,9 +18,8 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME as OTEL_SERVICE_NAME_KEY
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
-# Imports reverted to use agents.app.utils structure,
-# as 'agents' directory is now copied directly into the image.
-from agents.app.utils.logging_setup import setup_google_cloud_logging
+# Import 'setup_google_cloud_logging' from its new local location
+from .utils.logging_setup import setup_google_cloud_logging # CHANGED
 # Comments updated to reflect OTLP usage for direct export
 # CloudTraceLoggingSpanExporter REMOVED.
 # CloudTraceExporter (OTLP) REMOVED.

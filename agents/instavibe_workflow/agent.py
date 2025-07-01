@@ -6,10 +6,10 @@ import httpx   # Added for fetching agent cards
 
 # from vertexai.preview import reasoning_engines # Old client, to be replaced by A2AClient
 from python_a2a.client import A2AClient # Corrected import
-# Using specific model paths based on recent feedback
-from python_a2a.models.agent import AgentCard as A2AAgentCard
-from python_a2a.models.message import Message as A2AMessage
-from python_a2a.models.message import Part as A2APart
+# Reverted to direct imports from python_a2a based on user clarification
+from python_a2a import AgentCard as A2AAgentCard
+from python_a2a import Message as A2AMessage # Assuming Message is also top-level
+from python_a2a import Part as A2APart       # Assuming Part is also top-level
 
 
 # Configure basic logging

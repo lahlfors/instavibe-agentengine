@@ -1,8 +1,6 @@
 # agents/planner/a2a_server.py
 from python_a2a.server import A2AServer
-from python_a2a.models.agent import AgentCard # Specific import path
-from python_a2a.models.skill import AgentSkill # Specific import path
-from python_a2a.models.message import Part # Specific import path for Part
+from python_a2a import AgentCard, AgentSkill, Part # Reverted to direct imports
 # AgentCapabilities already removed.
 # The actual agent instance (from agents.planner.agent.root_agent) is passed in.
 # Type hint it with the base ADK LlmAgent.

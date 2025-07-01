@@ -6,9 +6,7 @@ from fastapi import FastAPI
 
 # Corrected A2A SDK imports for python-a2a==0.5.0
 from python_a2a.server import A2AServer
-from python_a2a.models.agent import AgentCard # Specific import path
-from python_a2a.models.skill import AgentSkill # Specific import path
-from python_a2a.models.message import Part # Specific import path
+from python_a2a import AgentCard, AgentSkill, Part # Reverted to direct imports
 # AgentCapabilities already removed
 from python_a2a.agent import AgentExecutor, Task
 from python_a2a.server.events import EventQueue, TaskUpdater

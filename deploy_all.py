@@ -109,6 +109,18 @@ def sanitize_env_var_value(value: str | None) -> str:
         return ''
     return value.split('#', 1)[0].strip().strip('"').strip("'")
 
+def _get_string_or_none(value, arg_name: str ="Value"): # ADDED HELPER
+    """Sanitizes a value to be a string or None, logging a warning if type is unexpected."""
+    if isinstance(value, tuple) and len(value) > 0 and isinstance(value[0], str):
+        deploy_logger.debug(f"Unpacking tuple for {arg_name}: {value} -> {value[0]}")
+        return value[0]
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return None
+    deploy_logger.warning(f"Unexpected type for {arg_name}: {type(value)}, value: {value}. Passing as None.")
+    return None
+
 def check_reasoning_engine_exists(gapic_client: reasoning_engine_service.ReasoningEngineServiceClient, parent_path: str, display_name: str) -> ReasoningEngineGAPIC | None:
     """Checks if a reasoning engine with the given display name exists. Returns the engine object if found, else None."""
     try:

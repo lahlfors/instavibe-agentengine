@@ -11,70 +11,75 @@ from a2a.agent_executor import AgentExecutor
 from a2a.events import EventQueue, TaskUpdater
 from a2a.request_context import RequestContext
 
-# Import the existing ADK agent from social.agent
+# Import the ADK agent type for type hinting
+from google.adk.agents import Agent as AdkAgentType
+from google.genai import types # For types.Content if used by ADK agent response
+
+# Try to get some metadata from the original agent module for AgentCard details
 try:
-    from agents.social.agent import root_agent as adk_social_agent
-    from agents.social.agent import SERVICE_NAME as SOCIAL_SERVICE_NAME
+    from agents.social.agent import SERVICE_NAME as SOCIAL_SERVICE_NAME_FROM_MODULE
+    # Assuming social agent might have a similar AGENT_INSTRUCTION or a default description
+    SOCIAL_AGENT_DEFAULT_DESCRIPTION = "Social agent for profile and activity summarization."
 except ImportError as e:
-    logging.error(f"Failed to import ADK social agent: {e}. Ensure agents.social.agent is accessible.")
-    adk_social_agent = None
-    SOCIAL_SERVICE_NAME = "social-agent" # Fallback
+    logging.warning(f"Could not import from agents.social.agent for metadata: {e}. Using fallbacks.")
+    SOCIAL_SERVICE_NAME_FROM_MODULE = "social-agent"
+    SOCIAL_AGENT_DEFAULT_DESCRIPTION = "Social agent for profile and activity summarization."
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO) # Basic logging for the server
+# Basic logging configuration. AdkApp's setup can enhance this.
+if not logger.handlers: # Avoid duplicate basicConfig if already set by another module
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-# Configuration
-AGENT_NAME = SOCIAL_SERVICE_NAME
-AGENT_DESCRIPTION = "Agent for finding and summarizing social profiles, posts, friends, and event attendance." # From LoopAgent description
+# Configuration for the A2A server component
+A2A_UVICORN_PORT_SOCIAL = int(os.environ.get("A2A_UVICORN_PORT_SOCIAL", 8002)) # Internal port for Uvicorn
+AGENT_NAME_FOR_CARD = SOCIAL_SERVICE_NAME_FROM_MODULE
+AGENT_DESCRIPTION_FOR_CARD = SOCIAL_AGENT_DEFAULT_DESCRIPTION
 
-HOST = os.environ.get("A2A_HOST", "0.0.0.0")
-PORT = int(os.environ.get("A2A_PORT", os.environ.get("PORT", 8080)))
-# BASE_URL will now be determined using A2A_PUBLIC_BASE_URL for deployed environments
-A2A_PUBLIC_BASE_URL = os.environ.get("A2A_PUBLIC_BASE_URL")
-BASE_URL = A2A_PUBLIC_BASE_URL if A2A_PUBLIC_BASE_URL else f"http://{HOST}:{PORT}"
-# For deployed agents, BASE_URL should be the public URL.
-# If running in Cloud Run, Cloud Run provides the public URL via $SERVICE_URL, which should be mapped to A2A_PUBLIC_BASE_URL.
 
-# Define the AgentExecutor for the Social ADK Agent
 class SocialAgentExecutor(AgentExecutor):
-    def __init__(self, adk_agent_instance):
+    def __init__(self, adk_agent_instance: AdkAgentType):
         if adk_agent_instance is None:
-            raise ValueError("ADK Social agent instance is None. Cannot initialize Executor.")
+            raise ValueError("ADK Social agent instance is None for SocialAgentExecutor.")
         self.adk_agent = adk_agent_instance
-        logger.info(f"SocialAgentExecutor initialized with ADK agent: {self.adk_agent.name}")
+        logger.info(f"SocialAgentExecutor initialized with ADK agent: {getattr(self.adk_agent, 'name', 'Unnamed ADK Agent')}")
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         query = context.get_user_input()
-        if not query:
-            logger.warning("No user input found in request context for SocialAgentExecutor.")
-            # Consider updater.fail() if query is essential
-            return
-
-        task = context.current_task
-        if not task:
-            task = context.new_task()
+        task = context.current_task or context.new_task()
+        if not context.current_task:
             event_queue.enqueue_event(task)
 
         updater = TaskUpdater(event_queue, task.id, task.contextId)
-        logger.info(f"SocialAgentExecutor: Executing task {task.id} for query: {query[:100]}...")
 
+        if not query:
+            logger.warning(f"No user input found in request context for SocialAgentExecutor task {task.id}.")
+            updater.fail(message="User input is missing for social agent.")
+            return
+
+        logger.info(f"SocialAgentExecutor: Executing task {task.id} for query: {query[:100]}...")
         try:
-            # ADK LoopAgent.run is synchronous.
             loop = asyncio.get_event_loop()
+            # Assuming self.adk_agent.run is the entry point for the social ADK agent (LoopAgent)
             adk_agent_response = await loop.run_in_executor(None, self.adk_agent.run, query)
 
-            logger.info(f"ADK social agent executed. Result type: {type(adk_agent_response)}")
-            logger.debug(f"ADK social agent result: {str(adk_agent_response)[:200]}")
+            logger.info(f"ADK social agent executed for task {task.id}. Result type: {type(adk_agent_response)}")
+            logger.debug(f"ADK social agent result for task {task.id}: {str(adk_agent_response)[:200]}")
 
-            # The Social agent (LoopAgent) might return a string or dict.
-            # The 'modify_output_after_agent' callback in social.agent returns a types.Content object
-            # which then gets converted. We need to extract the text part.
             final_text_response = ""
+            # Example from previous version: Social agent's LoopAgent used a 'modify_output_after_agent'
+            # callback that returned a types.Content object.
             if isinstance(adk_agent_response, types.Content) and adk_agent_response.parts:
-                final_text_response = adk_agent_response.parts[0].text if adk_agent_response.parts[0].text else str(adk_agent_response)
+                # Extract text from the first part, assuming it's the primary textual response
+                part = adk_agent_response.parts[0]
+                if hasattr(part, 'text') and part.text:
+                    final_text_response = part.text
+                else: # Fallback if no text attribute or empty
+                    final_text_response = str(adk_agent_response) # Or handle other part types
             elif isinstance(adk_agent_response, str):
                 final_text_response = adk_agent_response
-            else: # Fallback for other types
+            elif isinstance(adk_agent_response, dict) and 'output' in adk_agent_response: # Common ADK LlmAgent pattern
+                 final_text_response = str(adk_agent_response['output'])
+            else: # Generic fallback
                 final_text_response = str(adk_agent_response)
 
             updater.add_artifact(parts=[Part(text=final_text_response)], mime_type="text/plain")
@@ -83,59 +88,57 @@ class SocialAgentExecutor(AgentExecutor):
 
         except Exception as e:
             logger.error(f"Error during ADK social agent execution for task {task.id}: {e}", exc_info=True)
-            try:
-                updater.fail(message=f"Error executing social agent: {str(e)}")
-            except Exception as ue:
-                logger.error(f"Error sending failure update for social task {task.id}: {ue}", exc_info=True)
+            updater.fail(message=f"Error executing social agent: {str(e)}")
 
-async def create_social_a2a_server():
-    if adk_social_agent is None:
-        logger.critical("ADK Social Agent is not loaded. Cannot start A2A server.")
-        return None
 
-    logger.info(f"Creating A2A server for Social Agent: {AGENT_NAME}")
-    logger.info(f"Base URL for Agent Card: {BASE_URL}")
+def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AStarletteApplication:
+    """
+    Creates and returns the A2AStarletteApplication for the Social agent.
+    Args:
+        passed_adk_social_agent: The instantiated core ADK Agent for the social agent.
+    """
+    if passed_adk_social_agent is None:
+        logger.critical("Passed ADK Social Agent is None. Cannot create A2A server.")
+        raise ValueError("ADK Social Agent instance is required by create_social_a2a_server.")
 
-    agent_capabilities = AgentCapabilities(streaming=True) # Social agent might involve multiple steps (LoopAgent)
+    public_base_url = os.environ.get("A2A_PUBLIC_BASE_URL", f"http://localhost:{A2A_UVICORN_PORT_SOCIAL}")
 
+    logger.info(f"Creating A2A server component for Social Agent: {AGENT_NAME_FOR_CARD}")
+    logger.info(f"AgentCard URL will be: {public_base_url}")
+
+    agent_capabilities = AgentCapabilities(streaming=True)
     social_skill = AgentSkill(
         id='get_social_profile_summary',
         name='Get Social Profile Summary',
-        description='Finds and summarizes social profiles, including posts, friends, and event attendance for one or more individuals.'
+        description='Finds and summarizes social profiles, including posts, friends, and event attendance.'
     )
 
     agent_card = AgentCard(
-        name=AGENT_NAME,
-        description=AGENT_DESCRIPTION,
-        url=BASE_URL,
+        name=AGENT_NAME_FOR_CARD,
+        description=AGENT_DESCRIPTION_FOR_CARD,
+        url=public_base_url,
         version="1.0.0",
         defaultInputModes=["text/plain"],
-        defaultOutputModes=["text/plain"], # Social agent's final output is text
+        defaultOutputModes=["text/plain"],
         capabilities=agent_capabilities,
         skills=[social_skill]
     )
 
-    executor = SocialAgentExecutor(adk_social_agent)
-    a2a_app = A2AStarletteApplication(agent_card=agent_card, executor=executor)
+    executor = SocialAgentExecutor(passed_adk_social_agent)
 
-    logger.info(f"A2AStarletteApplication created for {AGENT_NAME}.")
-    return a2a_app
+    a2a_custom_app = FastAPI()
+    @a2a_custom_app.get("/_a2a_health")
+    async def health():
+      return {"status": "ok", "agent_name": AGENT_NAME_FOR_CARD, "a2a_interface": "active"}
 
-async def serve():
-    a2a_starlette_app = await create_social_a2a_server()
-    if a2a_starlette_app:
-        config = uvicorn.Config(a2a_starlette_app, host=HOST, port=PORT, log_level="info")
-        server = uvicorn.Server(config)
-        logger.info(f"Starting Uvicorn server for {AGENT_NAME} on {HOST}:{PORT}")
-        await server.serve()
-    else:
-        logger.error(f"Could not create A2A server application for {AGENT_NAME}. Server will not start.")
+    a2a_starlette_app = A2AStarletteApplication(
+        agent_card=agent_card,
+        executor=executor,
+        app=a2a_custom_app
+    )
 
-if __name__ == "__main__":
-    logger.info(f"Attempting to start {AGENT_NAME} A2A server directly...")
-    asyncio.run(serve())
-else:
-    # For uvicorn called as `uvicorn agents.social.a2a_server:app`
-    # This requires 'app' to be defined at module level and initialized appropriately.
-    # The current structure with `if __name__ == "__main__"` is for direct execution.
-    pass
+    logger.info(f"A2AStarletteApplication created for {AGENT_NAME_FOR_CARD} with AgentCard URL: {public_base_url}.")
+    return a2a_starlette_app
+
+# `if __name__ == "__main__":` block for direct Uvicorn execution is removed.
+# Uvicorn will be started by AdkApp's setup_fn in deploy.py.

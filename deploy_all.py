@@ -214,10 +214,23 @@ def deploy_agent_with_forced_update(
         deploy_args = {
             "project_id": project_id,
             "region": region,
-            "base_dir": base_dir_for_deploy_func
+            # "base_dir" is now expected to be part of additional_deploy_args if needed by deploy_main_func
+            # "staging_bucket_uri" is also expected to be part of additional_deploy_args
         }
         if additional_deploy_args:
+            # Ensure base_dir is correctly passed if it's still a direct arg for some deploy_main_func versions
+            # For the refactored ones (planner, social, orchestrator), they expect it in additional_deploy_args.
+            # The wrapper `deploy_xxx_agent` functions now put base_dir and staging_bucket_uri into additional_deploy_args.
             deploy_args.update(additional_deploy_args)
+
+        # Remove base_dir if it's already in additional_deploy_args to avoid duplicate keyword arg
+        # This depends on how deploy_main_func signatures are standardized.
+        # For now, assume deploy_main_func takes all its specific args from deploy_args (which includes additional_deploy_args)
+        # The `base_dir_for_deploy_func` argument to this wrapper is less relevant if `additional_deploy_args`
+        # now carries `base_dir`. Let's ensure `base_dir` from `additional_deploy_args` takes precedence if present.
+        if 'base_dir' not in deploy_args and base_dir_for_deploy_func:
+             deploy_args['base_dir'] = base_dir_for_deploy_func
+
 
         deployed_agent_resource = deploy_main_func(**deploy_args)
         name_to_return = None
@@ -279,20 +292,56 @@ def deploy_agent_with_forced_update(
     return None
 
 # Specific deployment functions using the generic helper
-def deploy_planner_agent(project_id: str, region: str):
+def deploy_planner_agent(project_id: str, region: str, staging_bucket_uri: str): # Added staging_bucket_uri
     # This agent might become obsolete if all planning goes through the workflow agent
     print("Note: Planner Agent deployment might be obsolete if all planning is via Workflow Agent.")
-    return deploy_agent_with_forced_update(project_id, region, "Planner Agent", deploy_planner_main_func)
+    # Pass staging_bucket_uri to deploy_planner_main_func via additional_deploy_args
+    # base_dir is also needed by deploy_planner_main_func if it resolves paths from repo root
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root}
+    return deploy_agent_with_forced_update(
+        project_id, region, "Planner Agent (A2A-Embedded v2)",
+        deploy_planner_main_func,
+        base_dir_for_deploy_func=repo_root, # Pass repo_root also as base_dir_for_deploy_func for consistency
+        additional_deploy_args=additional_args
+    )
 
-def deploy_social_agent(project_id: str, region: str):
-    return deploy_agent_with_forced_update(project_id, region, "Social Agent", deploy_social_main_func)
+def deploy_social_agent(project_id: str, region: str, staging_bucket_uri: str): # Added staging_bucket_uri
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root}
+    return deploy_agent_with_forced_update(
+        project_id, region, "Social Agent (A2A-Embedded v2)", # Updated display name for consistency
+        deploy_social_main_func,
+        base_dir_for_deploy_func=repo_root,
+        additional_deploy_args=additional_args
+    )
 
-def deploy_orchestrate_agent(project_id: str, region: str, remote_addresses_str: str):
-    additional_args = {"dynamic_remote_agent_addresses": remote_addresses_str}
-    return deploy_agent_with_forced_update(project_id, region, "Orchestrate Agent", deploy_orchestrate_main_func, additional_deploy_args=additional_args)
+def deploy_orchestrate_agent(project_id: str, region: str, staging_bucket_uri: str, remote_addresses_str: str): # Added staging_bucket_uri
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    additional_args = {
+        "staging_bucket_uri": staging_bucket_uri,
+        "dynamic_remote_agent_addresses": remote_addresses_str,
+        "base_dir": repo_root
+    }
+    return deploy_agent_with_forced_update(
+        project_id, region, "Orchestrate Agent (A2A-Embedded v2)", # Updated display name
+        deploy_orchestrate_main_func,
+        base_dir_for_deploy_func=repo_root,
+        additional_deploy_args=additional_args
+    )
 
-def deploy_platform_mcp_client(project_id: str, region: str):
-    return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
+def deploy_platform_mcp_client(project_id: str, region: str, staging_bucket_uri: str): # Added staging_bucket_uri
+    # Platform MCP Client might not need the A2A embedding, depends on its design.
+    # Assuming it's a standard ADK RE for now, adjust if it also needs A2A embedding.
+    print("Note: Platform MCP Client agent deployment assumes it's a standard ADK RE without embedded A2A server for now.")
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    additional_args = {"staging_bucket_uri": staging_bucket_uri, "base_dir": repo_root} # If its deploy_main_func needs it
+    return deploy_agent_with_forced_update(
+        project_id, region, "Platform MCP Client Agent",
+        deploy_platform_mcp_client_main_func,
+        base_dir_for_deploy_func=repo_root,
+        additional_deploy_args=additional_args
+    )
 
 
 # New function to deploy the Instavibe Workflow Agent using google.adk.agents.Agent
@@ -432,8 +481,8 @@ requirements = [line.strip() for line in f if line.strip() and not line.startswi
             "COMMON_GOOGLE_CLOUD_LOCATION": location,
             "SELF_AGENT_ENGINE_ID": reasoning_engine_id,
             "PORT": "8080",
-            "PLANNER_AGENT_A2A_URL": planner_a2a_url if planner_a2a_url else "",
-            "ORCHESTRATE_AGENT_A2A_URL": orchestrator_a2a_url if orchestrator_a2a_url else "",
+            "PLANNER_AGENT_A2A_URL": planner_a2a_uri if planner_a2a_uri else "", # Use passed parameter name
+            "ORCHESTRATE_AGENT_A2A_URL": orchestrate_a2a_uri if orchestrate_a2a_uri else "", # Use passed parameter name
         }
     )
 
@@ -776,10 +825,22 @@ def main(argv=None):
 
     if not args.skip_agents:
         print("--- Deploying Individual Agents (Planner, Social) ---")
-        planner_deployed_agent = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_deployed_agent: '{planner_deployed_agent.name if planner_deployed_agent else 'None'}'")
-        social_deployed_agent = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_deployed_agent: '{social_deployed_agent.name if social_deployed_agent else 'None'}'")
+        # Pass staging_bucket_uri to these deploy functions
+        planner_deployed_agent = deploy_planner_agent(project_id, region, staging_bucket_uri)
+        if planner_deployed_agent and hasattr(planner_deployed_agent, 'name'):
+            print(f"DIAGNOSTIC_TRACE: main() - planner_deployed_agent resource name: '{planner_deployed_agent.name}'")
+            if hasattr(planner_deployed_agent, 'gca_resource') and hasattr(planner_deployed_agent.gca_resource, 'public_endpoint_uri'):
+                 print(f"DIAGNOSTIC_TRACE: main() - planner_deployed_agent public_endpoint_uri: '{planner_deployed_agent.gca_resource.public_endpoint_uri}'")
+        else:
+            print(f"DIAGNOSTIC_TRACE: main() - planner_deployed_agent deployment returned: '{planner_deployed_agent}'")
+
+        social_deployed_agent = deploy_social_agent(project_id, region, staging_bucket_uri) # Pass staging_bucket_uri
+        if social_deployed_agent and hasattr(social_deployed_agent, 'name'):
+            print(f"DIAGNOSTIC_TRACE: main() - social_deployed_agent resource name: '{social_deployed_agent.name}'")
+            if hasattr(social_deployed_agent, 'gca_resource') and hasattr(social_deployed_agent.gca_resource, 'public_endpoint_uri'):
+                 print(f"DIAGNOSTIC_TRACE: main() - social_deployed_agent public_endpoint_uri: '{social_deployed_agent.gca_resource.public_endpoint_uri}'")
+        else:
+            print(f"DIAGNOSTIC_TRACE: main() - social_deployed_agent deployment returned: '{social_deployed_agent}'")
     else:
         print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
         # If skipped, we can't get live URIs. Orchestrator would need env vars or stored values.
@@ -787,20 +848,25 @@ def main(argv=None):
 
     if not args.skip_platform_mcp_client:
         print("--- Deploying Platform MCP Client Agent ---")
-        platform_mcp_client_deployed_agent = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_deployed_agent: '{platform_mcp_client_deployed_agent.name if platform_mcp_client_deployed_agent else 'None'}'")
+        # Pass staging_bucket_uri
+        platform_mcp_client_deployed_agent = deploy_platform_mcp_client(project_id, region, staging_bucket_uri) # Pass staging_bucket_uri
+        if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'name'):
+            print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_deployed_agent resource name: '{platform_mcp_client_deployed_agent.name}'")
+        else:
+            print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_deployed_agent deployment returned: '{platform_mcp_client_deployed_agent}'")
     else:
         print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
 
     # Prepare dynamic addresses (URIs) for Orchestrate Agent
     remote_agent_uris = []
-    planner_uri = planner_deployed_agent.endpoint_uri if planner_deployed_agent and hasattr(planner_deployed_agent, 'endpoint_uri') else None
-    social_uri = social_deployed_agent.endpoint_uri if social_deployed_agent and hasattr(social_deployed_agent, 'endpoint_uri') else None
-    platform_mcp_client_uri = platform_mcp_client_deployed_agent.endpoint_uri if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'endpoint_uri') else None
+    # Ensure we are getting the public_endpoint_uri from the gca_resource attribute
+    planner_uri = planner_deployed_agent.gca_resource.public_endpoint_uri if planner_deployed_agent and hasattr(planner_deployed_agent, 'gca_resource') and hasattr(planner_deployed_agent.gca_resource, 'public_endpoint_uri') else None
+    social_uri = social_deployed_agent.gca_resource.public_endpoint_uri if social_deployed_agent and hasattr(social_deployed_agent, 'gca_resource') and hasattr(social_deployed_agent.gca_resource, 'public_endpoint_uri') else None
+    platform_mcp_client_uri = platform_mcp_client_deployed_agent.gca_resource.public_endpoint_uri if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'gca_resource') and hasattr(platform_mcp_client_deployed_agent.gca_resource, 'public_endpoint_uri') else None
 
     if planner_uri:
         remote_agent_uris.append(planner_uri)
-        print(f"Planner Agent Endpoint URI: {planner_uri}")
+        print(f"Planner Agent A2A Endpoint URI (from ADK RE): {planner_uri}")
     else:
         print("WARNING: Planner agent deployment failed or endpoint URI not found. Orchestrator might not connect to Planner.")
 
@@ -821,27 +887,46 @@ def main(argv=None):
     orchestrator_dynamic_addresses = ",".join(uri for uri in remote_agent_uris if uri) # Filter out None URIs before join
     print(f"Orchestrator will be configured with remote agent A2A URIs: '{orchestrator_dynamic_addresses}'")
 
+    orchestrator_a2a_url = None # Initialize orchestrator_a2a_url
     if not args.skip_agents: # Orchestrator is skipped if other agents are skipped (by --skip_agents)
-        print("--- Deploying Orchestrate Agent ---")
-        orchestrate_deployed_agent = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_deployed_agent: '{orchestrate_deployed_agent.name if orchestrate_deployed_agent else 'None'}'")
+        print("--- Deploying Orchestrate Agent A2A Server to Cloud Run ---")
+        # The deploy_orchestrate_main_func now handles Docker build and Cloud Run deployment.
+        # It's no longer an ADK RE, so not using deploy_agent_with_forced_update.
+        # It returns the service URL.
+        # The base_dir argument for deploy_orchestrate_main_func is the repo root.
+        current_script_dir = os.path.dirname(os.path.abspath(__file__)) # Should be repo root
+
+        orchestrator_a2a_url = deploy_orchestrate_main_func(
+            project_id=project_id,
+            region=region,
+            base_dir=current_script_dir, # Pass repo root as base_dir
+            dynamic_remote_agent_addresses=orchestrator_dynamic_addresses
+        )
+        if orchestrator_a2a_url:
+            print(f"Orchestrator A2A Server deployed. URL: {orchestrator_a2a_url}")
+        else:
+            print("ERROR: Orchestrator A2A Server deployment failed.")
+            # Optionally, exit or raise an error if orchestrator is critical
+            # sys.exit(1)
     else:
-        print("Skipping Orchestrate agent deployment (as other agents were skipped by --skip_agents).")
-        # orchestrate_resource_name = sanitize_env_var_value(os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME")) # Keep for workflow agent
+        print("Skipping Orchestrate agent A2A server deployment (as other agents were skipped by --skip_agents).")
+        # Try to get a pre-configured URL if skipping deployment
+        orchestrator_a2a_url = sanitize_env_var_value(os.environ.get("ORCHESTRATE_AGENT_A2A_URL"))
+        if orchestrator_a2a_url:
+            print(f"Using pre-configured ORCHESTRATE_AGENT_A2A_URL: {orchestrator_a2a_url}")
+        else:
+            print("WARNING: Orchestrator deployment skipped and ORCHESTRATE_AGENT_A2A_URL not set. Workflow agent may fail.")
 
-    # For InstavibeWorkflowAgent, it needs resource names or URLs depending on how it calls other agents.
-    # If InstavibeWorkflowAgent is updated to use A2AClient, it would need URIs.
-    # If it still uses reasoning_engines.ReasoningEngine().run(), it needs resource names.
-    # The current plan (Step 6) notes this ambiguity.
-    # For now, let's assume it might still use resource names for Planner & Orchestrator.
-    # This part needs to align with how InstavibeWorkflowAgent is refactored in Step 6.
-    # planner_target_for_workflow = planner_deployed_agent.name if planner_deployed_agent else sanitize_env_var_value(os.environ.get("AGENTS_PLANNER_RESOURCE_NAME"))
+
+    # For InstavibeWorkflowAgent, it needs A2A URIs.
+    # planner_uri is already available from planner_deployed_agent.endpoint_uri
+    # orchestrator_a2a_url is now the one obtained from Cloud Run deployment or env var.
+
+    # The old orchestrate_resource_name is no longer relevant if using A2A URL.
     # orchestrate_target_for_workflow = orchestrate_deployed_agent.name if orchestrate_deployed_agent else sanitize_env_var_value(os.environ.get("AGENTS_ORCHESTRATE_RESOURCE_NAME"))
-    # The above are resource names. For A2AClient, InstavibeWorkflowAgent will need URIs.
 
-    orchestrator_uri = orchestrate_deployed_agent.endpoint_uri if orchestrate_deployed_agent and hasattr(orchestrate_deployed_agent, 'endpoint_uri') else None
-    if not orchestrator_uri and not args.skip_agents: # Only warn if orchestrator was supposed to be deployed
-        print("WARNING: Orchestrator agent deployment failed or endpoint URI not found. InstavibeWorkflowAgent might not connect to Orchestrator.")
+    if not orchestrator_a2a_url and not args.skip_agents: # Only warn if orchestrator was supposed to be deployed
+        print("WARNING: Orchestrator A2A Server deployment failed or URL not found. InstavibeWorkflowAgent might not connect to Orchestrator.")
 
 
     # Deploy Instavibe Workflow Agent
@@ -865,10 +950,10 @@ def main(argv=None):
             project_id=project_id,
             location=region, # Correctly maps to 'location' param of deploy_instavibe_workflow_agent
             staging_bucket_uri=staging_bucket_uri,
-            reasoning_engine_id=workflow_agent_id,
+            reasoning_engine_short_id=workflow_agent_id, # Corrected parameter name to match function definition
             agent_display_name=workflow_agent_display_name,
-            planner_a2a_url=planner_uri, # Pass A2A URI
-            orchestrator_a2a_url=orchestrator_uri # Pass A2A URI
+            planner_a2a_uri=planner_uri, # Pass A2A URI, correctly named
+            orchestrate_a2a_uri=orchestrator_a2a_url # Pass A2A URI, correctly named
         )
         if not workflow_agent_url:
             print("ERROR: Instavibe Workflow Agent deployment failed using integrated method. Halting.")

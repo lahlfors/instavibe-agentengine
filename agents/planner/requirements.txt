@@ -1,10 +1,16 @@
-google-cloud-aiplatform[adk,agent_engines]==1.98.0
-google-adk==1.5.0
+google-cloud-aiplatform[adk,agent_engines]>=1.98.0 # Ensure this matches the version used by ADK for compatibility
+google-adk==1.5.0 # Or specific version compatible with the ADK features used
 python-dateutil>=2.9.0.post0
 deprecated>=1.2.0
 python-dotenv>=1.0.0
-nest_asyncio>=1.6.0
-cloudpickle>=3.0.0
-google-cloud-logging==3.9.0
-a2a-python
-uvicorn
+nest_asyncio>=1.6.0 # Often needed by ADK or async operations within agents
+cloudpickle>=3.0.0 # For ADK pickling
+google-cloud-logging==3.9.0 # Or newer compatible version
+
+# Dependencies for A2A server
+a2a-python # Or a2a-sdk, ensure this is the correct package name from your SDK
+uvicorn>=0.20.0 # For running the ASGI server
+fastapi>=0.95.0 # A2AStarletteApplication can use FastAPI for underlying app or health checks
+
+# Note: google-search tool dependencies (if any beyond google-api-python-client which is often transitive)
+# should also be here if not covered by google-adk.

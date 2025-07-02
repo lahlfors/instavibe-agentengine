@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from python_a2a import AgentCard, AgentSkill
 from python_a2a.models import Message, MessageRole, TextContent # Final correct imports
 # Other necessary imports from python_a2a
-from python_a2a.server import A2AServer, RequestContext # Added RequestContext here
+from python_a2a.server import A2AServer # Removed RequestContext from this line
 from typing import AsyncIterable # For stream handler type hint, though may not be used if not streaming
 # AgentExecutor, Task, EventQueue, TaskUpdater are removed
 # from python_a2a.client.helpers import create_text_message_object # Will construct Message manually
@@ -55,7 +55,7 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
         skills=[skill]
     )
 
-    async def on_message_handler(request_context: RequestContext, message: Message) -> Message:
+    async def on_message_handler(message: Message) -> Message: # Removed request_context
         query = None
         if message.parts and isinstance(message.parts[0], TextContent):
             query = message.parts[0].text
@@ -91,7 +91,7 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
             logger.error(f"Error during ADK social agent execution: {e}", exc_info=True)
             return Message(role=MessageRole.AGENT, parts=[TextContent(text=f"Error executing social agent: {str(e)}")])
 
-    async def on_message_stream_handler(request_context: RequestContext, message: Message) -> AsyncIterable[Message]:
+    async def on_message_stream_handler(message: Message) -> AsyncIterable[Message]: # Removed request_context
         logger.warning("Streaming not implemented for Social Agent.")
         yield Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: Streaming not supported by this agent.")])
         # raise NotImplementedError("Streaming not implemented for Social Agent.")

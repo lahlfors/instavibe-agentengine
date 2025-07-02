@@ -14,7 +14,7 @@ import os
 # from python_a2a.agent import AgentExecutor, Task
 # from python_a2a.server.events import EventQueue, TaskUpdater
 from python_a2a.mcp import FastMCP # For MCP integration example
-from python_a2a.server import RequestContext # Corrected import path for RequestContext (it's directly under server)
+from python_a2a.server import A2AServer # RequestContext removed from this import line
 
 import logging
 
@@ -73,7 +73,7 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
     import json # For parsing query_details_json
 
     # Define message handlers within create_planner_a2a_server to close over planner_core_agent and mcp
-    async def on_message_handler(request_context: RequestContext, message: Message) -> Message:
+    async def on_message_handler(message: Message) -> Message: # Removed request_context
         raw_input_text = None
         if message.parts and isinstance(message.parts[0], TextContent):
             raw_input_text = message.parts[0].text
@@ -125,7 +125,7 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
             logger.error(f"Error during ADK agent execution: {e}", exc_info=True)
             return Message(role=MessageRole.AGENT, parts=[TextContent(text=f"Error executing planner ADK logic: {str(e)}")])
 
-    async def on_message_stream_handler(request_context: RequestContext, message: Message) -> AsyncIterable[Message]:
+    async def on_message_stream_handler(message: Message) -> AsyncIterable[Message]: # Removed request_context
         logger.info("on_message_stream_handler called for Planner.")
         raw_query_details_json = None
         if message.parts and isinstance(message.parts[0], TextContent):

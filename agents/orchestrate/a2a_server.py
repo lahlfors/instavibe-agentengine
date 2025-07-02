@@ -61,20 +61,45 @@ def create_orchestrator_a2a_server(passed_orchestrate_service_agent: Orchestrate
         skills=[orchestrator_main_skill]
     )
 
-    async def on_message_handler(message: Message) -> Message: # Removed request_context
-        json_input_str = None
-        if message.parts and isinstance(message.parts[0], TextContent):
-            json_input_str = message.parts[0].text
+    # Import DataPart for structured message handling
+    from python_a2a.models import DataPart
 
-        if not json_input_str:
-            logger.warning("No user input (JSON string) found for Orchestrator.")
-            return Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: User input (JSON string) is missing.")])
-
-        logger.info(f"Orchestrator on_message_handler received input: {json_input_str[:200]}...")
+    async def on_message_handler(message: Message) -> Message:
+        logger.info(f"Orchestrate A2A on_message_handler received message: {message.model_dump_json(indent=2)}")
         try:
+            if not message.parts or not isinstance(message.parts[0], DataPart) or message.parts[0].type != "data":
+                logger.warning("Invalid message format for Orchestrator: Expected a DataPart with type 'data'.")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid message format: Expected a DataPart with type 'data'.")])
+
+            input_data_dict = message.parts[0].data
+
+            if not isinstance(input_data_dict, dict):
+                logger.warning(f"Orchestrator DataPart content is not a dict: {type(input_data_dict)}")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid DataPart content for Orchestrator: Expected a JSON object/dict.")])
+
+            # The ADK LlmAgent for the orchestrator expects a string prompt,
+            # which is often a JSON string representing the task.
+            # We'll extract this from a specific key in input_data_dict, e.g., "task_json_string" or "request_json"
+            # Or, if the entire input_data_dict IS the JSON string payload, we stringify it.
+            # For this refactor, let's assume the client will send {"task_description_json": "{actual json string for orchestrator}"}
+            # OR {"query": "natural language query for orchestrator to process into a structured task"}
+
+            task_input_for_adk_agent = ""
+            if "task_description_json" in input_data_dict:
+                task_input_for_adk_agent = input_data_dict["task_description_json"]
+                if not isinstance(task_input_for_adk_agent, str):
+                    logger.warning("'task_description_json' was not a string. Attempting to stringify.")
+                    task_input_for_adk_agent = json.dumps(task_input_for_adk_agent)
+            elif "query" in input_data_dict: # If a more direct query is passed
+                task_input_for_adk_agent = input_data_dict["query"]
+            else: # Fallback: assume the whole data dict is the task, stringify it.
+                logger.warning("No 'task_description_json' or 'query' key in input data for Orchestrator, stringifying the whole data part.")
+                task_input_for_adk_agent = json.dumps(input_data_dict)
+
+            logger.info(f"Orchestrator extracted task input for ADK agent: {task_input_for_adk_agent[:200]}...")
+
             loop = asyncio.get_event_loop()
-            # The input JSON string is the query for the orchestrator's ADK LlmAgent.
-            adk_agent_response_obj = await loop.run_in_executor(None, adk_llm_agent.invoke, json_input_str) # Use invoke
+            adk_agent_response_obj = await loop.run_in_executor(None, adk_llm_agent.invoke, task_input_for_adk_agent)
 
             logger.info(f"ADK orchestrator LLM agent executed. Response type: {type(adk_agent_response_obj)}")
 

@@ -55,19 +55,32 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
         skills=[skill]
     )
 
-    async def on_message_handler(message: Message) -> Message: # Removed request_context
-        query = None
-        if message.parts and isinstance(message.parts[0], TextContent):
-            query = message.parts[0].text
+    # Import DataPart for structured message handling
+    from python_a2a.models import DataPart
+    import json # For potential stringifying if ADK agent returns dict
 
-        if not query:
-            logger.warning("No user input query found in message parts for Social agent.")
-            return Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: User input is missing.")])
-
-        logger.info(f"Social Agent on_message_handler received query: {query[:100]}...")
+    async def on_message_handler(message: Message) -> Message:
+        logger.info(f"Social A2A on_message_handler received message: {message.model_dump_json(indent=2)}")
         try:
+            if not message.parts or not isinstance(message.parts[0], DataPart) or message.parts[0].type != "data":
+                logger.warning("Invalid message format for Social agent: Expected a DataPart with type 'data'.")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid message format: Expected a DataPart with type 'data'.")])
+
+            input_data_dict = message.parts[0].data
+
+            if not isinstance(input_data_dict, dict):
+                logger.warning(f"Social agent DataPart content is not a dict: {type(input_data_dict)}")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid DataPart content for Social agent: Expected a JSON object/dict.")])
+
+            query = input_data_dict.get("query")
+            if not query or not isinstance(query, str):
+                logger.warning("Social agent: 'query' not found in DataPart or not a string.")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: 'query' missing or invalid in input data for Social agent.")])
+
+            logger.info(f"Social Agent extracted query: {query[:100]}...")
+
             loop = asyncio.get_event_loop()
-            # Assuming passed_adk_social_agent.run or .invoke is synchronous
+            # passed_adk_social_agent.invoke is synchronous (typical for ADK LoopAgent/LlmAgent)
             adk_agent_response = await loop.run_in_executor(None, passed_adk_social_agent.invoke, query)
 
             logger.info(f"ADK social agent executed. Result type: {type(adk_agent_response)}")

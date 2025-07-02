@@ -93,3 +93,68 @@ root_agent = Agent(
     # NO model_kwargs
 )
 logger.info(f"Planner ADK LlmAgent '{root_agent.name}' instantiated successfully.")
+
+# --- Streaming Functionality ---
+import asyncio
+import json
+from typing import AsyncGenerator, Dict, Any
+
+async def generate_plan_stream(query_details: Dict[str, Any], planner_agent_instance: Agent) -> AsyncGenerator[str, None]:
+    """
+    Generates plans by invoking the planner_agent_instance and streams individual plans from the response.
+
+    Args:
+        query_details: A dictionary containing details for constructing the prompt,
+                       e.g., {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD",
+                              "location": "City, State", "latitude": "0.0", "longitude": "0.0",
+                              "num_plans": "3", "interests": "outdoors, foodie"}
+        planner_agent_instance: The instantiated ADK LlmAgent for the planner.
+
+    Yields:
+        str: A JSON string representation of each individual plan object.
+    """
+    logger.info(f"generate_plan_stream called with query_details: {query_details}")
+
+    # Construct the prompt from AGENT_INSTRUCTION and query_details
+    prompt = AGENT_INSTRUCTION # Start with the base instruction
+
+    # Replace placeholders - ensure defaults or handling for missing optional keys
+    prompt = prompt.replace("[START_DATE_YYYY-MM-DD]", query_details.get("start_date", "this weekend"))
+    prompt = prompt.replace("[END_DATE_YYYY-MM-DD]", query_details.get("end_date", "this weekend"))
+    prompt = prompt.replace("[TARGET_LOCATION_NAME_OR_CITY_STATE]", query_details.get("location", "the specified area"))
+    prompt = prompt.replace("[TARGET_LATITUDE]", str(query_details.get("latitude", "")))
+    prompt = prompt.replace("[TARGET_LONGITUDE]", str(query_details.get("longitude", "")))
+    prompt = prompt.replace("[NUMBER_OF_PLANS_TO_GENERATE, e.g., 3]", str(query_details.get("num_plans", "1")))
+    prompt = prompt.replace("[COMMA_SEPARATED_LIST_OF_INTERESTS, e.g., outdoors, arts & culture, foodie, nightlife, unique local events, live music, active/sports]",
+                            query_details.get("interests", "general fun activities"))
+
+    logger.debug(f"Constructed prompt for streaming: {prompt[:500]}...") # Log beginning of prompt
+
+    try:
+        loop = asyncio.get_event_loop()
+        # ADK LlmAgent.invoke is synchronous, so run in executor
+        full_response_str = await loop.run_in_executor(None, planner_agent_instance.invoke, prompt)
+
+        logger.info(f"Planner agent invoked. Full response string length: {len(full_response_str)}")
+        logger.debug(f"Full response from planner agent: {full_response_str[:500]}...")
+
+        response_json = json.loads(full_response_str)
+
+        plans = response_json.get("fun_plans", [])
+        if not plans:
+            logger.warning("No 'fun_plans' found in the LLM response.")
+            yield json.dumps({"warning": "No plans generated.", "details": full_response_str})
+            return
+
+        logger.info(f"Found {len(plans)} plans to stream.")
+        for i, plan_object in enumerate(plans):
+            yield json.dumps(plan_object)
+            logger.debug(f"Yielded plan {i+1}")
+            await asyncio.sleep(0) # Allow other tasks to run, good practice for async generators
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSONDecodeError in generate_plan_stream: {e}. Response: {full_response_str}", exc_info=True)
+        yield json.dumps({"error": "Failed to parse LLM response as JSON", "details": str(e)})
+    except Exception as e:
+        logger.error(f"Exception in generate_plan_stream: {e}", exc_info=True)
+        yield json.dumps({"error": f"An unexpected error occurred during plan generation: {str(e)}"})

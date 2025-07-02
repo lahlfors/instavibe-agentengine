@@ -8,11 +8,10 @@ from fastapi import FastAPI
 from python_a2a import AgentCard, AgentSkill
 from python_a2a.models import Message, MessageRole, TextContent # Final correct imports
 # Other necessary imports from python_a2a
-from python_a2a.server import A2AServer
-from python_a2a.agent import AgentExecutor, Task
-from python_a2a.server.events import EventQueue, TaskUpdater
-from python_a2a.server.request_context import RequestContext
-from python_a2a.client.helpers import create_text_message_object # Review usage with new MessageRole
+from python_a2a.server import A2AServer, RequestContext # Added RequestContext here
+from typing import AsyncIterable # For stream handler type hint, though may not be used if not streaming
+# AgentExecutor, Task, EventQueue, TaskUpdater are removed
+# from python_a2a.client.helpers import create_text_message_object # Will construct Message manually
 
 # ADK and agent-specific imports
 from google.adk.agents import Agent as AdkAgentType
@@ -28,66 +27,7 @@ A2A_UVICORN_PORT_SOCIAL = int(os.environ.get("A2A_UVICORN_PORT_SOCIAL", 8002))
 AGENT_NAME_FOR_CARD = "Social A2A Agent" # Consistent naming
 AGENT_DESCRIPTION_FOR_CARD = "Social agent for profile and activity summarization, A2A enabled (python-a2a v0.5.0)."
 
-class SocialAgentExecutor(AgentExecutor):
-    def __init__(self, agent: AdkAgentType):
-        if agent is None:
-            raise ValueError("ADK Social agent instance is None for SocialAgentExecutor.")
-        self.agent = agent
-        logger.info(f"SocialAgentExecutor initialized with ADK agent: {getattr(self.agent, 'name', 'Unnamed ADK Agent')}")
-
-    async def execute(self, context: RequestContext, event_queue: EventQueue):
-        query = context.get_user_input()
-
-        task = context.current_task
-        if not task:
-            task_id = f"task_{os.urandom(8).hex()}"
-            context_id_for_task = getattr(context.message, 'messageId', task_id)
-            task = Task(id=task_id, contextId=context_id_for_task, status="working")
-            event_queue.enqueue_event(task)
-
-        updater = TaskUpdater(event_queue, task.id, task.contextId)
-
-        if not query:
-            logger.warning(f"No user input found for Social task {task.id}.")
-            updater.fail(message="User input is missing for social agent.")
-            return
-
-        logger.info(f"SocialAgentExecutor: Executing task {task.id} for query: {query[:100]}...")
-        try:
-            loop = asyncio.get_event_loop()
-            adk_agent_response = await loop.run_in_executor(None, self.agent.run, query)
-
-            logger.info(f"ADK social agent executed for task {task.id}. Result type: {type(adk_agent_response)}")
-
-            final_text_response = ""
-            if isinstance(adk_agent_response, google_genai_types.Content) and adk_agent_response.parts:
-                part_data = adk_agent_response.parts[0]
-                if hasattr(part_data, 'text') and part_data.text:
-                    final_text_response = part_data.text
-                else:
-                    final_text_response = str(adk_agent_response)
-            elif isinstance(adk_agent_response, str):
-                final_text_response = adk_agent_response
-            elif isinstance(adk_agent_response, dict) and 'output' in adk_agent_response:
-                 final_text_response = str(adk_agent_response['output'])
-            else:
-                final_text_response = str(adk_agent_response)
-
-            response_a2a_message = create_text_message_object(content=final_text_response, role="agent")
-            if hasattr(response_a2a_message, 'taskId') and task.id: response_a2a_message.taskId = task.id
-            if hasattr(response_a2a_message, 'contextId') and task.contextId: response_a2a_message.contextId = task.contextId
-            event_queue.enqueue_event(response_a2a_message)
-
-            task.status = "completed"
-            event_queue.enqueue_event(task)
-            logger.info(f"Task {task.id} completed successfully by SocialAgentExecutor.")
-
-        except Exception as e:
-            logger.error(f"Error during ADK social agent execution for task {task.id}: {e}", exc_info=True)
-            task.status = "failed"
-            task.error = {"message": f"Error executing social agent: {str(e)}"} # Add error to task
-            event_queue.enqueue_event(task)
-
+# SocialAgentExecutor class removed
 
 def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer:
     if passed_adk_social_agent is None:
@@ -104,7 +44,6 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
         name="Social Profile Summarizer",
         description="Summarizes social media profiles and activities.",
     )
-    # AgentCapabilities removed, streaming is handled by method implementation
 
     agent_card = AgentCard(
         name=AGENT_NAME_FOR_CARD,
@@ -114,10 +53,48 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
         defaultInputModes=["text/plain"],
         defaultOutputModes=["text/plain"],
         skills=[skill]
-        # capabilities attribute removed
     )
 
-    executor = SocialAgentExecutor(passed_adk_social_agent)
+    async def on_message_handler(request_context: RequestContext, message: Message) -> Message:
+        query = None
+        if message.parts and isinstance(message.parts[0], TextContent):
+            query = message.parts[0].text
+
+        if not query:
+            logger.warning("No user input query found in message parts for Social agent.")
+            return Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: User input is missing.")])
+
+        logger.info(f"Social Agent on_message_handler received query: {query[:100]}...")
+        try:
+            loop = asyncio.get_event_loop()
+            # Assuming passed_adk_social_agent.run or .invoke is synchronous
+            adk_agent_response = await loop.run_in_executor(None, passed_adk_social_agent.invoke, query)
+
+            logger.info(f"ADK social agent executed. Result type: {type(adk_agent_response)}")
+
+            final_text_response = ""
+            if isinstance(adk_agent_response, google_genai_types.Content) and adk_agent_response.parts: # Specific to ADK GoogleLlm
+                part_data = adk_agent_response.parts[0]
+                if hasattr(part_data, 'text') and part_data.text:
+                    final_text_response = part_data.text
+                else:
+                    final_text_response = str(adk_agent_response) # Fallback
+            elif isinstance(adk_agent_response, str):
+                final_text_response = adk_agent_response
+            elif isinstance(adk_agent_response, dict) and 'output' in adk_agent_response: # Generic dict output
+                 final_text_response = str(adk_agent_response['output'])
+            else:
+                final_text_response = str(adk_agent_response) # Fallback to stringifying
+
+            return Message(role=MessageRole.AGENT, parts=[TextContent(text=final_text_response)])
+        except Exception as e:
+            logger.error(f"Error during ADK social agent execution: {e}", exc_info=True)
+            return Message(role=MessageRole.AGENT, parts=[TextContent(text=f"Error executing social agent: {str(e)}")])
+
+    async def on_message_stream_handler(request_context: RequestContext, message: Message) -> AsyncIterable[Message]:
+        logger.warning("Streaming not implemented for Social Agent.")
+        yield Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: Streaming not supported by this agent.")])
+        # raise NotImplementedError("Streaming not implemented for Social Agent.")
 
     custom_fastapi_app = FastAPI(title=f"{AGENT_NAME_FOR_CARD} Custom Routes")
     @custom_fastapi_app.get("/_a2a_health")
@@ -126,10 +103,9 @@ def create_social_a2a_server(passed_adk_social_agent: AdkAgentType) -> A2AServer
 
     a2a_server_instance = A2AServer(
         agent_card=agent_card,
-        agent_executor=executor,
+        on_message=on_message_handler,
+        on_message_stream=on_message_stream_handler,
         app=custom_fastapi_app,
     )
-    logger.info(f"A2AServer instance created for {AGENT_NAME_FOR_CARD}.")
+    logger.info(f"A2AServer instance created for {AGENT_NAME_FOR_CARD} with new handlers.")
     return a2a_server_instance
-
-# Standalone execution block removed.

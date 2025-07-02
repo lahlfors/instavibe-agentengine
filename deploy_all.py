@@ -10,6 +10,7 @@ from agents.instavibe_workflow.agent import InstavibeWorkflowAgent # Assuming th
 # For instavibe_workflow deployment, we need its deploy function if it's also an RE
 # from agents.instavibe_workflow.deploy import deploy_instavibe_workflow_agent # If it's an RE
 import asyncio
+import argparse # Added for command-line argument parsing
 from typing import Optional, Any
 import vertexai # Ensure vertexai is initialized early if not done in individual scripts robustly
 
@@ -245,202 +246,248 @@ async def main():
     # Staging bucket is now read from global STAGING_BUCKET, set during initial vertexai.init()
     # but individual deploy functions expect it as an argument.
 
-    # --- Deploy Core Services First ---
-    logger.info("--- Deploying Core Services (Instavibe App & MCP Tool Server) ---")
+    parser = argparse.ArgumentParser(description="Deploy Instavibe services and agents.")
+    parser.add_argument("--instavibe-app", action="store_true", help="Deploy the Instavibe app.")
+    parser.add_argument("--mcp-tool-server", action="store_true", help="Deploy the MCP Tool Server.")
+    parser.add_argument("--planner", action="store_true", help="Deploy the Planner agent.")
+    parser.add_argument("--social", action="store_true", help="Deploy the Social agent.")
+    parser.add_argument("--platform-mcp-client", action="store_true", help="Deploy the Platform MCP Client agent.")
+    parser.add_argument("--orchestrator", action="store_true", help="Deploy the Orchestrator agent.")
 
-    # Deploy Instavibe App
-    # Note: PROJECT_ID and LOCATION are global variables set from environment variables at the top of the script.
-    instavibe_app_url = deploy_instavibe_app(PROJECT_ID, LOCATION, image_name_param="instavibe-app")
-    if not instavibe_app_url:
-        logger.error("Instavibe App deployment failed or URL not retrieved. Exiting.")
-        return
-    logger.info(f"Instavibe App Deployed. URL: {instavibe_app_url}")
-    os.environ["TOOLS_INSTAVIBE_BASE_URL"] = f"{instavibe_app_url}/api" # Assuming API is at /api
-    logger.info(f"Set TOOLS_INSTAVIBE_BASE_URL to: {os.environ['TOOLS_INSTAVIBE_BASE_URL']}")
+    args = parser.parse_args()
 
-    # Deploy MCP Tool Server
-    mcp_tool_server_url = deploy_mcp_tool_server(PROJECT_ID, LOCATION, image_name_param="mcp-tool-server")
-    if not mcp_tool_server_url:
-        logger.error("MCP Tool Server deployment failed or URL not retrieved. Exiting.")
-        return
-    logger.info(f"MCP Tool Server Deployed. URL: {mcp_tool_server_url}")
-    # AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL often includes an /sse path
-    os.environ["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint
-    logger.info(f"Set AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL to: {os.environ['AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL']}")
+    # Determine which modules to deploy
+    deploy_all_modules = not any([
+        args.instavibe_app, args.mcp_tool_server, args.planner, args.social,
+        args.platform_mcp_client, args.orchestrator
+    ])
 
-    # Set AGENTS_PLANNER_MCP_SERVER_URL as well, if Planner uses the same MCP server
-    os.environ["AGENTS_PLANNER_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint for Planner too
-    logger.info(f"Set AGENTS_PLANNER_MCP_SERVER_URL to: {os.environ['AGENTS_PLANNER_MCP_SERVER_URL']}")
-
-    logger.info("--- Core Services Deployed ---")
-
-    # --- Deploy Agents ---
-    logger.info("--- Deploying Agents ---")
-
-    # Deploy Planner
-    planner_deployed_agent = deploy_agent_with_forced_update(
-        deploy_func=deploy_planner_agent,
-        agent_human_name="Planner Agent",
-        staging_bucket_uri=STAGING_BUCKET,
-        display_name_for_re="planner_agent_prod"
-    )
-    planner_a2a_url = None
-    if planner_deployed_agent and hasattr(planner_deployed_agent, 'gca_resource') and planner_deployed_agent.gca_resource:
-        planner_a2a_url = planner_deployed_agent.gca_resource.public_endpoint_uri
-    elif planner_deployed_agent and hasattr(planner_deployed_agent, 'uri'):
-        planner_a2a_url = planner_deployed_agent.uri
-
-    if planner_a2a_url:
-        logger.info(f"Planner A2A URL: {planner_a2a_url}")
+    if deploy_all_modules:
+        logger.info("No specific modules selected, deploying all modules.")
     else:
-        logger.error("Planner deployment failed or A2A URL not found, exiting.")
-        return
+        logger.info("Specific modules selected for deployment.")
 
-    # Deploy Social
-    social_deployed_agent = deploy_agent_with_forced_update(
-        deploy_func=deploy_social_agent,
-        agent_human_name="Social Agent",
-        staging_bucket_uri=STAGING_BUCKET,
-        display_name_for_re="social_agent_prod"
-    )
-    social_a2a_url = None
-    if social_deployed_agent and hasattr(social_deployed_agent, 'gca_resource') and social_deployed_agent.gca_resource:
-        social_a2a_url = social_deployed_agent.gca_resource.public_endpoint_uri
-    elif social_deployed_agent and hasattr(social_deployed_agent, 'uri'):
-        social_a2a_url = social_deployed_agent.uri
-
-    if social_a2a_url:
-        logger.info(f"Social A2A URL: {social_a2a_url}")
-    else:
-        logger.error("Social deployment failed or A2A URL not found. Orchestrator and Workflow may be impacted.")
-        # Allow continuation for now, but Orchestrator might not have all agents.
-
-    # Deploy Orchestrator
-    # Construct remote agent addresses for Orchestrator.
-    remote_addresses_list = []
-    if planner_a2a_url:
-        remote_addresses_list.append(planner_a2a_url)
-    if social_a2a_url:
-        remote_addresses_list.append(social_a2a_url)
-    # Platform MCP Client agent will be added to remote_addresses_list if deployed successfully
-
-    # Deploy Platform MCP Client Agent
-    # This agent depends on AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL, which should be set by now.
-    platform_mcp_client_deployed_agent = deploy_agent_with_forced_update(
-        deploy_func=deploy_platform_mcp_client_main_func, # Use the main_func directly
-        agent_human_name="Platform MCP Client Agent",
-        staging_bucket_uri=STAGING_BUCKET, # Pass STAGING_BUCKET
-        display_name_for_re="platform_mcp_client_agent_prod" # Specific RE display name
-    )
-    platform_mcp_client_a2a_url = None
-    if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'gca_resource') and platform_mcp_client_deployed_agent.gca_resource:
-        platform_mcp_client_a2a_url = platform_mcp_client_deployed_agent.gca_resource.public_endpoint_uri
-    elif platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'uri'):
-        platform_mcp_client_a2a_url = platform_mcp_client_deployed_agent.uri
-
-    if platform_mcp_client_a2a_url:
-        logger.info(f"Platform MCP Client Agent A2A URL: {platform_mcp_client_a2a_url}")
-        remote_addresses_list.append(platform_mcp_client_a2a_url) # Add to list for Orchestrator
-    else:
-        logger.warning("Platform MCP Client Agent deployment failed or A2A URL not found. Orchestrator might not have this agent.")
-        # Continue without it for now.
-
-    # Set/Update AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for the Orchestrator
-    if not remote_addresses_list:
-        logger.warning("No agent URLs available for Orchestrator.")
-        os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = ""
-    else:
-        os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = ",".join(remote_addresses_list)
-    logger.info(f"Final AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for Orchestrator: {os.environ['AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES']}")
-
-    # Deploy Orchestrator (now that all its potential remote agents are known)
-    orchestrator_deployed_agent = deploy_agent_with_forced_update(
-        deploy_func=deploy_orchestrator_agent,
-        agent_human_name="Orchestrator Agent",
-        staging_bucket_uri=STAGING_BUCKET,
-        display_name_for_re="orchestrator_agent_prod"
-    )
-    orchestrator_a2a_url = None
-    if orchestrator_deployed_agent and hasattr(orchestrator_deployed_agent, 'gca_resource') and orchestrator_deployed_agent.gca_resource:
-        orchestrator_a2a_url = orchestrator_deployed_agent.gca_resource.public_endpoint_uri
-    elif orchestrator_deployed_agent and hasattr(orchestrator_deployed_agent, 'uri'):
-        orchestrator_a2a_url = orchestrator_deployed_agent.uri
-
-    if orchestrator_a2a_url:
-        logger.info(f"Orchestrator A2A URL: {orchestrator_a2a_url}")
-    else:
-        logger.error("Orchestrator deployment failed or A2A URL not found. Exiting as workflow agent depends on it.")
-        return
-
-    # Set environment variables for the InstavibeWorkflowAgent and other clients
-    os.environ["PLANNER_AGENT_A2A_URL"] = planner_a2a_url or ""
-    os.environ["ORCHESTRATE_AGENT_A2A_URL"] = orchestrator_a2a_url or ""
-    os.environ["SOCIAL_AGENT_A2A_URL"] = social_a2a_url or ""
-    os.environ["PLATFORM_MCP_CLIENT_A2A_URL"] = platform_mcp_client_a2a_url or ""
+    # --- Initialize URLs (will be set if respective modules are deployed) ---
+    instavibe_app_url = os.environ.get("TOOLS_INSTAVIBE_BASE_URL", None) # Try to get from env first if already set
+    mcp_tool_server_url = None # This is used to set platform_mcp_client and planner mcp server urls
+    if os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"):
+        mcp_tool_server_url = os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL").replace("/sse", "")
 
 
-    logger.info(f"Environment variables set/updated for InstavibeWorkflowAgent and other clients:")
-    logger.info(f"  TOOLS_INSTAVIBE_BASE_URL={os.environ.get('TOOLS_INSTAVIBE_BASE_URL')}")
-    logger.info(f"  AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL={os.environ.get('AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL')}")
-    logger.info(f"  PLANNER_AGENT_A2A_URL={os.environ.get('PLANNER_AGENT_A2A_URL')}")
-    logger.info(f"  ORCHESTRATE_AGENT_A2A_URL={os.environ.get('ORCHESTRATE_AGENT_A2A_URL')}")
-    logger.info(f"  SOCIAL_AGENT_A2A_URL={os.environ.get('SOCIAL_AGENT_A2A_URL')}")
-    logger.info(f"  PLATFORM_MCP_CLIENT_A2A_URL={os.environ.get('PLATFORM_MCP_CLIENT_A2A_URL')}")
+    planner_a2a_url = os.environ.get("PLANNER_AGENT_A2A_URL", None)
+    social_a2a_url = os.environ.get("SOCIAL_AGENT_A2A_URL", None)
+    platform_mcp_client_a2a_url = os.environ.get("PLATFORM_MCP_CLIENT_A2A_URL", None)
+    orchestrator_a2a_url = os.environ.get("ORCHESTRATE_AGENT_A2A_URL", None)
+
+
+    # --- Deploy Core Services First (if selected or deploying all) ---
+    if deploy_all_modules or args.instavibe_app:
+        logger.info("--- Deploying Instavibe App ---")
+        # Note: PROJECT_ID and LOCATION are global variables set from environment variables at the top of the script.
+        deployed_instavibe_url = deploy_instavibe_app(PROJECT_ID, LOCATION, image_name_param="instavibe-app")
+        if not deployed_instavibe_url:
+            logger.error("Instavibe App deployment failed or URL not retrieved. This may impact other services.")
+            # No hard exit, allow other deployments to proceed if specifically requested.
+        else:
+            instavibe_app_url = deployed_instavibe_url # Update with the newly deployed URL
+            logger.info(f"Instavibe App Deployed. URL: {instavibe_app_url}")
+            os.environ["TOOLS_INSTAVIBE_BASE_URL"] = f"{instavibe_app_url}/api" # Assuming API is at /api
+            logger.info(f"Set TOOLS_INSTAVIBE_BASE_URL to: {os.environ['TOOLS_INSTAVIBE_BASE_URL']}")
+
+    if deploy_all_modules or args.mcp_tool_server:
+        logger.info("--- Deploying MCP Tool Server ---")
+        deployed_mcp_url = deploy_mcp_tool_server(PROJECT_ID, LOCATION, image_name_param="mcp-tool-server")
+        if not deployed_mcp_url:
+            logger.error("MCP Tool Server deployment failed or URL not retrieved. This may impact agents.")
+        else:
+            mcp_tool_server_url = deployed_mcp_url # Update with the newly deployed URL
+            logger.info(f"MCP Tool Server Deployed. URL: {mcp_tool_server_url}")
+            # AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL often includes an /sse path
+            os.environ["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint
+            logger.info(f"Set AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL to: {os.environ['AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL']}")
+            # Set AGENTS_PLANNER_MCP_SERVER_URL as well, if Planner uses the same MCP server
+            os.environ["AGENTS_PLANNER_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint for Planner too
+            logger.info(f"Set AGENTS_PLANNER_MCP_SERVER_URL to: {os.environ['AGENTS_PLANNER_MCP_SERVER_URL']}")
+
+    # --- Deploy Agents (if selected or deploying all) ---
+    if deploy_all_modules or args.planner:
+        logger.info("--- Deploying Planner Agent ---")
+        if not os.getenv("AGENTS_PLANNER_MCP_SERVER_URL") and (deploy_all_modules or args.mcp_tool_server):
+             logger.warning("Planner deployment might fail or misbehave if MCP Tool Server was not deployed and AGENTS_PLANNER_MCP_SERVER_URL is not set.")
+        elif not os.getenv("AGENTS_PLANNER_MCP_SERVER_URL"):
+            logger.error("Planner deployment requires AGENTS_PLANNER_MCP_SERVER_URL. Skipping planner deployment.")
+        else:
+            planner_deployed_agent = deploy_agent_with_forced_update(
+                deploy_func=deploy_planner_agent,
+                agent_human_name="Planner Agent",
+                staging_bucket_uri=STAGING_BUCKET,
+                display_name_for_re="planner_agent_prod"
+            )
+            deployed_planner_a2a_url = None
+            if planner_deployed_agent and hasattr(planner_deployed_agent, 'gca_resource') and planner_deployed_agent.gca_resource:
+                deployed_planner_a2a_url = planner_deployed_agent.gca_resource.public_endpoint_uri
+            elif planner_deployed_agent and hasattr(planner_deployed_agent, 'uri'):
+                deployed_planner_a2a_url = planner_deployed_agent.uri
+
+            if deployed_planner_a2a_url:
+                planner_a2a_url = deployed_planner_a2a_url
+                logger.info(f"Planner A2A URL: {planner_a2a_url}")
+                os.environ["PLANNER_AGENT_A2A_URL"] = planner_a2a_url
+            else:
+                logger.error("Planner deployment failed or A2A URL not found. This may impact Orchestrator and Workflow.")
+
+    if deploy_all_modules or args.social:
+        logger.info("--- Deploying Social Agent ---")
+        social_deployed_agent = deploy_agent_with_forced_update(
+            deploy_func=deploy_social_agent,
+            agent_human_name="Social Agent",
+            staging_bucket_uri=STAGING_BUCKET,
+            display_name_for_re="social_agent_prod"
+        )
+        deployed_social_a2a_url = None
+        if social_deployed_agent and hasattr(social_deployed_agent, 'gca_resource') and social_deployed_agent.gca_resource:
+            deployed_social_a2a_url = social_deployed_agent.gca_resource.public_endpoint_uri
+        elif social_deployed_agent and hasattr(social_deployed_agent, 'uri'):
+            deployed_social_a2a_url = social_deployed_agent.uri
+
+        if deployed_social_a2a_url:
+            social_a2a_url = deployed_social_a2a_url
+            logger.info(f"Social A2A URL: {social_a2a_url}")
+            os.environ["SOCIAL_AGENT_A2A_URL"] = social_a2a_url
+        else:
+            logger.error("Social deployment failed or A2A URL not found. Orchestrator and Workflow may be impacted.")
+
+    # Platform MCP Client Agent Deployment
+    if deploy_all_modules or args.platform_mcp_client:
+        logger.info("--- Deploying Platform MCP Client Agent ---")
+        if not os.getenv("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL") and (deploy_all_modules or args.mcp_tool_server):
+            logger.warning("Platform MCP Client Agent deployment might fail or misbehave if MCP Tool Server was not deployed and AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL is not set.")
+        elif not os.getenv("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"):
+             logger.error("Platform MCP Client Agent deployment requires AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL. Skipping Platform MCP Client agent deployment.")
+        else:
+            platform_mcp_client_deployed_agent = deploy_agent_with_forced_update(
+                deploy_func=deploy_platform_mcp_client_main_func,
+                agent_human_name="Platform MCP Client Agent",
+                staging_bucket_uri=STAGING_BUCKET,
+                display_name_for_re="platform_mcp_client_agent_prod"
+            )
+            deployed_platform_mcp_client_a2a_url = None
+            if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'gca_resource') and platform_mcp_client_deployed_agent.gca_resource:
+                deployed_platform_mcp_client_a2a_url = platform_mcp_client_deployed_agent.gca_resource.public_endpoint_uri
+            elif platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'uri'):
+                deployed_platform_mcp_client_a2a_url = platform_mcp_client_deployed_agent.uri
+
+            if deployed_platform_mcp_client_a2a_url:
+                platform_mcp_client_a2a_url = deployed_platform_mcp_client_a2a_url
+                logger.info(f"Platform MCP Client Agent A2A URL: {platform_mcp_client_a2a_url}")
+                os.environ["PLATFORM_MCP_CLIENT_A2A_URL"] = platform_mcp_client_a2a_url
+            else:
+                logger.warning("Platform MCP Client Agent deployment failed or A2A URL not found. Orchestrator might not have this agent.")
+
+    # Orchestrator Deployment (depends on other agents' A2A URLs)
+    if deploy_all_modules or args.orchestrator:
+        logger.info("--- Deploying Orchestrator Agent ---")
+        remote_addresses_list = []
+        # Use the potentially updated A2A URLs
+        if planner_a2a_url: remote_addresses_list.append(planner_a2a_url)
+        if social_a2a_url: remote_addresses_list.append(social_a2a_url)
+        if platform_mcp_client_a2a_url: remote_addresses_list.append(platform_mcp_client_a2a_url)
+
+        if not remote_addresses_list:
+            logger.warning("No agent URLs available for Orchestrator. AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES will be empty.")
+            os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = ""
+        else:
+            os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = ",".join(remote_addresses_list)
+        logger.info(f"Final AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for Orchestrator: {os.environ.get('AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES')}")
+
+        orchestrator_deployed_agent = deploy_agent_with_forced_update(
+            deploy_func=deploy_orchestrator_agent,
+            agent_human_name="Orchestrator Agent",
+            staging_bucket_uri=STAGING_BUCKET,
+            display_name_for_re="orchestrator_agent_prod"
+        )
+        deployed_orchestrator_a2a_url = None
+        if orchestrator_deployed_agent and hasattr(orchestrator_deployed_agent, 'gca_resource') and orchestrator_deployed_agent.gca_resource:
+            deployed_orchestrator_a2a_url = orchestrator_deployed_agent.gca_resource.public_endpoint_uri
+        elif orchestrator_deployed_agent and hasattr(orchestrator_deployed_agent, 'uri'):
+            deployed_orchestrator_a2a_url = orchestrator_deployed_agent.uri
+
+        if deployed_orchestrator_a2a_url:
+            orchestrator_a2a_url = deployed_orchestrator_a2a_url
+            logger.info(f"Orchestrator A2A URL: {orchestrator_a2a_url}")
+            os.environ["ORCHESTRATE_AGENT_A2A_URL"] = orchestrator_a2a_url
+        else:
+            logger.error("Orchestrator deployment failed or A2A URL not found. Workflow agent depends on it.")
+            # Not exiting, to allow other independent deployments if any were specified.
+
+    # --- Final Summary of URLs and Environment Variables ---
+    logger.info(f"--- Deployment Summary ---")
+    logger.info(f"  Instavibe App URL (TOOLS_INSTAVIBE_BASE_URL): {os.environ.get('TOOLS_INSTAVIBE_BASE_URL')}")
+    logger.info(f"  MCP Tool Server URL (for AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL, AGENTS_PLANNER_MCP_SERVER_URL): {mcp_tool_server_url}/sse" if mcp_tool_server_url else "MCP Tool Server URL: Not Deployed or Failed")
+    logger.info(f"  Planner Agent A2A URL (PLANNER_AGENT_A2A_URL): {os.environ.get('PLANNER_AGENT_A2A_URL')}")
+    logger.info(f"  Social Agent A2A URL (SOCIAL_AGENT_A2A_URL): {os.environ.get('SOCIAL_AGENT_A2A_URL')}")
+    logger.info(f"  Platform MCP Client Agent A2A URL (PLATFORM_MCP_CLIENT_A2A_URL): {os.environ.get('PLATFORM_MCP_CLIENT_A2A_URL')}")
+    logger.info(f"  Orchestrator Agent A2A URL (ORCHESTRATE_AGENT_A2A_URL): {os.environ.get('ORCHESTRATE_AGENT_A2A_URL')}")
+    logger.info(f"  Orchestrator Remote Agents (AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES): {os.environ.get('AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES')}")
 
 
     # --- Example A2A Calls (Conceptual, for testing if agents are reachable) ---
-    # Initialize Workflow Agent for making calls
-    workflow_agent = InstavibeWorkflowAgent() # Assumes it picks up URLs from env
-    logger.info("InstavibeWorkflowAgent client initialized for example A2A calls.")
+    # Only run if orchestrator was attempted and planner has a URL (as per original logic for example calls)
+    if (deploy_all_modules or args.orchestrator or args.planner) and os.environ.get("ORCHESTRATE_AGENT_A2A_URL") and os.environ.get("PLANNER_AGENT_A2A_URL"):
+        workflow_agent = InstavibeWorkflowAgent() # Assumes it picks up URLs from env
+        logger.info("InstavibeWorkflowAgent client initialized for example A2A calls.")
 
-    if planner_a2a_url:
-        logger.info(f"--- Making example A2A call from Workflow to Planner ({planner_a2a_url}) ---")
-        try:
-            # The InstavibeWorkflowAgent's query method needs to be defined.
-            # Let's assume it's an async method that takes the target agent's A2A URL and a payload.
-            # And that it uses httpx.AsyncClient internally.
-            # This is a conceptual example; the actual method signature might differ.
-            example_payload = {"task": "create a plan for a beach vacation"}
-            response = await workflow_agent.a2a_query( # Assuming method is a2a_query
-                target_agent_a2a_url=planner_a2a_url,
-                payload=example_payload,
-                timeout_seconds=60
-            )
-            if response:
-                logger.info(f"Response from Planner via WorkflowAgent: {response}")
-            else:
-                logger.error(f"Failed to get a valid response from Planner via WorkflowAgent or response was empty.")
-        except Exception as e:
-            logger.error(f"Error during example A2A call from Workflow to Planner: {e}", exc_info=True)
+        current_planner_a2a_url = os.environ.get("PLANNER_AGENT_A2A_URL")
+        if current_planner_a2a_url:
+            logger.info(f"--- Making example A2A call from Workflow to Planner ({current_planner_a2a_url}) ---")
+            try:
+                example_payload = {"task": "create a plan for a beach vacation"}
+                response = await workflow_agent.a2a_query(
+                    target_agent_a2a_url=current_planner_a2a_url,
+                    payload=example_payload,
+                    timeout_seconds=60
+                )
+                if response:
+                    logger.info(f"Response from Planner via WorkflowAgent: {response}")
+                else:
+                    logger.error(f"Failed to get a valid response from Planner via WorkflowAgent or response was empty.")
+            except Exception as e:
+                logger.error(f"Error during example A2A call from Workflow to Planner: {e}", exc_info=True)
+        else:
+            logger.warning("Planner A2A URL not available, skipping example A2A call from Workflow to Planner.")
+
+        current_orchestrator_a2a_url = os.environ.get("ORCHESTRATE_AGENT_A2A_URL")
+        if current_orchestrator_a2a_url:
+            logger.info(f"--- Making example A2A call from Workflow to Orchestrator ({current_orchestrator_a2a_url}) ---")
+            try:
+                example_payload_orchestrator = {"request_type": "execute_plan", "plan_details": "..."}
+                response_orc = await workflow_agent.a2a_query(
+                    target_agent_a2a_url=current_orchestrator_a2a_url,
+                    payload=example_payload_orchestrator,
+                    timeout_seconds=120
+                )
+                if response_orc:
+                    logger.info(f"Response from Orchestrator via WorkflowAgent: {response_orc}")
+                else:
+                    logger.error(f"Failed to get a valid response from Orchestrator via WorkflowAgent or response was empty.")
+            except Exception as e:
+                logger.error(f"Error during example A2A call from Workflow to Orchestrator: {e}", exc_info=True)
+        else:
+            logger.warning("Orchestrator A2A URL not available, skipping example A2A call from Workflow to Orchestrator.")
     else:
-        logger.warning("Planner A2A URL not available, skipping example A2A call from Workflow to Planner.")
+        logger.info("Skipping example A2A calls as not all required components (Orchestrator, Planner) were selected or successfully deployed for this test.")
 
-    # Example of A2A call from WorkflowAgent to Orchestrator
-    if orchestrator_a2a_url:
-        logger.info(f"--- Making example A2A call from Workflow to Orchestrator ({orchestrator_a2a_url}) ---")
-        try:
-            example_payload_orchestrator = {"request_type": "execute_plan", "plan_details": "..."}
-            response_orc = await workflow_agent.a2a_query(
-                target_agent_a2a_url=orchestrator_a2a_url,
-                payload=example_payload_orchestrator,
-                timeout_seconds=120
-            )
-            if response_orc:
-                logger.info(f"Response from Orchestrator via WorkflowAgent: {response_orc}")
-            else:
-                logger.error(f"Failed to get a valid response from Orchestrator via WorkflowAgent or response was empty.")
-        except Exception as e:
-            logger.error(f"Error during example A2A call from Workflow to Orchestrator: {e}", exc_info=True)
-    else:
-        logger.warning("Orchestrator A2A URL not available, skipping example A2A call from Workflow to Orchestrator.")
-
-    logger.info("--- All Deployments and Example A2A Calls Attempted ---")
+    logger.info("--- All Selected Deployments and Example A2A Calls Attempted ---")
 
 
 if __name__ == "__main__":
     # Ensure COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, COMMON_VERTEX_STAGING_BUCKET are set in environment
+    # This check is done early before vertexai.init() which is also early.
+    # The main() function itself does not take project_id, location as args anymore.
     if not all(os.getenv(var) for var in ["COMMON_GOOGLE_CLOUD_PROJECT", "COMMON_GOOGLE_CLOUD_LOCATION", "COMMON_VERTEX_STAGING_BUCKET"]):
         logger.error("One or more required environment variables (COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, COMMON_VERTEX_STAGING_BUCKET) are not set.")
         logger.error("Please set them before running deploy_all.py.")
+        # Exiting here because vertexai.init() at the top will fail.
+        exit(1) # Use exit(1) for error
     else:
         asyncio.run(main())

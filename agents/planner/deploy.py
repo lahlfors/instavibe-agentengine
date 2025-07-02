@@ -32,12 +32,12 @@ def deploy_planner_agent(staging_bucket_uri: str, display_name: Optional[str] = 
     # Initialize ADK
     # project_id and location will be picked up by vertexai.init() from environment variables
     # or from a previous vertexai.init() call if one was made (e.g. in deploy_all.py)
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+    project_id = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
 
     if not all([project_id, location, staging_bucket_uri]):
         raise ValueError(
-            "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set either as environment variables or explicitly."
+            "COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set either as environment variables or explicitly."
         )
 
     logger.info(f"Deployment Config: Project={project_id}, Location={location}, Staging Bucket={staging_bucket_uri}")
@@ -226,9 +226,9 @@ async def run_local_uvicorn(a2a_s: A2AServer): # Renamed from a2a_server to a2a_
 
 if __name__ == "__main__":
     logger.info("Attempting to run Planner A2A server locally for testing...")
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "your-gcp-project-id") # Replace with your actual project
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
-    os.environ.setdefault("GOOGLE_CLOUD_STAGING_BUCKET", "gs://your-staging-bucket-uri") # Replace
+    os.environ.setdefault("COMMON_GOOGLE_CLOUD_PROJECT", "your-gcp-project-id") # Replace with your actual project
+    os.environ.setdefault("COMMON_GOOGLE_CLOUD_LOCATION", "us-central1")
+    os.environ.setdefault("COMMON_VERTEX_STAGING_BUCKET", "gs://your-staging-bucket-uri") # Replace
 
     # For local run, A2A_PUBLIC_BASE_URL should point to localhost and the Uvicorn port
     os.environ.setdefault("A2A_PUBLIC_BASE_URL", f"http://localhost:{A2A_UVICORN_PORT_PLANNER}")
@@ -254,8 +254,8 @@ if __name__ == "__main__":
     # Example of how one might call the deployment function (usually called from deploy_all.py)
     # deployed_app_for_cleanup = None
     # try:
-    #    # Ensure GOOGLE_CLOUD_STAGING_BUCKET is set in env for this to run
-    #    # deployed_app_for_cleanup = deploy_planner_agent(staging_bucket_uri=os.environ.get("GOOGLE_CLOUD_STAGING_BUCKET"))
+    #    # Ensure COMMON_VERTEX_STAGING_BUCKET is set in env for this to run
+    #    # deployed_app_for_cleanup = deploy_planner_agent(staging_bucket_uri=os.environ.get("COMMON_VERTEX_STAGING_BUCKET"))
     #    pass # Not deploying from __main__ by default now
     # except Exception as e:
     #    logging.error(f"Failed to deploy planner agent during guarded test: {e}")

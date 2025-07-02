@@ -29,14 +29,14 @@ def deploy_social_agent(staging_bucket_uri: str, display_name: Optional[str] = N
     effective_display_name = display_name or "Social Agent (A2A-Embedded)"
     description = f"Social agent: {effective_display_name}. Provides profile analysis and summarization via A2A (python-a2a v0.5.0)."
 
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+    project_id = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
 
     logger.info(f"Starting deployment of '{effective_display_name}' to Project: {project_id}, Location: {location}")
 
     if not all([project_id, location, staging_bucket_uri]):
         raise ValueError(
-            "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set."
+            "COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set."
         )
 
     try:
@@ -196,9 +196,9 @@ async def run_local_uvicorn_for_social(a2a_s: A2AServer):
 
 if __name__ == "__main__":
     logger.info("Attempting to run Social A2A server locally for testing...")
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "your-gcp-project-id")
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
-    os.environ.setdefault("GOOGLE_CLOUD_STAGING_BUCKET", "gs://your-local-staging-bucket")
+    os.environ.setdefault("COMMON_GOOGLE_CLOUD_PROJECT", "your-gcp-project-id")
+    os.environ.setdefault("COMMON_GOOGLE_CLOUD_LOCATION", "us-central1")
+    os.environ.setdefault("COMMON_VERTEX_STAGING_BUCKET", "gs://your-local-staging-bucket")
     os.environ.setdefault("A2A_PUBLIC_BASE_URL", f"http://localhost:{A2A_UVICORN_PORT_SOCIAL}")
 
     try:

@@ -48,7 +48,7 @@ from vertexai.preview.reasoning_engines import AdkApp
 # This should be among the first imports to ensure variables are available globally.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+COMMON_GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 # SERVICE_NAME will be defined by each agent, but have a fallback for base.
 # This will be properly addressed in step 2 of the plan.
 AGENT_SERVICE_NAME = os.environ.get("AGENT_SERVICE_NAME", "base-agent-engine")
@@ -73,7 +73,7 @@ class AgentEngineApp(AdkApp):
         # )
 
         # 1. Setup OpenTelemetry TracerProvider
-        # GOOGLE_CLOUD_PROJECT should be available from environment
+        # COMMON_GOOGLE_CLOUD_PROJECT should be available from environment
         # AGENT_SERVICE_NAME is expected to be set by the specific agent's module loading
         # (e.g., os.environ["AGENT_SERVICE_NAME"] = "planner-agent" in planner/agent.py)
         # Default to "base-agent-engine" if not set by specific agent.
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deploy agent engine app to Vertex AI")
     parser.add_argument(
         "--project",
-        default=GOOGLE_CLOUD_PROJECT, # This will now correctly use COMMON_GOOGLE_CLOUD_PROJECT from .env
+        default=COMMON_GOOGLE_CLOUD_PROJECT, # This will now correctly use COMMON_GOOGLE_CLOUD_PROJECT from .env
         help="GCP project ID (defaults to COMMON_GOOGLE_CLOUD_PROJECT from .env or application default credentials)",
     )
     parser.add_argument(

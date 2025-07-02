@@ -26,7 +26,7 @@ def setup_google_cloud_logging(
     """
     try:
         # Attempt to instantiate the GCP Logging client
-        # project_id will be sourced from GOOGLE_CLOUD_PROJECT env var or ADC
+        # project_id will be sourced from COMMON_GOOGLE_CLOUD_PROJECT env var or ADC
         client = cloud_logging.Client()
 
         root_logger = logging.getLogger()

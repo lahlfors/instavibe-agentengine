@@ -32,14 +32,14 @@ def deploy_orchestrator_agent(staging_bucket_uri: str, display_name: Optional[st
     effective_display_name = display_name or "Orchestrator Agent (A2A-Embedded)"
     description = f"Orchestrator agent: {effective_display_name}. Manages tasks for other agents via A2A."
 
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+    project_id = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
 
     logger.info(f"Starting deployment of '{effective_display_name}' to Project: {project_id}, Location: {location}")
 
     if not all([project_id, location, staging_bucket_uri]):
         raise ValueError(
-            "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set."
+            "COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, and staging_bucket_uri must be set."
         )
 
     try:

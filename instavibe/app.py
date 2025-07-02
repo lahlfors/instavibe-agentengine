@@ -92,7 +92,7 @@ if not INSTANCE_ID:
 DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID")
 if not DATABASE_ID:
     raise ValueError("CRITICAL: COMMON_SPANNER_DATABASE_ID environment variable not set. Application cannot start.")
-PROJECT_ID = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
+COMMON_GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 APP_HOST = os.environ.get("INSTAVIBE_APP_HOST", "0.0.0.0")
 
 # For Cloud Run, PORT is provided by the environment. Use it if available.
@@ -109,25 +109,25 @@ if not GOOGLE_MAPS_API_KEY:
 if not GOOGLE_MAPS_MAP_ID:
     logger.info("The INSTAVIBE_GOOGLE_MAPS_MAP_ID environment variable is not set. Specific map styling or features may not be applied.")
 
-if not PROJECT_ID:
+if not COMMON_GOOGLE_CLOUD_PROJECT:
     # This check is critical for Spanner client initialization.
     logger.critical("CRITICAL: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
     raise ValueError("CRITICAL: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set. Application cannot start.")
 
 # --- Spanner Client Initialization ---
-# PROJECT_ID is now sourced from COMMON_GOOGLE_CLOUD_PROJECT, critical check above handles it.
+# COMMON_GOOGLE_CLOUD_PROJECT is now sourced from COMMON_GOOGLE_CLOUD_PROJECT, critical check above handles it.
 
 db = None
 try:
-    logger.info(f"Attempting to initialize Spanner client with Project ID: {PROJECT_ID}")
-    spanner_client = spanner.Client(project=PROJECT_ID)
+    logger.info(f"Attempting to initialize Spanner client with Project ID: {COMMON_GOOGLE_CLOUD_PROJECT}")
+    spanner_client = spanner.Client(project=COMMON_GOOGLE_CLOUD_PROJECT)
     instance = spanner_client.instance(INSTANCE_ID) # Ensure INSTANCE_ID is defined
     database = instance.database(DATABASE_ID)       # Ensure DATABASE_ID is defined
     logger.info(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
 
     if not instance.exists():
-        logger.critical(f"CRITICAL Error: Spanner instance '{INSTANCE_ID}' does not exist in project '{PROJECT_ID}'.")
-        raise RuntimeError(f"Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'. Application cannot start.")
+        logger.critical(f"CRITICAL Error: Spanner instance '{INSTANCE_ID}' does not exist in project '{COMMON_GOOGLE_CLOUD_PROJECT}'.")
+        raise RuntimeError(f"Spanner instance '{INSTANCE_ID}' not found in project '{COMMON_GOOGLE_CLOUD_PROJECT}'. Application cannot start.")
 
     if not database.exists():
         logger.critical(f"CRITICAL Error: Database '{DATABASE_ID}' does not exist in instance '{INSTANCE_ID}'.")

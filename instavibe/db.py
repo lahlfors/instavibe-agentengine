@@ -12,17 +12,17 @@ from google.api_core import exceptions
 # --- Spanner Configuration ---
 INSTANCE_ID = os.environ.get("SPANNER_INSTANCE_ID", "instavibe-graph-instance")
 DATABASE_ID = os.environ.get("SPANNER_DATABASE_ID", "graphdb")
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+COMMON_GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
-if not PROJECT_ID:
-    print("Warning: GOOGLE_CLOUD_PROJECT environment variable not set.")
+if not COMMON_GOOGLE_CLOUD_PROJECT:
+    print("Warning: COMMON_GOOGLE_CLOUD_PROJECT environment variable not set.")
 
 # --- Spanner Client Initialization ---
 db = None
 spanner_client = None
 try:
-    if PROJECT_ID:
-        spanner_client = spanner.Client(project=PROJECT_ID)
+    if COMMON_GOOGLE_CLOUD_PROJECT:
+        spanner_client = spanner.Client(project=COMMON_GOOGLE_CLOUD_PROJECT)
         instance = spanner_client.instance(INSTANCE_ID)
         database = instance.database(DATABASE_ID)
         print(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
@@ -34,10 +34,10 @@ try:
             print("Spanner database connection check successful.")
             db = database
     else:
-        print("Skipping Spanner client initialization due to missing GOOGLE_CLOUD_PROJECT.")
+        print("Skipping Spanner client initialization due to missing COMMON_GOOGLE_CLOUD_PROJECT.")
 
 except exceptions.NotFound:
-    print(f"Error: Spanner instance '{INSTANCE_ID}' not found in project '{PROJECT_ID}'.")
+    print(f"Error: Spanner instance '{INSTANCE_ID}' not found in project '{COMMON_GOOGLE_CLOUD_PROJECT}'.")
     db = None
 except Exception as e:
     print(f"An unexpected error occurred during Spanner initialization: {e}")

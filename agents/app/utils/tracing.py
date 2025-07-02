@@ -58,7 +58,7 @@ class CloudTraceLoggingSpanExporter(CloudTraceSpanExporter):
         :param kwargs: Additional arguments to pass to the parent class
         """
         # Load environment variables from the root .env file
-        # This is crucial if the parent class or Google clients implicitly pick up GOOGLE_CLOUD_PROJECT
+        # This is crucial if the parent class or Google clients implicitly pick up COMMON_GOOGLE_CLOUD_PROJECT
         load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"))
 
         super().__init__(**kwargs)

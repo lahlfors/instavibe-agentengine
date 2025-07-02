@@ -19,13 +19,13 @@ app = Flask(__name__)
 # It reads its own config (like sub-agent resource names) from env vars at init.
 try:
     # These env vars are expected to be set in the deployed container environment
-    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    PROJECT_ID = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
     LOCATION = os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION")
     # SELF_AGENT_ENGINE_ID is the ID of this deployed workflow agent itself
     SELF_AGENT_ENGINE_ID = os.environ.get("SELF_AGENT_ENGINE_ID")
 
     if not all([PROJECT_ID, LOCATION, SELF_AGENT_ENGINE_ID]):
-        logger.error("Critical environment variables (GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, SELF_AGENT_ENGINE_ID) not set for workflow agent main.py.")
+        logger.error("Critical environment variables (COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, SELF_AGENT_ENGINE_ID) not set for workflow agent main.py.")
         # Allow app to start but agent calls might fail if session creation relies on these.
         # InstavibeWorkflowAgent __init__ also reads its specific needs.
 
@@ -112,7 +112,7 @@ async def execute_workflow(): # Made async to align with agent logic
 if __name__ == "__main__":
     # For local development. Gunicorn is used in Dockerfile for deployment.
     # Ensure necessary environment variables are set locally for testing.
-    # GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, SELF_AGENT_ENGINE_ID,
+    # COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, SELF_AGENT_ENGINE_ID,
     # PLANNER_AGENT_RESOURCE_NAME, ORCHESTRATE_AGENT_RESOURCE_NAME
     if not workflow_agent_logic_handler:
         print("CRITICAL: InstavibeWorkflowAgent handler failed to initialize. Flask app cannot run effectively.")

@@ -47,7 +47,7 @@ propagate.set_global_textmap(TraceContextTextMapPropagator()) # Corrected functi
 # )
 
 # 1. Initialize OpenTelemetry Tracer Provider
-# GOOGLE_CLOUD_PROJECT should be available from environment after dotenv load
+# COMMON_GOOGLE_CLOUD_PROJECT should be available from environment after dotenv load
 resource = Resource(attributes={
     OTEL_SERVICE_NAME_KEY: SERVICE_NAME
 })

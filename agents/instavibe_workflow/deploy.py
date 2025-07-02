@@ -44,7 +44,7 @@ def deploy_instavibe_workflow_agent_main_func(
     print(f"  AdkApp requirements loaded: {agent_requirements}")
 
     runtime_env_vars = {
-        "GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
         "COMMON_GOOGLE_CLOUD_LOCATION": region,
         "SELF_AGENT_ENGINE_ID": self_reasoning_engine_id_for_env,
         "PLANNER_AGENT_RESOURCE_NAME": planner_re_name if planner_re_name else "",

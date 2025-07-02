@@ -11,11 +11,11 @@ from google.api_core import exceptions
 INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID","instavibe-graph-instance")
 DATABASE_ID = os.environ.get("COMMON_SPANNER_DATABASE_ID","graphdb")
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+COMMON_GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
 # --- Spanner Client Initialization ---
 try:
-    spanner_client = spanner.Client(project=PROJECT_ID)
+    spanner_client = spanner.Client(project=COMMON_GOOGLE_CLOUD_PROJECT)
     instance = spanner_client.instance(INSTANCE_ID)
     database = instance.database(DATABASE_ID)
     print(f"Targeting Spanner: {instance.name}/databases/{database.name}")

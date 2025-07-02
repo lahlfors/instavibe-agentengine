@@ -83,7 +83,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         "COMMON_GOOGLE_CLOUD_LOCATION": region,
         "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
         "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
-        "TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL": os.environ.get("TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL", "")
+        "AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL": os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL", ""),
         # Add other necessary env vars for Platform MCP Client
     }
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}

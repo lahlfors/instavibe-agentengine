@@ -1,6 +1,8 @@
 # agents/planner/a2a_server.py
 from python_a2a.server import A2AServer
-from python_a2a import AgentCard, AgentSkill, Part # Reverted to direct imports
+from python_a2a import AgentCard, AgentSkill # Direct imports for these
+from python_a2a.models.content import TextPart # Corrected import for TextPart
+from python_a2a.models.message import Message, MessageRole # Added Message and MessageRole
 # AgentCapabilities already removed.
 # The actual agent instance (from agents.planner.agent.root_agent) is passed in.
 # Type hint it with the base ADK LlmAgent.
@@ -107,8 +109,8 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
                     if mcp_response is not None: # MCP handled it
                         logger.info(f"MCP handled request for task {task.id}. Response: {mcp_response}")
                         # The MCP response itself might be a JSON string or a dict.
-                        # We need to send it back as an A2A Part.
-                        response_part = Part(text=str(mcp_response) if not isinstance(mcp_response, str) else mcp_response)
+                        # We need to send it back as an A2A TextPart.
+                        response_part = TextPart(text=str(mcp_response) if not isinstance(mcp_response, str) else mcp_response) # Changed to TextPart
                         updater.add_artifact(parts=[response_part], mime_type="application/json") # MCP often returns JSON
                         updater.complete()
                         return
@@ -125,7 +127,7 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
 
                 logger.info(f"ADK planner agent executed for task {task.id}. Response: {response_content_str[:100]}")
 
-                response_part = Part(text=response_content_str)
+                response_part = TextPart(text=response_content_str) # Changed to TextPart
                 updater.add_artifact(parts=[response_part], mime_type="application/json")
                 updater.complete()
                 logger.info(f"Task {task.id} completed via ADK logic by PlannerAgentExecutor.")

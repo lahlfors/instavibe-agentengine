@@ -4,14 +4,16 @@ import os
 import logging
 from fastapi import FastAPI
 
-# Corrected A2A SDK imports for python-a2a==0.5.0
+# python_a2a model imports
+from python_a2a import AgentCard, AgentSkill
+from python_a2a.models.content import TextPart # Import specific part types
+from python_a2a.models.message import Message, MessageRole
+# Other necessary imports from python_a2a
 from python_a2a.server import A2AServer
-from python_a2a import AgentCard, AgentSkill, Part # Reverted to direct imports
-# AgentCapabilities already removed
 from python_a2a.agent import AgentExecutor, Task
 from python_a2a.server.events import EventQueue, TaskUpdater
 from python_a2a.server.request_context import RequestContext
-from python_a2a.client.helpers import create_text_message_object
+from python_a2a.client.helpers import create_text_message_object # Review usage with new MessageRole
 
 # ADK and agent-specific imports
 from google.adk.agents import Agent as AdkAgentType

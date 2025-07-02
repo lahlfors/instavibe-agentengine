@@ -110,8 +110,9 @@ def deploy_planner_agent(staging_bucket_uri: str, display_name: Optional[str] = 
         "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO").upper(),
         # TOOLS_GOOGLE_API_KEY might be needed if planner_core_agent uses Google Search directly
         "TOOLS_GOOGLE_API_KEY": os.environ.get("TOOLS_GOOGLE_API_KEY", ""),
+        "AGENTS_PLANNER_MCP_SERVER_URL": os.environ.get("AGENTS_PLANNER_MCP_SERVER_URL", ""), # Added
     }
-    env_vars_initial = {k:v for k,v in env_vars_initial.items() if v is not None}
+    env_vars_initial = {k:v for k,v in env_vars_initial.items() if v is not None and v != ""} # Ensure empty strings are not passed if not set
     logger.info(f"Initial env_vars for generative_models.create: {env_vars_initial}")
 
     # Define extra_packages. These are paths relative to the CWD where `deploy_all.py` runs (repo root).

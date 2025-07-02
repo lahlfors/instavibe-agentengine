@@ -25,6 +25,9 @@ from google.adk.tools import google_search
 # We still need a logger for this specific module.
 # And SERVICE_NAME for context if needed, or for environment variable for AgentEngineApp.
 
+from typing import Optional # Added
+from pydantic import Field # Added
+
 SERVICE_NAME = "planner-agent"
 # This environment variable can be picked up by AgentEngineApp if it's set before AgentEngineApp.set_up() is called.
 # This is relevant for Step 2 of the plan (service-specific names).
@@ -82,6 +85,11 @@ AGENT_INSTRUCTION = """
     """
 
 class PlannerAgent(Agent):
+    mcp_server_url: Optional[str] = None
+    # Exclude http_client from Pydantic model schema, validation, and serialization
+    http_client: Optional[httpx.Client] = Field(default=None, exclude=True)
+
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.mcp_server_url = os.environ.get("AGENTS_PLANNER_MCP_SERVER_URL") # Ensure this is set in .env

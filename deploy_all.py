@@ -122,6 +122,10 @@ async def main():
     os.environ["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint
     logger.info(f"Set AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL to: {os.environ['AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL']}")
 
+    # Set AGENTS_PLANNER_MCP_SERVER_URL as well, if Planner uses the same MCP server
+    os.environ["AGENTS_PLANNER_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint for Planner too
+    logger.info(f"Set AGENTS_PLANNER_MCP_SERVER_URL to: {os.environ['AGENTS_PLANNER_MCP_SERVER_URL']}")
+
     logger.info("--- Core Services Deployed ---")
 
     # --- Deploy Agents ---

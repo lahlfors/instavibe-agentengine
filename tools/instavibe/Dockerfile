@@ -11,8 +11,8 @@ WORKDIR /app
 RUN rm -f /app/app.py
 
 # --- Dependency Installation ---
-# COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt # This will fail, but after optimization phase
+COPY requirements.txt . # Copy to current WORKDIR (/app)
+RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
 # COPY mcp_server.py /app/mcp_server.py

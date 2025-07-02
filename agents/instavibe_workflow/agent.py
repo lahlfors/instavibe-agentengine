@@ -8,8 +8,7 @@ import httpx   # Added for fetching agent cards
 from python_a2a.client import A2AClient # Corrected import
 # Final python_a2a model imports
 from python_a2a import AgentCard as A2AAgentCard
-from python_a2a.models.content import TextPart as A2ATextPart # Import specific content types
-from python_a2a.models.message import Message as A2AMessage, MessageRole as A2AMessageRole
+from python_a2a.models import Message as A2AMessage, MessageRole as A2AMessageRole, TextContent as A2ATextContent # Corrected imports
 
 
 # Configure basic logging
@@ -89,7 +88,7 @@ class InstavibeWorkflowAgent:
         logger.info(f"Calling {agent_name_for_log} (Name from card: '{target_agent_card.name}', URL from card: {effective_a2a_target_url}) via A2AClient.")
 
         try:
-            a2a_request_message = A2AMessage(role=A2AMessageRole.USER, parts=[A2ATextPart(text=input_payload)]) # Use MessageRole and TextPart
+            a2a_request_message = A2AMessage(role=A2AMessageRole.USER, parts=[A2ATextContent(text=input_payload)]) # Use MessageRole and TextContent
 
             # Using send_message for potentially simple request/response.
             # If these become long-running tasks, then send_task & get_task polling would be needed.

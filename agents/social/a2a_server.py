@@ -6,8 +6,7 @@ from fastapi import FastAPI
 
 # python_a2a model imports
 from python_a2a import AgentCard, AgentSkill
-from python_a2a.models.content import TextPart # Import specific part types
-from python_a2a.models.message import Message, MessageRole
+from python_a2a.models import Message, MessageRole, TextContent # Final correct imports
 # Other necessary imports from python_a2a
 from python_a2a.server import A2AServer
 from python_a2a.agent import AgentExecutor, Task

@@ -6,8 +6,7 @@ from fastapi import FastAPI
 
 # python_a2a model imports
 from python_a2a import AgentCard, AgentSkill
-from python_a2a.models.content import TextPart # Import specific part types
-from python_a2a.models.message import Message, MessageRole
+from python_a2a.models import Message, MessageRole, TextContent # Final correct imports
 # Other necessary imports from python_a2a
 from python_a2a.server import A2AServer
 from python_a2a.agent import AgentExecutor, Task
@@ -72,7 +71,7 @@ class OrchestratorAgentExecutor(AgentExecutor): # Inherits from python_a2a.agent
                 response_text = str(adk_agent_response_obj)
 
             # The InstavibeWorkflowAgent expects a simple text response from the orchestrator A2A call.
-            updater.add_artifact(parts=[TextPart(text=response_text)], mime_type="text/plain") # Changed to TextPart
+            updater.add_artifact(parts=[TextContent(text=response_text)], mime_type="text/plain") # Changed to TextContent
             updater.complete()
             logger.info(f"Orchestrator task {task.id} completed. Response: {response_text[:200]}")
 

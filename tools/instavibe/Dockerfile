@@ -1,6 +1,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.12-slim
 
+# List the contents of the workspace to debug COPY paths
+RUN ls -lR /workspace
+
 # Set the working directory in the container
 WORKDIR /app
 

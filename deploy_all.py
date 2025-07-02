@@ -127,9 +127,9 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
     print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
     try:
         build_command = [
-            "gcloud", "builds", "submit", ".", # Source path is now repo root
-            "--file", "tools/instavibe/Dockerfile", # Specify Dockerfile location
-            "--tag", image_tag,
+            "gcloud", "builds", "submit", ".", # Source path is repo root
+            "--config", "cloudbuild.yaml",      # Use cloudbuild.yaml
+            f"--substitutions=_IMAGE_TAG={image_tag}", # Pass image tag as substitution
             "--project", project_id,
             "--no-cache"
         ]

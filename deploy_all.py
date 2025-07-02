@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 # Initialize Vertex AI SDK once, centrally.
 # Individual deploy scripts also call vertexai.init(), which is idempotent.
 try:
-    PROJECT_ID = os.environ["GOOGLE_CLOUD_PROJECT"]
-    LOCATION = os.environ["GOOGLE_CLOUD_LOCATION"]
-    STAGING_BUCKET = os.environ["GOOGLE_CLOUD_STAGING_BUCKET"]
+    PROJECT_ID = os.environ["COMMON_GOOGLE_CLOUD_PROJECT"]
+    LOCATION = os.environ["COMMON_GOOGLE_CLOUD_LOCATION"]
+    STAGING_BUCKET = os.environ["COMMON_VERTEX_STAGING_BUCKET"]
     vertexai.init(project=PROJECT_ID, location=LOCATION, staging_bucket=STAGING_BUCKET)
     logger.info(f"Vertex AI SDK initialized globally: project:{PROJECT_ID}, location:{LOCATION}, staging:{STAGING_BUCKET}")
 except KeyError as e:
-    logger.error(f"Critical environment variable missing: {e}. Please set GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, and GOOGLE_CLOUD_STAGING_BUCKET.")
+    logger.error(f"Critical environment variable missing: {e}. Please set COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, and COMMON_VERTEX_STAGING_BUCKET.")
     raise
 except Exception as e:
     logger.error(f"Error initializing Vertex AI SDK globally: {e}", exc_info=True)
@@ -248,9 +248,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Ensure GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GOOGLE_CLOUD_STAGING_BUCKET are set in environment
-    if not all(os.getenv(var) for var in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_STAGING_BUCKET"]):
-        logger.error("One or more required environment variables (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION, GOOGLE_CLOUD_STAGING_BUCKET) are not set.")
+    # Ensure COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, COMMON_VERTEX_STAGING_BUCKET are set in environment
+    if not all(os.getenv(var) for var in ["COMMON_GOOGLE_CLOUD_PROJECT", "COMMON_GOOGLE_CLOUD_LOCATION", "COMMON_VERTEX_STAGING_BUCKET"]):
+        logger.error("One or more required environment variables (COMMON_GOOGLE_CLOUD_PROJECT, COMMON_GOOGLE_CLOUD_LOCATION, COMMON_VERTEX_STAGING_BUCKET) are not set.")
         logger.error("Please set them before running deploy_all.py.")
     else:
         asyncio.run(main())

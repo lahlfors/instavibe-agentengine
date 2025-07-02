@@ -8,13 +8,13 @@ WORKDIR /app
 RUN rm -f /app/app.py
 
 # --- Dependency Installation ---
-COPY tools/instavibe/requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
-COPY tools/instavibe/mcp_server.py /app/mcp_server.py
-COPY tools/instavibe/instavibe.py /app/instavibe.py # Added this line
-COPY ./agents /app/agents
+COPY mcp_server.py /app/mcp_server.py
+COPY instavibe.py /app/instavibe.py
+COPY ./agents /app/agents # This path is relative to the build context (tools/instavibe)
 
 # --- Environment ---
 ENV PYTHONPATH=/app

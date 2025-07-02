@@ -51,8 +51,8 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
         description=AGENT_DESCRIPTION_FOR_CARD,
         url=agent_card_url,
         version="1.0.0",
-        defaultInputModes=["text/plain"], # Planner ADK agent takes text
-        defaultOutputModes=["application/json"], # Planner ADK agent outputs JSON string
+        # defaultInputModes=["text/plain"], # Planner ADK agent takes text - Removed
+        # defaultOutputModes=["application/json"], # Planner ADK agent outputs JSON string - Removed
         skills=[skill]
         # capabilities attribute removed from AgentCard
     )

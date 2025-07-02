@@ -286,14 +286,22 @@ logger.info("Instantiating PlannerAgent...")
 # google_search is imported from google.adk.tools
 root_tools = [google_search]
 
-root_agent = PlannerAgent(
-    name=ADK_AGENT_NAME,
-    model=MODEL_NAME,
-    description="Agent tasked with generating creative and fun event plan suggestions, and can call MCP tools.",
-    instruction=AGENT_INSTRUCTION, # Base instruction for LLM, not directly used by tool calls
-    tools=root_tools # Original tools like google_search, MCP tools are handled via _call_mcp_tool
-)
-logger.info(f"PlannerAgent '{root_agent.name}' instantiated successfully.")
+def get_planner_root_agent():
+    """Instantiates and returns the PlannerAgent."""
+    logger.info("Instantiating PlannerAgent via get_planner_root_agent...")
+    agent_instance = PlannerAgent(
+        name=ADK_AGENT_NAME,
+        model=MODEL_NAME,
+        description="Agent tasked with generating creative and fun event plan suggestions, and can call MCP tools.",
+        instruction=AGENT_INSTRUCTION, # Base instruction for LLM, not directly used by tool calls
+        tools=root_tools # Original tools like google_search, MCP tools are handled via _call_mcp_tool
+    )
+    logger.info(f"PlannerAgent '{agent_instance.name}' instantiated successfully by get_planner_root_agent.")
+    return agent_instance
+
+# root_agent = PlannerAgent(...) # Deferred instantiation
+
+logger.info(f"PlannerAgent module loaded. Call get_planner_root_agent() to instantiate.")
 
 
 # --- Old Streaming Functionality (to be deprecated/removed after refactoring stream method) ---

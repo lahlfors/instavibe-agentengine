@@ -10,7 +10,7 @@ from vertexai import generative_models # Corrected import path
 from vertexai.preview.reasoning_engines import AdkApp # Still using this for AdkApp wrapper
 
 # Agent specific imports
-from agents.planner.agent import root_agent as planner_core_agent_instance # Import the instance
+from agents.planner.agent import get_planner_root_agent # Import the function
 from agents.planner.a2a_server import create_planner_a2a_server, A2A_UVICORN_PORT_PLANNER
 from agents.app_utils.uvicorn_runner import start_uvicorn_in_thread # Assuming this is adapted for A2AServer.build()
 from python_a2a.server import A2AServer # For type hinting in run_local_uvicorn
@@ -50,12 +50,13 @@ def deploy_planner_agent(staging_bucket_uri: str, display_name: Optional[str] = 
         project=project_id, location=location, staging_bucket=staging_bucket_uri
     )
 
-    # 1. Use the imported core ADK PlannerAgent instance
-    planner_core_agent = planner_core_agent_instance
-    if planner_core_agent is None: # Check if the imported instance is None (should not be if agent.py is correct)
-        logger.error("The imported planner_core_agent_instance is None.")
-        raise ValueError("Planner core ADK agent instance could not be loaded.")
-    logger.info(f"PlannerAgent (core ADK agent) loaded: {getattr(planner_core_agent, 'name', type(planner_core_agent).__name__)}")
+    # 1. Get the core ADK PlannerAgent instance by calling the factory function
+    # This ensures instantiation happens *now*, when AGENTS_PLANNER_MCP_SERVER_URL is set.
+    planner_core_agent = get_planner_root_agent()
+    if planner_core_agent is None:
+        logger.error("get_planner_root_agent() returned None.")
+        raise ValueError("Planner core ADK agent instance could not be obtained.")
+    logger.info(f"PlannerAgent (core ADK agent) obtained: {getattr(planner_core_agent, 'name', type(planner_core_agent).__name__)}")
 
     # 2. Create A2A Server instance. MCP logic will be within the ADK agent.
     # This A2AServer object itself isn't directly deployed but its components are used.
@@ -238,10 +239,10 @@ if __name__ == "__main__":
 
 
     try:
-        # Use the imported instance for local testing as well
-        planner_core_agent_for_local = planner_core_agent_instance
+        # Get the instance for local testing as well
+        planner_core_agent_for_local = get_planner_root_agent()
         if planner_core_agent_for_local is None:
-            raise ValueError("Planner core ADK agent instance (planner_core_agent_instance) is None, cannot run local test.")
+            raise ValueError("get_planner_root_agent() returned None, cannot run local test.")
         logger.info(f"Using planner agent for local run: {getattr(planner_core_agent_for_local, 'name', 'Unnamed')}")
 
         local_a2a_server = create_planner_a2a_server(planner_core_agent_for_local)

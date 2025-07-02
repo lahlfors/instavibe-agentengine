@@ -1,9 +1,11 @@
 # deploy_all.py
 import os
 import logging
+import subprocess # Added
 from agents.planner.deploy import deploy_planner_agent
 from agents.social.deploy import deploy_social_agent
 from agents.orchestrate.deploy import deploy_orchestrator_agent
+from agents.platform_mcp_client.deploy import deploy_platform_mcp_client_main_func # Added
 from agents.instavibe_workflow.agent import InstavibeWorkflowAgent # Assuming this is the client
 # For instavibe_workflow deployment, we need its deploy function if it's also an RE
 # from agents.instavibe_workflow.deploy import deploy_instavibe_workflow_agent # If it's an RE
@@ -97,19 +99,45 @@ async def main():
     # Staging bucket is now read from global STAGING_BUCKET, set during initial vertexai.init()
     # but individual deploy functions expect it as an argument.
 
+    # --- Deploy Core Services First ---
+    logger.info("--- Deploying Core Services (Instavibe App & MCP Tool Server) ---")
+
+    # Deploy Instavibe App
+    # Note: PROJECT_ID and LOCATION are global variables set from environment variables at the top of the script.
+    instavibe_app_url = deploy_instavibe_app(PROJECT_ID, LOCATION, image_name_param="instavibe-app")
+    if not instavibe_app_url:
+        logger.error("Instavibe App deployment failed or URL not retrieved. Exiting.")
+        return
+    logger.info(f"Instavibe App Deployed. URL: {instavibe_app_url}")
+    os.environ["TOOLS_INSTAVIBE_BASE_URL"] = f"{instavibe_app_url}/api" # Assuming API is at /api
+    logger.info(f"Set TOOLS_INSTAVIBE_BASE_URL to: {os.environ['TOOLS_INSTAVIBE_BASE_URL']}")
+
+    # Deploy MCP Tool Server
+    mcp_tool_server_url = deploy_mcp_tool_server(PROJECT_ID, LOCATION, image_name_param="mcp-tool-server")
+    if not mcp_tool_server_url:
+        logger.error("MCP Tool Server deployment failed or URL not retrieved. Exiting.")
+        return
+    logger.info(f"MCP Tool Server Deployed. URL: {mcp_tool_server_url}")
+    # AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL often includes an /sse path
+    os.environ["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = f"{mcp_tool_server_url}/sse" # Assuming /sse endpoint
+    logger.info(f"Set AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL to: {os.environ['AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL']}")
+
+    logger.info("--- Core Services Deployed ---")
+
+    # --- Deploy Agents ---
+    logger.info("--- Deploying Agents ---")
+
     # Deploy Planner
-    # The display_name passed here ("planner_agent_prod") will be used by deploy_planner_agent
-    # for the ReasoningEngine's display_name.
     planner_deployed_agent = deploy_agent_with_forced_update(
         deploy_func=deploy_planner_agent,
         agent_human_name="Planner Agent",
         staging_bucket_uri=STAGING_BUCKET,
-        display_name_for_re="planner_agent_prod" # Specific RE display name
+        display_name_for_re="planner_agent_prod"
     )
     planner_a2a_url = None
     if planner_deployed_agent and hasattr(planner_deployed_agent, 'gca_resource') and planner_deployed_agent.gca_resource:
         planner_a2a_url = planner_deployed_agent.gca_resource.public_endpoint_uri
-    elif planner_deployed_agent and hasattr(planner_deployed_agent, 'uri'): # Fallback for RE direct attribute
+    elif planner_deployed_agent and hasattr(planner_deployed_agent, 'uri'):
         planner_a2a_url = planner_deployed_agent.uri
 
     if planner_a2a_url:
@@ -123,7 +151,7 @@ async def main():
         deploy_func=deploy_social_agent,
         agent_human_name="Social Agent",
         staging_bucket_uri=STAGING_BUCKET,
-        display_name_for_re="social_agent_prod" # Specific RE display name
+        display_name_for_re="social_agent_prod"
     )
     social_a2a_url = None
     if social_deployed_agent and hasattr(social_deployed_agent, 'gca_resource') and social_deployed_agent.gca_resource:
@@ -134,36 +162,53 @@ async def main():
     if social_a2a_url:
         logger.info(f"Social A2A URL: {social_a2a_url}")
     else:
-        logger.error("Social deployment failed or A2A URL not found. Continuing with Orchestrator if possible, but workflow may be impacted.")
-        # Decide if this is fatal. For now, let's try to deploy orchestrator.
+        logger.error("Social deployment failed or A2A URL not found. Orchestrator and Workflow may be impacted.")
+        # Allow continuation for now, but Orchestrator might not have all agents.
 
     # Deploy Orchestrator
-    # Orchestrator's deploy_orchestrator_agent will internally get AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES from env.
-    # We need to set that env var if it's not already. For this example, assume it's set.
-    # Example: os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = f"{planner_a2a_url},{social_a2a_url}"
-    # This should be done *before* calling deploy_orchestrator_agent if it reads it on init.
-    # The OrchestratorServiceAgent reads it at construction time.
-    
-    # Construct remote agent addresses for Orchestrator. Filter out None URLs.
+    # Construct remote agent addresses for Orchestrator.
     remote_addresses_list = []
     if planner_a2a_url:
         remote_addresses_list.append(planner_a2a_url)
-    if social_a2a_url: # Only add if social deployment was successful
+    if social_a2a_url:
         remote_addresses_list.append(social_a2a_url)
+    # Platform MCP Client agent will be added to remote_addresses_list if deployed successfully
 
+    # Deploy Platform MCP Client Agent
+    # This agent depends on AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL, which should be set by now.
+    platform_mcp_client_deployed_agent = deploy_agent_with_forced_update(
+        deploy_func=deploy_platform_mcp_client_main_func, # Use the main_func directly
+        agent_human_name="Platform MCP Client Agent",
+        staging_bucket_uri=STAGING_BUCKET, # Pass STAGING_BUCKET
+        display_name_for_re="platform_mcp_client_agent_prod" # Specific RE display name
+    )
+    platform_mcp_client_a2a_url = None
+    if platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'gca_resource') and platform_mcp_client_deployed_agent.gca_resource:
+        platform_mcp_client_a2a_url = platform_mcp_client_deployed_agent.gca_resource.public_endpoint_uri
+    elif platform_mcp_client_deployed_agent and hasattr(platform_mcp_client_deployed_agent, 'uri'):
+        platform_mcp_client_a2a_url = platform_mcp_client_deployed_agent.uri
+
+    if platform_mcp_client_a2a_url:
+        logger.info(f"Platform MCP Client Agent A2A URL: {platform_mcp_client_a2a_url}")
+        remote_addresses_list.append(platform_mcp_client_a2a_url) # Add to list for Orchestrator
+    else:
+        logger.warning("Platform MCP Client Agent deployment failed or A2A URL not found. Orchestrator might not have this agent.")
+        # Continue without it for now.
+
+    # Set/Update AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for the Orchestrator
     if not remote_addresses_list:
-        logger.warning("No planner or social agent URLs available for Orchestrator. Orchestrator may not function correctly.")
-        # Set to empty string or handle as error depending on requirements
+        logger.warning("No agent URLs available for Orchestrator.")
         os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = ""
     else:
         os.environ["AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES"] = ",".join(remote_addresses_list)
-    logger.info(f"Setting AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES to: {os.environ['AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES']}")
+    logger.info(f"Final AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for Orchestrator: {os.environ['AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES']}")
 
+    # Deploy Orchestrator (now that all its potential remote agents are known)
     orchestrator_deployed_agent = deploy_agent_with_forced_update(
         deploy_func=deploy_orchestrator_agent,
         agent_human_name="Orchestrator Agent",
         staging_bucket_uri=STAGING_BUCKET,
-        display_name_for_re="orchestrator_agent_prod" # Specific RE display name
+        display_name_for_re="orchestrator_agent_prod"
     )
     orchestrator_a2a_url = None
     if orchestrator_deployed_agent and hasattr(orchestrator_deployed_agent, 'gca_resource') and orchestrator_deployed_agent.gca_resource:
@@ -174,35 +219,30 @@ async def main():
     if orchestrator_a2a_url:
         logger.info(f"Orchestrator A2A URL: {orchestrator_a2a_url}")
     else:
-        logger.error("Orchestrator deployment failed or A2A URL not found, exiting as workflow agent depends on it.")
+        logger.error("Orchestrator deployment failed or A2A URL not found. Exiting as workflow agent depends on it.")
         return
 
-    # Initialize Workflow Agent (Client-side)
-    # This assumes InstavibeWorkflowAgent is a client and doesn't need its own RE deployment here.
-    # If it *was* an RE, its deploy function would be called similarly to others,
-    # and its A2A URL might be configured via env vars for other agents if needed.
-    # For now, it's a client that will use the obtained URLs.
-
-    # Configure InstavibeWorkflowAgent with the deployed A2A URLs
-    # This could be done by setting environment variables before InstavibeWorkflowAgent is initialized,
-    # if it reads them from os.environ. Or by passing them to its constructor.
-    # The example workflow_agent.query below suggests it takes the URL per call.
-
-    os.environ["PLANNER_AGENT_A2A_URL"] = planner_a2a_url or "" # Ensure empty string if None
-    os.environ["ORCHESTRATE_AGENT_A2A_URL"] = orchestrator_a2a_url or "" # Ensure empty string if None
-    # Social URL might also be needed by workflow or orchestrator directly
+    # Set environment variables for the InstavibeWorkflowAgent and other clients
+    os.environ["PLANNER_AGENT_A2A_URL"] = planner_a2a_url or ""
+    os.environ["ORCHESTRATE_AGENT_A2A_URL"] = orchestrator_a2a_url or ""
     os.environ["SOCIAL_AGENT_A2A_URL"] = social_a2a_url or ""
+    os.environ["PLATFORM_MCP_CLIENT_A2A_URL"] = platform_mcp_client_a2a_url or ""
 
-    logger.info(f"Environment variables for InstavibeWorkflowAgent:")
-    logger.info(f"  PLANNER_AGENT_A2A_URL={os.environ['PLANNER_AGENT_A2A_URL']}")
-    logger.info(f"  ORCHESTRATE_AGENT_A2A_URL={os.environ['ORCHESTRATE_AGENT_A2A_URL']}")
-    logger.info(f"  SOCIAL_AGENT_A2A_URL={os.environ['SOCIAL_AGENT_A2A_URL']}")
 
-    # Assuming InstavibeWorkflowAgent picks these up from env vars upon instantiation
-    workflow_agent = InstavibeWorkflowAgent()
-    logger.info("InstavibeWorkflowAgent client initialized.")
+    logger.info(f"Environment variables set/updated for InstavibeWorkflowAgent and other clients:")
+    logger.info(f"  TOOLS_INSTAVIBE_BASE_URL={os.environ.get('TOOLS_INSTAVIBE_BASE_URL')}")
+    logger.info(f"  AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL={os.environ.get('AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL')}")
+    logger.info(f"  PLANNER_AGENT_A2A_URL={os.environ.get('PLANNER_AGENT_A2A_URL')}")
+    logger.info(f"  ORCHESTRATE_AGENT_A2A_URL={os.environ.get('ORCHESTRATE_AGENT_A2A_URL')}")
+    logger.info(f"  SOCIAL_AGENT_A2A_URL={os.environ.get('SOCIAL_AGENT_A2A_URL')}")
+    logger.info(f"  PLATFORM_MCP_CLIENT_A2A_URL={os.environ.get('PLATFORM_MCP_CLIENT_A2A_URL')}")
 
-    # Example of A2A call from WorkflowAgent to Planner (if planner_a2a_url is available)
+
+    # --- Example A2A Calls (Conceptual, for testing if agents are reachable) ---
+    # Initialize Workflow Agent for making calls
+    workflow_agent = InstavibeWorkflowAgent() # Assumes it picks up URLs from env
+    logger.info("InstavibeWorkflowAgent client initialized for example A2A calls.")
+
     if planner_a2a_url:
         logger.info(f"--- Making example A2A call from Workflow to Planner ({planner_a2a_url}) ---")
         try:
@@ -254,3 +294,149 @@ if __name__ == "__main__":
         logger.error("Please set them before running deploy_all.py.")
     else:
         asyncio.run(main())
+
+
+def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity
+    """Deploys the Instavibe app to Cloud Run, attempting to enable Kaniko and using --no-cache."""
+    print(f"--- Deploying Instavibe App ({image_name_param}) ---")
+
+    # 1. Set the gcloud configuration to use the Kaniko cache.
+    print("Step 1: Attempting to enable Kaniko cache for Google Cloud Build...")
+    try:
+        subprocess.run(
+            ["gcloud", "config", "set", "builds/use_kaniko", "True", "--project", project_id],
+            check=True, capture_output=True, text=True
+        )
+        print("Kaniko cache enabled successfully for project.")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
+
+    # 2. Build the Docker image with --no-cache
+    # Construct the full image tag
+    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
+    print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build...")
+    try:
+        build_command = [
+            "gcloud", "builds", "submit", "instavibe", # Source path from repo root
+            "--tag", image_tag,
+            "--project", project_id,
+            "--no-cache"
+        ]
+        subprocess.run(
+            build_command,
+            check=True, capture_output=True, text=True
+            # cwd is not needed as "instavibe" is specified as source for gcloud builds submit
+        )
+        print(f"Successfully built image: {image_tag}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error building Instavibe App image: {e.stderr}")
+        # print full error details
+        print(f"Stdout: {e.stdout}")
+        raise
+
+    # 3. Deploy the newly built image to Cloud Run
+    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
+    try:
+        deploy_command = [
+            "gcloud", "run", "deploy", image_name_param, # Service name
+            "--image", image_tag, # Full image path
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--allow-unauthenticated",
+        ]
+        if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
+
+        print(f"Deploying Instavibe App to Cloud Run in {region} with env vars: {env_vars_string if env_vars_string else 'Defaults from Dockerfile/service'}")
+        subprocess.run(deploy_command, check=True, capture_output=True, text=True)
+        print(f"Instavibe App {image_name_param} deployed successfully to Cloud Run in {region}.")
+
+        # 4. Get the service URL
+        print(f"\nStep 4: Fetching URL for Cloud Run service {image_name_param}...")
+        url_command = [
+            "gcloud", "run", "services", "describe", image_name_param,
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--format", "value(status.url)"
+        ]
+        url_result = subprocess.run(url_command, check=True, capture_output=True, text=True)
+        service_url = url_result.stdout.strip()
+        if not service_url:
+            raise Exception(f"Failed to retrieve service URL for {image_name_param}")
+        print(f"Successfully fetched URL for {image_name_param}: {service_url}")
+        return service_url
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying Instavibe App to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        raise
+
+def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str = "mcp-tool-server", env_vars_string: str | None = None):
+    """Deploys the MCP Tool Server to Cloud Run, attempting to enable Kaniko and using --no-cache."""
+    print(f"--- Deploying MCP Tool Server ({image_name_param}) ---")
+
+    # 1. Attempt to set the gcloud configuration to use the Kaniko cache (harmless if already set).
+    print("Step 1: Ensuring Kaniko cache is enabled for Google Cloud Build...")
+    try:
+        subprocess.run(
+            ["gcloud", "config", "set", "builds/use_kaniko", "True", "--project", project_id],
+            check=True, capture_output=True, text=True
+        )
+        print("Kaniko cache configuration check/set complete for project.")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Could not set Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
+
+    # 2. Build the Docker image with --no-cache
+    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
+    print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
+    try:
+        build_command = [
+            "gcloud", "builds", "submit", "tools/instavibe", # Source path from repo root
+            "--tag", image_tag,
+            "--project", project_id,
+            "--no-cache"
+        ]
+        subprocess.run(
+            build_command,
+            check=True, capture_output=True, text=True
+            # cwd is not needed as "tools/instavibe" is the source path argument
+        )
+        print(f"Successfully built image: {image_tag}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error building MCP Tool Server image: {e.stderr}")
+        print(f"Stdout: {e.stdout}") # Also print stdout for more context
+        raise
+
+    # 3. Deploy the newly built image to Cloud Run
+    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
+    try:
+        deploy_command = [
+            "gcloud", "run", "deploy", image_name_param,
+            "--image", image_tag,
+            "--platform", "managed", "--region", region, "--project", project_id, "--allow-unauthenticated",
+        ]
+        if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
+
+        print(f"Deploying MCP Tool Server to Cloud Run in {region} {'with env vars: ' + env_vars_string if env_vars_string else 'without specific env vars for --set-env-vars'}")
+        subprocess.run(deploy_command, check=True, capture_output=True, text=True)
+        print(f"MCP Tool Server {image_name_param} deployed successfully to Cloud Run in {region}.")
+
+        # 4. Get the service URL
+        print(f"\nStep 4: Fetching URL for Cloud Run service {image_name_param}...")
+        url_command = [
+            "gcloud", "run", "services", "describe", image_name_param,
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--format", "value(status.url)"
+        ]
+        url_result = subprocess.run(url_command, check=True, capture_output=True, text=True)
+        service_url = url_result.stdout.strip()
+        if not service_url:
+            raise Exception(f"Failed to retrieve service URL for {image_name_param}")
+        print(f"Successfully fetched URL for {image_name_param}: {service_url}")
+        return service_url
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying MCP Tool Server to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        raise

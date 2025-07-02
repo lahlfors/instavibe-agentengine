@@ -130,8 +130,8 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
             "gcloud", "builds", "submit", ".", # Source path is repo root
             "--config", "cloudbuild.yaml",      # Use cloudbuild.yaml
             f"--substitutions=_IMAGE_TAG={image_tag}", # Pass image tag as substitution
-            "--project", project_id,
-            "--no-cache"
+            "--project", project_id
+            # Removed "--no-cache" as it should be in cloudbuild.yaml
         ]
         subprocess.run(
             build_command,

@@ -1,5 +1,5 @@
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', '$_IMAGE_TAG', '-f', 'tools/instavibe/Dockerfile', '.']
+  args: ['build', '--no-cache', '-t', '$_IMAGE_TAG', '-f', 'tools/instavibe/Dockerfile', '.']
 images:
 - '$_IMAGE_TAG'

@@ -16,6 +16,11 @@ import vertexai # Ensure vertexai is initialized early if not done in individual
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
+# Define Project Root
+# Assumes deploy_all.py is at the project root.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = SCRIPT_DIR # If deploy_all.py is at root. Adjust if it's in a subfolder.
+
 # Initialize Vertex AI SDK once, centrally.
 # Individual deploy scripts also call vertexai.init(), which is idempotent.
 try:
@@ -53,15 +58,15 @@ def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "
     print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build...")
     try:
         build_command = [
-            "gcloud", "builds", "submit", "instavibe", # Source path from repo root
+            "gcloud", "builds", "submit", os.path.join(PROJECT_ROOT, "instavibe"), # Explicit path to instavibe dir
             "--tag", image_tag,
             "--project", project_id,
             "--no-cache"
         ]
         subprocess.run(
             build_command,
-            check=True, capture_output=True, text=True
-            # cwd is not needed as "instavibe" is specified as source for gcloud builds submit
+            check=True, capture_output=True, text=True,
+            cwd=PROJECT_ROOT # Run the command from the project root
         )
         print(f"Successfully built image: {image_tag}")
     except subprocess.CalledProcessError as e:
@@ -127,16 +132,16 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
     print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
     try:
         build_command = [
-            "gcloud", "builds", "submit", ".", # Source path is repo root
-            "--config", "cloudbuild.yaml",      # Use cloudbuild.yaml
+            "gcloud", "builds", "submit", PROJECT_ROOT, # Explicitly use project_root as source
+            "--config", os.path.join(PROJECT_ROOT, "cloudbuild.yaml"), # Path to cloudbuild.yaml
             f"--substitutions=_IMAGE_TAG={image_tag}", # Pass image tag as substitution
             "--project", project_id
             # Removed "--no-cache" as it should be in cloudbuild.yaml
         ]
         subprocess.run(
             build_command,
-            check=True, capture_output=True, text=True
-            # cwd is not needed as "tools/instavibe" is the source path argument
+            check=True, capture_output=True, text=True,
+            cwd=PROJECT_ROOT # Run the command from the project root
         )
         print(f"Successfully built image: {image_tag}")
     except subprocess.CalledProcessError as e:

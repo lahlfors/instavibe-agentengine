@@ -273,6 +273,11 @@ class PlannerAgent(Agent):
 
 # --- Root Agent Instance ---
 logger.info("Instantiating PlannerAgent...")
+
+# Define root_tools before using it in PlannerAgent instantiation
+# google_search is imported from google.adk.tools
+root_tools = [google_search]
+
 root_agent = PlannerAgent(
     name=ADK_AGENT_NAME,
     model=MODEL_NAME,

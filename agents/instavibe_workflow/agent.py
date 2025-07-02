@@ -8,7 +8,8 @@ import httpx   # Added for fetching agent cards
 from python_a2a.client import A2AClient # Corrected import
 # Final python_a2a model imports
 from python_a2a import AgentCard as A2AAgentCard
-from python_a2a.models import Message as A2AMessage, MessageRole as A2AMessageRole, TextContent as A2ATextContent, DataPart as A2ADataPart # Corrected imports
+# Removed DataPart from import, will use TextContent with json.dumps for dictionary payloads
+from python_a2a.models import Message as A2AMessage, MessageRole as A2AMessageRole, TextContent as A2ATextContent
 
 
 # Configure basic logging
@@ -88,9 +89,10 @@ class InstavibeWorkflowAgent:
         logger.info(f"Calling {agent_name_for_log} (Name from card: '{target_agent_card.name}', URL from card: {effective_a2a_target_url}) via A2AClient.")
 
         try:
-            # Construct message with DataPart
-            a2a_request_message = A2AMessage(role=A2AMessageRole.USER, parts=[A2ADataPart(data=input_payload_dict, type="data")])
-            logger.debug(f"A2A Request to {agent_name_for_log}: {a2a_request_message.model_dump_json(indent=2)}")
+            # Construct message using TextContent with a JSON string payload
+            json_payload_string = json.dumps(input_payload_dict)
+            a2a_request_message = A2AMessage(role=A2AMessageRole.USER, parts=[A2ATextContent(text=json_payload_string)])
+            logger.debug(f"A2A Request to {agent_name_for_log} (JSON payload): {a2a_request_message.model_dump_json(indent=2)}")
 
             response_message = await self.a2a_client.send_message(effective_a2a_target_url, a2a_request_message)
 

@@ -8,7 +8,7 @@ import httpx   # Added for fetching agent cards
 from python_a2a.client import A2AClient # Corrected import
 # Final python_a2a model imports
 from python_a2a import AgentCard as A2AAgentCard
-from python_a2a.models import Message as A2AMessage, MessageRole as A2AMessageRole, TextContent as A2ATextContent # Corrected imports
+from python_a2a.models import Message as A2AMessage, MessageRole as A2AMessageRole, TextContent as A2ATextContent, DataPart as A2ADataPart # Corrected imports
 
 
 # Configure basic logging
@@ -63,8 +63,8 @@ class InstavibeWorkflowAgent:
             logger.error(f"Unexpected error when fetching/parsing agent card from {agent_card_url}: {e}")
         return None
 
-    async def _call_a2a_agent(self, agent_a2a_url: str, input_payload: str, agent_name_for_log: str) -> tuple[str | None, list[str]]:
-        """Helper to call an A2A agent and get a text response."""
+    async def _call_a2a_agent(self, agent_a2a_url: str, input_payload_dict: dict, agent_name_for_log: str) -> tuple[dict | None, list[str]]:
+        """Helper to call an A2A agent with a dict payload and get a dict response."""
         thoughts = []
         if not agent_a2a_url:
             thoughts.append(f"{agent_name_for_log} A2A URL not configured.")
@@ -88,22 +88,27 @@ class InstavibeWorkflowAgent:
         logger.info(f"Calling {agent_name_for_log} (Name from card: '{target_agent_card.name}', URL from card: {effective_a2a_target_url}) via A2AClient.")
 
         try:
-            a2a_request_message = A2AMessage(role=A2AMessageRole.USER, parts=[A2ATextContent(text=input_payload)]) # Use MessageRole and TextContent
+            # Construct message with DataPart
+            a2a_request_message = A2AMessage(role=A2AMessageRole.USER, parts=[A2ADataPart(data=input_payload_dict, type="data")])
+            logger.debug(f"A2A Request to {agent_name_for_log}: {a2a_request_message.model_dump_json(indent=2)}")
 
-            # Using send_message for potentially simple request/response.
-            # If these become long-running tasks, then send_task & get_task polling would be needed.
             response_message = await self.a2a_client.send_message(effective_a2a_target_url, a2a_request_message)
 
-            if response_message and response_message.parts:
-                # Assuming the first part contains the primary text response
-                # This might need adjustment based on how Planner/Orchestrator A2A servers format their response parts.
-                generated_text = response_message.parts[0].text
-                thoughts.append(f"{agent_name_for_log} A2A raw response: {generated_text[:200]}...")
-                logger.info(f"{agent_name_for_log} A2A raw response: {generated_text[:200]}...")
-                return generated_text, thoughts
+            if response_message and response_message.parts and isinstance(response_message.parts[0], A2ATextContent):
+                # A2A server now returns TextContent containing a JSON string.
+                response_text_content = response_message.parts[0].text
+                thoughts.append(f"{agent_name_for_log} A2A raw JSON string response: {response_text_content[:200]}...")
+                logger.info(f"{agent_name_for_log} A2A raw JSON string response: {response_text_content[:200]}...")
+                try:
+                    response_dict = json.loads(response_text_content)
+                    return response_dict, thoughts
+                except json.JSONDecodeError as e:
+                    thoughts.append(f"Failed to parse JSON response from {agent_name_for_log}: {str(e)}. Raw: {response_text_content}")
+                    logger.error(f"JSONDecodeError from {agent_name_for_log} response: {e}. Raw: {response_text_content}", exc_info=True)
+                    return {"error": f"Failed to parse JSON response from {agent_name_for_log}", "raw_response": response_text_content}, thoughts
             else:
-                thoughts.append(f"{agent_name_for_log} A2A call returned no response or no parts.")
-                logger.warning(f"{agent_name_for_log} A2A call returned no response or no parts. Full response: {response_message}")
+                thoughts.append(f"{agent_name_for_log} A2A call returned no response, no parts, or part was not TextContent.")
+                logger.warning(f"{agent_name_for_log} A2A call returned invalid response. Full response: {response_message.model_dump_json(indent=2) if response_message else 'None'}")
                 return None, thoughts
         except Exception as e:
             thoughts.append(f"Error calling {agent_name_for_log} via A2A: {str(e)}")
@@ -113,93 +118,102 @@ class InstavibeWorkflowAgent:
     async def _generate_event_plan(self, user_name, planned_date, location_n_perference, selected_friend_names_list, adk_session):
         """
         Generates an event plan by calling the Planner Agent via A2A.
-        `adk_session` is for this workflow agent's own context, not directly used for A2A call here.
         """
-        # Prepare input for the Planner Agent (same prompt as before)
+        thoughts = [f"Preparing to call Planner Agent for user {user_name}."]
 
-        friends_list_example_for_prompt = json.dumps(selected_friend_names_list)
-        selected_friend_names_str = ', '.join(selected_friend_names_list)
+        # Construct the payload dictionary for the Planner Agent's "query_details"
+        planner_payload_dict = {
+            "query_details": {
+                "user_name": user_name,
+                "start_date": planned_date,
+                "end_date": planned_date, # Assuming planner uses start_date if end_date is same or for a single "night out"
+                "location": location_n_perference,
+                "interests": ", ".join(selected_friend_names_list) if selected_friend_names_list else "general fun activities", # Pass interests as a string
+                "num_plans": "1" # Example, can be parameterized if needed
+            }
+        }
+        thoughts.append(f"Planner payload: {json.dumps(planner_payload_dict)}")
 
-        planner_input_prompt = f"""Plan a personalized night out for {user_name} with friends {selected_friend_names_str} on {planned_date}, with the location or preference being "{location_n_perference}".
-Output the entire plan in a SINGLE, COMPLETE JSON object. (Full prompt details omitted for brevity but should be the same as before)
-{{
-  "friends_name_list": {friends_list_example_for_prompt}, "event_name": "string", "event_date": "{planned_date}",
-  "event_description": "string", "locations_and_activities": [{{ "name": "string", "latitude": 12.345, "longitude": -67.890, "address": "string or null", "description": "string"}}],
-  "post_to_go_out": "string"
-}}
-"""
-        generated_text, thoughts = await self._call_a2a_agent(
+        response_dict, call_thoughts = await self._call_a2a_agent(
             agent_a2a_url=self.planner_agent_a2a_url,
-            input_payload=planner_input_prompt,
+            input_payload_dict=planner_payload_dict,
             agent_name_for_log="PlannerAgent"
         )
+        thoughts.extend(call_thoughts)
 
-        if not generated_text:
-            thoughts.append("Planner Agent A2A call returned no text.")
+        if not response_dict or response_dict.get("error"):
+            error_msg = response_dict.get("error", "Planner Agent A2A call returned no data or an error.") if response_dict else "Planner Agent A2A call returned None."
+            thoughts.append(error_msg)
+            logger.error(f"Error from Planner Agent A2A call: {error_msg}. Full response dict: {response_dict}")
             return None, thoughts
 
-        try:
-            # Attempt to parse the JSON from the response
-            # This logic for extracting JSON from markdown or cleaning up is kept from original
-            if "```json" in generated_text:
-                json_block = generated_text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
-                thoughts.append("Extracted JSON from markdown block (Planner Agent A2A).")
-            elif "```" in generated_text and generated_text.strip().startswith("{") and generated_text.strip().endswith("}"):
-                json_block = generated_text.strip().strip('`').strip()
-                thoughts.append("Extracted JSON from simple backticks (Planner Agent A2A).")
-            else:
-                json_block = generated_text.strip()
-
-            plan_json = json.loads(json_block)
-            thoughts.append("Successfully parsed plan JSON from Planner Agent A2A response.")
-
+        # The Planner ADK agent (after refactor) should return a dict,
+        # potentially with a "fun_plans" key or directly the plan if only one.
+        # If it's the structure `{"fun_plans": [...]}`:
+        plan_data = response_dict.get("fun_plans")
+        if isinstance(plan_data, list) and len(plan_data) > 0:
+            plan_json = plan_data[0] # Assuming we take the first plan if multiple are returned
+            thoughts.append("Successfully received and extracted plan from Planner Agent.")
             return plan_json, thoughts
-        except json.JSONDecodeError as e:
-            thoughts.append(f"JSONDecodeError from Planner Agent A2A response: {str(e)}. Raw text: {generated_text}")
-            logger.error(f"JSONDecodeError from Planner Agent A2A (user '{user_name}'): {str(e)}. Raw text: {generated_text}", exc_info=True)
-            return None, thoughts
-        except Exception as e: # Catch any other unexpected error during parsing
-            thoughts.append(f"Unexpected error parsing Planner Agent A2A response: {str(e)}. Raw text: {generated_text}")
-            logger.error(f"Unexpected error parsing Planner Agent A2A response (user '{user_name}'): {str(e)}. Raw text: {generated_text}", exc_info=True)
+        elif isinstance(response_dict, dict) and "plan_description" in response_dict : # If planner returns a single plan dict directly
+            thoughts.append("Successfully received plan object directly from Planner Agent.")
+            return response_dict, thoughts
+        else:
+            thoughts.append(f"Unexpected response structure from Planner Agent. Expected 'fun_plans' list or a plan object. Got: {str(response_dict)[:200]}")
+            logger.warning(f"Unexpected response structure from Planner: {response_dict}")
             return None, thoughts
 
 
     async def _process_event_posting(self, user_name, confirmed_plan, edited_invite_message, agent_session_user_id, adk_session):
         """
         Processes event posting by calling the Orchestrate Agent via A2A.
-        `adk_session` is for this workflow agent's own context.
         """
-        orchestrator_input_details = {
+        thoughts = [f"Preparing to call Orchestrate Agent for user {user_name} to post event."]
+
+        # This is the dictionary that the Orchestrator's ADK agent will receive.
+        # The Orchestrator's A2A server expects a `DataPart` containing a dict.
+        # This dict should have a key (e.g., "task_description_json" or "query")
+        # whose value is the string prompt for the Orchestrator's LLM.
+        orchestrator_task_details_dict = {
             "user_name": user_name,
             "user_id_context": agent_session_user_id,
-            "confirmed_plan": confirmed_plan, # This is likely a dict/JSON
+            "confirmed_plan": confirmed_plan,
             "invite_message": edited_invite_message,
             "task_description": f"User '{user_name}' wants to create an event based on a confirmed plan and send an invite: '{edited_invite_message}'. Plan details: {json.dumps(confirmed_plan)}"
         }
-        # Orchestrator's A2A server will receive this as a JSON string in the message part.
-        # The Orchestrator's AgentExecutor then needs to parse this.
-        orchestrator_input_payload = json.dumps(orchestrator_input_details)
 
-        response_text, thoughts = await self._call_a2a_agent(
+        # The Orchestrator A2A server was refactored to look for "task_description_json" or "query".
+        # Let's use "task_description_json" and pass the stringified details.
+        orchestrator_a2a_payload_dict = {
+            "task_description_json": json.dumps(orchestrator_task_details_dict)
+        }
+        thoughts.append(f"Orchestrator A2A payload: {json.dumps(orchestrator_a2a_payload_dict)}")
+
+        response_dict, call_thoughts = await self._call_a2a_agent(
             agent_a2a_url=self.orchestrate_agent_a2a_url,
-            input_payload=orchestrator_input_payload,
+            input_payload_dict=orchestrator_a2a_payload_dict,
             agent_name_for_log="OrchestrateAgent"
         )
+        thoughts.extend(call_thoughts)
 
-        if response_text and response_text.strip():
-            thoughts.append("Successfully delegated to Orchestrate Agent via A2A.")
-            # The response_text itself is the confirmation/narration from the Orchestrate Agent's A2A server.
+        if response_dict and not response_dict.get("error"):
+            # The Orchestrator A2A server returns TextContent, which _call_a2a_agent parses from JSON string.
+            # The content of that JSON string is what the Orchestrator ADK agent returned.
+            # Let's assume the Orchestrator ADK agent returns something like {"status": "success", "message": "..."} or {"output": "..."}
+            response_text = response_dict.get("response", response_dict.get("output", str(response_dict)))
+            thoughts.append(f"Successfully delegated to Orchestrate Agent. Response: {response_text[:200]}")
             return True, response_text.strip(), thoughts
         else:
-            error_message = "Orchestrate Agent A2A call returned empty or no response."
-            if not response_text: # Specifically if None was returned by _call_a2a_agent
-                 error_message = thoughts[-1] if thoughts else "Orchestrate Agent A2A communication failed."
+            error_message = response_dict.get("error", "Orchestrate Agent A2A call returned no data or an error.") if response_dict else "Orchestrate Agent A2A call returned None."
             thoughts.append(error_message)
+            logger.error(f"Error from Orchestrate Agent A2A call: {error_message}. Full response dict: {response_dict}")
             return False, error_message, thoughts
 
-    async def run(self, action: str, payload: dict, adk_session=None):
+    async def process_request(self, action: str, payload: dict, adk_session_context=None): # Renamed from run to match main.py caller
         """
         Main execution method for the agent.
+        Determines the action and calls the appropriate internal method.
+        `adk_session_context` is the ADK Session object created by main.py for this workflow's execution.
         Determines the action and calls the appropriate internal method.
         `adk_session` is the ADK Session object created by main.py for this workflow's execution.
         All sub-agent calls are now async.

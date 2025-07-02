@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # --- Application Code ---
 COPY mcp_server.py /app/mcp_server.py
 COPY instavibe.py /app/instavibe.py
-COPY ./agents /app/agents # This path is relative to the build context (tools/instavibe)
+COPY ./agents /app/agents/ # This path is relative to the build context (tools/instavibe), added trailing slash
 
 # --- Environment ---
 ENV PYTHONPATH=/app

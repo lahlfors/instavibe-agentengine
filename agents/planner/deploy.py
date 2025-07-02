@@ -57,10 +57,10 @@ def deploy_planner_agent(staging_bucket_uri: str, display_name: Optional[str] = 
         raise ValueError("Planner core ADK agent instance could not be loaded.")
     logger.info(f"PlannerAgent (core ADK agent) loaded: {getattr(planner_core_agent, 'name', type(planner_core_agent).__name__)}")
 
-    # 2. Create A2A Server instance (which includes MCP setup internally if any)
+    # 2. Create A2A Server instance. MCP logic will be within the ADK agent.
     # This A2AServer object itself isn't directly deployed but its components are used.
     a2a_server = create_planner_a2a_server(planner_core_agent) # Pass the instance
-    logger.info(f"A2AServer instance for Planner created. MCP tools registered: {list(a2a_server.mcp.tools.keys()) if a2a_server.mcp else 'No MCP'}")
+    logger.info(f"A2AServer instance for Planner created.")
 
     # 3. Create a temporary requirements file for this deployment
     # Using NamedTemporaryFile to handle cleanup automatically via 'delete=True' by default after context exit
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         logger.info(f"Using planner agent for local run: {getattr(planner_core_agent_for_local, 'name', 'Unnamed')}")
 
         local_a2a_server = create_planner_a2a_server(planner_core_agent_for_local)
-        logger.info(f"Locally created A2AServer for Planner. Card URL: {local_a2a_server.agent_card.url}")
+        logger.info(f"Locally created A2AServer for Planner. Card URL: {local_a2a_server.agent_card.url}.")
 
         asyncio.run(run_local_uvicorn(local_a2a_server))
 

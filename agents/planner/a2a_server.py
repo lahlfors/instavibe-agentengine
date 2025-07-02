@@ -31,9 +31,10 @@ AGENT_NAME_FOR_CARD = "Planner A2A Agent" # From your example
 AGENT_DESCRIPTION_FOR_CARD = "A Planner agent that exposes an A2A API and MCP tools." # From your example
 
 
-def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # Updated type hint
+def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer:
     """
-    Creates an A2A Server for the Planner agent with MCP integration.
+    Creates an A2A Server for the Planner agent.
+    MCP handling will be done within the planner_core_agent.
     """
     # Define a skill
     skill = AgentSkill(
@@ -58,93 +59,88 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
     )
     logger.info(f"Planner AgentCard created. URL will be: {agent_card_url}")
 
-    # --- MCP Setup ---
+    # --- MCP Setup a_server.py
     # MCP instance needs to be accessible to the on_message_handler
-    mcp = FastMCP(f"{AGENT_NAME_FOR_CARD} MCP Server")
+    # mcp = FastMCP(f"{AGENT_NAME_FOR_CARD} MCP Server") # MCP logic now moved to ADK agent
 
-    @mcp.tool()
-    def get_weather_forecast(city: str = "New York") -> dict:
-        """Returns a weather forecast for the given city. (MCP tool)"""
-        logging.info(f"MCP tool 'get_weather_forecast' called for city: {city}")
-        return {"forecast": f"The weather in {city} is mostly sunny with a chance of awesome."}
+    # @mcp.tool() # MCP logic now moved to ADK agent
+    # def get_weather_forecast(city: str = "New York") -> dict:
+    #     """Returns a weather forecast for the given city. (MCP tool)"""
+    #     logging.info(f"MCP tool 'get_weather_forecast' called for city: {city}")
+    #     return {"forecast": f"The weather in {city} is mostly sunny with a chance of awesome."}
 
     # Import AGENT_INSTRUCTION and generate_plan_stream from the agent module
-    from agents.planner.agent import AGENT_INSTRUCTION, generate_plan_stream
+    # generate_plan_stream will be replaced by planner_core_agent.stream
+    from agents.planner.agent import AGENT_INSTRUCTION # AGENT_INSTRUCTION might still be used by ADK agent
+    # from agents.planner.agent import generate_plan_stream # This will be planner_core_agent.stream
     import json # For parsing query_details_json
+    from python_a2a.models import DataPart # For constructing messages with data
 
-    # Define message handlers within create_planner_a2a_server to close over planner_core_agent and mcp
-    async def on_message_handler(message: Message) -> Message: # Removed request_context
-        raw_input_text = None
-        if message.parts and isinstance(message.parts[0], TextContent):
-            raw_input_text = message.parts[0].text
-
-        if not raw_input_text:
-            logger.warning("No user input text found in message parts for on_message_handler.")
-            return Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: User input text is missing.")])
-
-        # MCP Handling (MCP expects a raw string, often JSON RPC)
-        if isinstance(raw_input_text, str):
-            try:
-                mcp_response = await mcp.handle_request(raw_input_text)
-                if mcp_response is not None:
-                    logger.info(f"MCP handled request. Response: {mcp_response}")
-                    response_text = str(mcp_response) if not isinstance(mcp_response, str) else mcp_response
-                    return Message(role=MessageRole.AGENT, parts=[TextContent(text=response_text)])
-            except Exception as mcp_e:
-                logger.debug(f"Input was not an MCP request or MCP error: {mcp_e}")
-
-        # ADK Agent Call (Non-MCP) - Requires formatted prompt
-        logger.info(f"Proceeding with ADK agent logic for input: {raw_input_text[:200]}...")
+    # Define message handlers within create_planner_a2a_server to close over planner_core_agent
+    async def on_message_handler(message: Message) -> Message:
+        logger.info(f"A2A on_message_handler received message: {message.model_dump_json(indent=2)}")
         try:
-            # Assume raw_input_text is a JSON string containing query_details
-            query_details = json.loads(raw_input_text)
+            if not message.parts or not isinstance(message.parts[0], DataPart) or message.parts[0].type != "data":
+                logger.warning("Invalid message format: Expected a DataPart with type 'data'.")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid message format: Expected a DataPart with type 'data'.")])
 
-            # Construct the prompt using AGENT_INSTRUCTION and query_details
-            final_prompt = AGENT_INSTRUCTION
-            final_prompt = final_prompt.replace("[START_DATE_YYYY-MM-DD]", query_details.get("start_date", "this weekend"))
-            final_prompt = final_prompt.replace("[END_DATE_YYYY-MM-DD]", query_details.get("end_date", "this weekend"))
-            final_prompt = final_prompt.replace("[TARGET_LOCATION_NAME_OR_CITY_STATE]", query_details.get("location", "the specified area"))
-            final_prompt = final_prompt.replace("[TARGET_LATITUDE]", str(query_details.get("latitude", "")))
-            final_prompt = final_prompt.replace("[TARGET_LONGITUDE]", str(query_details.get("longitude", "")))
-            final_prompt = final_prompt.replace("[NUMBER_OF_PLANS_TO_GENERATE, e.g., 3]", str(query_details.get("num_plans", "1")))
-            final_prompt = final_prompt.replace("[COMMA_SEPARATED_LIST_OF_INTERESTS, e.g., outdoors, arts & culture, foodie, nightlife, unique local events, live music, active/sports]",
-                                    query_details.get("interests", "general fun activities"))
+            input_data_dict = message.parts[0].data # This is already a dict if pydantic model is used correctly by client
 
-            logger.debug(f"Constructed prompt for non-streaming: {final_prompt[:500]}...")
+            if not isinstance(input_data_dict, dict):
+                logger.warning(f"DataPart content is not a dict: {type(input_data_dict)}")
+                return Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid DataPart content: Expected a JSON object/dict.")])
 
+            # Call the ADK agent's invoke method
+            # Loop is not strictly necessary here if planner_core_agent.invoke is already async
+            # However, ADK LlmAgent.invoke is synchronous, so running in executor is correct.
             loop = asyncio.get_event_loop()
-            # ADK LlmAgent.invoke is synchronous
-            response_content_str = await loop.run_in_executor(None, planner_core_agent.invoke, final_prompt)
+            response_dict = await loop.run_in_executor(None, planner_core_agent.invoke, input_data_dict)
 
-            logger.info(f"ADK planner agent executed. Response: {response_content_str[:200]}")
-            return Message(role=MessageRole.AGENT, parts=[TextContent(text=response_content_str)])
-        except json.JSONDecodeError as je:
-            logger.error(f"JSONDecodeError: Input for ADK agent was not valid JSON: {raw_input_text}. Error: {je}", exc_info=True)
-            return Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: Input for planner agent must be a valid JSON string containing query details.")])
+            # Format the response as an A2A Message
+            # The ADK agent's invoke method should return a dict. We'll JSON stringify it for TextContent.
+            response_text = json.dumps(response_dict)
+            logger.info(f"Response from ADK agent (invoke): {response_text[:200]}...")
+            return Message(role=MessageRole.AGENT, parts=[TextContent(text=response_text)])
+
+        except json.JSONDecodeError as e: # Should not happen if DataPart.data is already a dict
+            error_message = f"Invalid JSON in DataPart: {e}"
+            logger.error(error_message, exc_info=True)
+            return Message(role=MessageRole.AGENT, parts=[TextContent(text=error_message)])
         except Exception as e:
-            logger.error(f"Error during ADK agent execution: {e}", exc_info=True)
-            return Message(role=MessageRole.AGENT, parts=[TextContent(text=f"Error executing planner ADK logic: {str(e)}")])
+            error_message = f"Unexpected error in on_message_handler: {e}"
+            logger.error(error_message, exc_info=True)
+            return Message(role=MessageRole.AGENT, parts=[TextContent(text=error_message)])
 
-    async def on_message_stream_handler(message: Message) -> AsyncIterable[Message]: # Removed request_context
-        logger.info("on_message_stream_handler called for Planner.")
-        raw_query_details_json = None
-        if message.parts and isinstance(message.parts[0], TextContent):
-            raw_query_details_json = message.parts[0].text
-
-        if not raw_query_details_json:
-            logger.warning("No input JSON for query_details found in stream message parts.")
-            yield Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: Input JSON for query details is missing.")])
-            return
-
+    async def on_message_stream_handler(message: Message) -> AsyncIterable[Message]:
+        logger.info(f"A2A on_message_stream_handler received message: {message.model_dump_json(indent=2)}")
         try:
-            query_details = json.loads(raw_query_details_json)
-        except json.JSONDecodeError as je:
-            logger.error(f"JSONDecodeError: Input for streaming was not valid JSON: {raw_query_details_json}. Error: {je}", exc_info=True)
-            yield Message(role=MessageRole.AGENT, parts=[TextContent(text="Error: Input for streaming must be a valid JSON string containing query details.")])
-            return
+            if not message.parts or not isinstance(message.parts[0], DataPart) or message.parts[0].type != "data":
+                logger.warning("Invalid stream message format: Expected a DataPart with type 'data'.")
+                yield Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid stream message format: Expected a DataPart with type 'data'.")])
+                return
 
-        async for plan_chunk_str in generate_plan_stream(query_details=query_details, planner_agent_instance=planner_core_agent):
-            yield Message(role=MessageRole.AGENT, parts=[TextContent(text=plan_chunk_str)])
+            input_data_dict = message.parts[0].data
+
+            if not isinstance(input_data_dict, dict):
+                logger.warning(f"Stream DataPart content is not a dict: {type(input_data_dict)}")
+                yield Message(role=MessageRole.AGENT, parts=[TextContent(text="Invalid Stream DataPart content: Expected a JSON object/dict.")])
+                return
+
+            # Call ADK agent's stream method
+            async for response_chunk_dict in planner_core_agent.stream(input_data_dict):
+                # Format the response as an A2A Message and yield it
+                response_chunk_text = json.dumps(response_chunk_dict)
+                logger.debug(f"Yielding stream chunk from ADK agent: {response_chunk_text[:200]}...")
+                yield Message(role=MessageRole.AGENT, parts=[TextContent(text=response_chunk_text)])
+
+        except json.JSONDecodeError as e: # Should not happen here
+            error_message = f"Invalid JSON in DataPart for stream: {e}"
+            logger.error(error_message, exc_info=True)
+            yield Message(role=MessageRole.AGENT, parts=[TextContent(text=error_message)])
+        except Exception as e:
+            error_message = f"Unexpected error in on_message_stream_handler: {e}"
+            logger.error(error_message, exc_info=True)
+            yield Message(role=MessageRole.AGENT, parts=[TextContent(text=error_message)])
 
 
     # Create FastAPI app for custom non-A2A routes (like health)
@@ -156,10 +152,10 @@ def create_planner_a2a_server(planner_core_agent: AdkLlmAgent) -> A2AServer: # U
     # Create and return the A2A Server
     a2a_server_instance = A2AServer(
         agent_card=agent_card,
-        on_message=on_message_handler, # Pass the new handler
-        on_message_stream=on_message_stream_handler, # Pass the new stream handler
-        app=custom_fastapi_app,
-        mcp=mcp # Pass MCP instance if A2AServer mounts its routes
+        on_message=on_message_handler,
+        on_message_stream=on_message_stream_handler,
+        app=custom_fastapi_app
+        # mcp parameter removed as MCP handling is now within the ADK agent
     )
-    logger.info(f"A2AServer instance created for {AGENT_NAME_FOR_CARD} with new handlers.")
+    logger.info(f"A2AServer instance created for {AGENT_NAME_FOR_CARD} with new handlers (MCP logic internal to ADK agent).")
     return a2a_server_instance

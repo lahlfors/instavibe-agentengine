@@ -7,7 +7,11 @@ WORKDIR /usr/src/app
 # Copy the requirements file into the container at /usr/src/app
 COPY requirements.txt ./
 
-# Install any needed packages specified in requirements.txt
+# Copy the wheel file into the container
+COPY a2a_common-0.1.0-py3-none-any.whl .
+
+# Install the wheel and then the rest of the requirements
+RUN pip install --no-cache-dir a2a_common-0.1.0-py3-none-any.whl
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code into the container at /usr/src/app

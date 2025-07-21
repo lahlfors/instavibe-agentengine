@@ -7,7 +7,8 @@ load_dotenv()
 
 def deploy_service(service_name, env_vars=None):
     """Deploys a service to Google Cloud Run and returns its URL."""
-    print(f"--- Deploying {service_name} ---")
+    cloud_run_service_name = service_name.replace('_', '-')
+    print(f"--- Deploying {cloud_run_service_name} ---")
 
     # Always include the GOOGLE_CLOUD_PROJECT environment variable
     if env_vars is None:
@@ -19,7 +20,7 @@ def deploy_service(service_name, env_vars=None):
         env_vars_list.append(f"{key}={value}")
 
     command = [
-        "gcloud", "run", "deploy", service_name,
+        "gcloud", "run", "deploy", cloud_run_service_name,
         "--image", f"us-central1-docker.pkg.dev/{os.environ['PROJECT_ID']}/instavibe-images/{service_name}",
         "--platform", "managed",
         "--region", os.environ["REGION"],
@@ -33,10 +34,10 @@ def deploy_service(service_name, env_vars=None):
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True)
         service_url = json.loads(result.stdout)["status"]["url"]
-        print(f"--- {service_name} deployment complete ---")
+        print(f"--- {cloud_run_service_name} deployment complete ---")
         return service_url
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: Failed to deploy {service_name}")
+        print(f"ERROR: Failed to deploy {cloud_run_service_name}")
         print(f"Return Code: {e.returncode}")
         print("STDOUT:", e.stdout)
         print("STDERR:", e.stderr)
@@ -76,4 +77,4 @@ if __name__ == "__main__":
     # Print the URLs of the deployed services
     print("\n--- Deployed Service URLs ---")
     for service, url in service_urls.items():
-        print(f"{service}: {url}")
+        print(f"{service.replace('_', '-')}: {url}")

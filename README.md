@@ -2,14 +2,18 @@
 
 ## Deployment
 
-To deploy all the services, run the following command:
+To deploy all the services, first create a `.env` file in the root of the project. You can copy the `.env.example` file to get started:
+
+```bash
+cp .env.example .env
+```
+
+Then, fill in the values in your `.env` file.
+
+Finally, run the following command:
 
 ```bash
 python deploy.py
 ```
 
-This will build and deploy all the services to Google Cloud Run. Make sure you have set the `PROJECT_ID` and `REGION` environment variables. You can do this by sourcing the `set_env.sh` script:
-
-```bash
-source set_env.sh
-```
+This will build and deploy all the services to Google Cloud Run.

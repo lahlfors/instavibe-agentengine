@@ -1,5 +1,8 @@
 import subprocess
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def deploy_service(service_name, dockerfile_path):
     """Deploys a service to Google Cloud Run."""
@@ -26,7 +29,7 @@ def deploy_service(service_name, dockerfile_path):
 def deploy_orchestrator():
     """Deploys the orchestrator."""
     print("--- Deploying Orchestrator ---")
-    subprocess.run(["python", "agents/orchestrate/deploy.py"], check=True)
+    subprocess.run(["python", "-c", "from orchestrate import agent; from vertexai import agent_engines; agent_engines.create(agent.root_agent, requirements='./agents/orchestrate/requirements.txt')"], check=True)
     print("--- Orchestrator deployment complete ---")
 
 if __name__ == "__main__":

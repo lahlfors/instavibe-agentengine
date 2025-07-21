@@ -2,4 +2,4 @@ uvicorn
 starlette
 google-cloud-aiplatform
 vertexai
-a2a-common
+./a2a_common-0.1.0-py3-none-any.whl

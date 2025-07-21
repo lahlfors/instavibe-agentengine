@@ -9,6 +9,7 @@ COPY requirements.txt ./
 COPY a2a_common-0.1.0-py3-none-any.whl ./
 
 # Install any needed packages specified in requirements.txt
+RUN python -m pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code into the container at /usr/src/app

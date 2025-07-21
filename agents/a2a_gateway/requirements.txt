@@ -1,5 +1,5 @@
 uvicorn
-starlette
+starlette>=0.46.1
 google-cloud-aiplatform
 vertexai
 ./a2a_common-0.1.0-py3-none-any.whl

@@ -1,5 +1,11 @@
 # instavibe-bootstrap
 
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+*   [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
+
 ## Deployment
 
 To deploy all the services, first create a `.env` file in the root of the project. You can copy the `.env.example` file to get started:
@@ -16,4 +22,4 @@ Finally, run the following command:
 python deploy.py
 ```
 
-This will build and deploy all the services to Google Cloud Run.
+This will build the Docker images using Google Cloud Build and then deploy them to Google Cloud Run.

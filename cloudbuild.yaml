@@ -1,0 +1,20 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/a2a_gateway', '-f', 'agents/a2a_gateway/Dockerfile', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/planner', '-f', 'agents/planner/Dockerfile', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/platform_mcp_client', '-f', 'agents/platform_mcp_client/Dockerfile', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/social', '-f', 'agents/social/Dockerfile', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/instavibe', '-f', 'instavibe/Dockerfile', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/tools', '-f', 'tools/instavibe/Dockerfile', '.']
+images:
+- 'gcr.io/$PROJECT_ID/a2a_gateway'
+- 'gcr.io/$PROJECT_ID/planner'
+- 'gcr.io/$PROJECT_ID/platform_mcp_client'
+- 'gcr.io/$PROJECT_ID/social'
+- 'gcr.io/$PROJECT_ID/instavibe'
+- 'gcr.io/$PROJECT_ID/tools'

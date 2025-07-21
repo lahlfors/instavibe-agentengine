@@ -4,21 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def deploy_service(service_name, dockerfile_path):
+def deploy_service(service_name):
     """Deploys a service to Google Cloud Run."""
     print(f"--- Deploying {service_name} ---")
-
-    # Build the container image
-    image_name = f"gcr.io/{os.environ['PROJECT_ID']}/{service_name}"
-    subprocess.run(["docker", "build", "-t", image_name, "-f", dockerfile_path, "."], check=True, cwd=os.path.dirname(dockerfile_path))
-
-    # Push the container image to Google Container Registry
-    subprocess.run(["docker", "push", image_name], check=True)
 
     # Deploy the container image to Google Cloud Run
     subprocess.run([
         "gcloud", "run", "deploy", service_name,
-        "--image", image_name,
+        "--image", f"gcr.io/{os.environ['PROJECT_ID']}/{service_name}",
         "--platform", "managed",
         "--region", os.environ["REGION"],
         "--allow-unauthenticated",
@@ -33,11 +26,16 @@ def deploy_orchestrator():
     print("--- Orchestrator deployment complete ---")
 
 if __name__ == "__main__":
+    # Build the container images using Google Cloud Build
+    print("--- Building container images ---")
+    subprocess.run(["gcloud", "builds", "submit", "--config", "cloudbuild.yaml", "."], check=True)
+    print("--- Container images built successfully ---")
+
     # Deploy all the services
-    deploy_service("a2a_gateway", "agents/a2a_gateway/Dockerfile")
-    deploy_service("planner", "agents/planner/Dockerfile")
-    deploy_service("platform_mcp_client", "agents/platform_mcp_client/Dockerfile")
-    deploy_service("social", "agents/social/Dockerfile")
-    deploy_service("instavibe", "instavibe/Dockerfile")
-    deploy_service("tools", "tools/instavibe/Dockerfile")
+    deploy_service("a2a_gateway")
+    deploy_service("planner")
+    deploy_service("platform_mcp_client")
+    deploy_service("social")
+    deploy_service("instavibe")
+    deploy_service("tools")
     deploy_orchestrator()

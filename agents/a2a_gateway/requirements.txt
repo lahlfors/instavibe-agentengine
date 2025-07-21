@@ -1,0 +1,5 @@
+uvicorn
+starlette
+google-cloud-aiplatform
+vertexai
+a2a-common

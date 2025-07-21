@@ -1,5 +1,5 @@
 steps:
-  # Build the container image for the specified agent
+  # Build the container image for the A2A Gateway
   - name: 'gcr.io/cloud-builders/docker'
     args:
       [
@@ -7,7 +7,7 @@ steps:
         '-t',
         '${_IMAGE_PATH}', # Use substitution for the full image path + tag
         '-f',
-        '${_AGENT_NAME}/Dockerfile', # Dynamically point to the correct Dockerfile
+        'a2a_gateway/Dockerfile', # Point to the gateway's Dockerfile
         '.', # Build context is the project root
       ]
 # Specify the image(s) to push upon successful build.

@@ -42,18 +42,20 @@ class HostAgent:
 
   def __init__(
       self,
-      remote_agent_addresses: List[str],
+      gateway_address: str,
       task_callback: TaskUpdateCallback | None = None
   ):
     self.task_callback = task_callback
     self.remote_agent_connections: dict[str, RemoteAgentConnections] = {}
     self.cards: dict[str, AgentCard] = {}
-    for address in remote_agent_addresses:
-      card_resolver = A2ACardResolver(address)
-      card = card_resolver.get_agent_card()
-      remote_connection = RemoteAgentConnections(card)
-      self.remote_agent_connections[card.name] = remote_connection
-      self.cards[card.name] = card
+    card_resolver = A2ACardResolver(gateway_address)
+    gateway_card = card_resolver.get_agent_card()
+    for skill in gateway_card.skills:
+        self.cards[skill.id] = skill
+
+    remote_connection = RemoteAgentConnections(gateway_card)
+    self.remote_agent_connections[gateway_card.name] = remote_connection
+
     agent_info = []
     for ra in self.list_remote_agents():
       agent_info.append(json.dumps(ra))
@@ -156,41 +158,44 @@ class HostAgent:
 
   def list_remote_agents(self):
     """List the available remote agents you can use to delegate the task."""
-    if not self.remote_agent_connections:
+    if not self.cards:
       return []
 
     remote_agent_info = []
-    for card in self.cards.values():
+    for skill in self.cards.values():
       remote_agent_info.append(
-          {"name": card.name, "description": card.description}
+          {"name": skill.id, "description": skill.description}
       )
     return remote_agent_info
 
   async def send_task(
       self,
-      agent_name: str,
+      skill_id: str,
       message: str,
       tool_context: ToolContext):
     """Sends a task either streaming (if supported) or non-streaming.
 
-    This will send a message to the remote agent named agent_name.
+    This will send a message to the remote agent with the given skill_id.
 
     Args:
-      agent_name: The name of the agent to send the task to.
+      skill_id: The id of the skill to send the task to.
       message: The message to send to the agent for the task.
       tool_context: The tool context this method runs in.
 
     Yields:
       A dictionary of JSON data.
     """
-    if agent_name not in self.remote_agent_connections:
-      raise ValueError(f"Agent {agent_name} not found")
+    if skill_id not in self.cards:
+      raise ValueError(f"Skill {skill_id} not found")
     state = tool_context.state
-    state['agent'] = agent_name
-    card = self.cards[agent_name]
-    client = self.remote_agent_connections[agent_name]
+    state['agent'] = skill_id
+
+    # Find the gateway connection
+    gateway_name = list(self.remote_agent_connections.keys())[0]
+    client = self.remote_agent_connections[gateway_name]
+
     if not client:
-      raise ValueError(f"Client not available for {agent_name}")
+      raise ValueError(f"Client not available for gateway")
     if 'task_id' in state:
       taskId = state['task_id']
     else:
@@ -216,7 +221,7 @@ class HostAgent:
         ),
         acceptedOutputModes=["text", "text/plain", "image/png"],
         # pushNotification=None,
-        metadata={'conversation_id': sessionId},
+        metadata={'conversation_id': sessionId, 'skill_id': skill_id},
     )
     task = await client.send_task(request, self.task_callback)
 

@@ -30,11 +30,17 @@ def deploy_service(service_name, env_vars=None):
     if env_vars_list:
         command.extend(["--set-env-vars", ",".join(env_vars_list)])
 
-    result = subprocess.run(command, check=True, capture_output=True, text=True)
-
-    service_url = json.loads(result.stdout)["status"]["url"]
-    print(f"--- {service_name} deployment complete ---")
-    return service_url
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        service_url = json.loads(result.stdout)["status"]["url"]
+        print(f"--- {service_name} deployment complete ---")
+        return service_url
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: Failed to deploy {service_name}")
+        print(f"Return Code: {e.returncode}")
+        print("STDOUT:", e.stdout)
+        print("STDERR:", e.stderr)
+        raise
 
 def deploy_orchestrator(remote_agent_addresses):
     """Deploys the orchestrator."""

@@ -9,10 +9,14 @@ def deploy_service(service_name, env_vars=None):
     """Deploys a service to Google Cloud Run and returns its URL."""
     print(f"--- Deploying {service_name} ---")
 
+    # Always include the GOOGLE_CLOUD_PROJECT environment variable
+    if env_vars is None:
+        env_vars = {}
+    env_vars["GOOGLE_CLOUD_PROJECT"] = os.environ["PROJECT_ID"]
+
     env_vars_list = []
-    if env_vars:
-        for key, value in env_vars.items():
-            env_vars_list.append(f"{key}={value}")
+    for key, value in env_vars.items():
+        env_vars_list.append(f"{key}={value}")
 
     command = [
         "gcloud", "run", "deploy", service_name,

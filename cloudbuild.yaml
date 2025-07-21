@@ -3,36 +3,36 @@ steps:
   entrypoint: 'gsutil'
   args: ['cp', 'agents/a2a_common-0.1.0-py3-none-any.whl', 'agents/a2a_gateway/']
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/a2a_gateway', '.', '-f', 'Dockerfile']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/a2a_gateway', '.', '-f', 'Dockerfile']
   dir: 'agents/a2a_gateway'
 - name: 'gcr.io/cloud-builders/gcloud'
   entrypoint: 'gsutil'
   args: ['cp', 'agents/a2a_common-0.1.0-py3-none-any.whl', 'agents/planner/']
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/planner', '.', '-f', 'Dockerfile']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/planner', '.', '-f', 'Dockerfile']
   dir: 'agents/planner'
 - name: 'gcr.io/cloud-builders/gcloud'
   entrypoint: 'gsutil'
   args: ['cp', 'agents/a2a_common-0.1.0-py3-none-any.whl', 'agents/platform_mcp_client/']
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/platform_mcp_client', '.', '-f', 'Dockerfile']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/platform_mcp_client', '.', '-f', 'Dockerfile']
   dir: 'agents/platform_mcp_client'
 - name: 'gcr.io/cloud-builders/gcloud'
   entrypoint: 'gsutil'
   args: ['cp', 'agents/a2a_common-0.1.0-py3-none-any.whl', 'agents/social/']
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/social', '.', '-f', 'Dockerfile']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/social', '.', '-f', 'Dockerfile']
   dir: 'agents/social'
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/instavibe', '.', '-f', 'Dockerfile']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/instavibe', '.', '-f', 'Dockerfile']
   dir: 'instavibe'
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/tools', '.', '-f', 'Dockerfile']
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/tools', '.', '-f', 'Dockerfile']
   dir: 'tools/instavibe'
 images:
-- 'gcr.io/$PROJECT_ID/a2a_gateway'
-- 'gcr.io/$PROJECT_ID/planner'
-- 'gcr.io/$PROJECT_ID/platform_mcp_client'
-- 'gcr.io/$PROJECT_ID/social'
-- 'gcr.io/$PROJECT_ID/instavibe'
-- 'gcr.io/$PROJECT_ID/tools'
+- 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/a2a_gateway'
+- 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/planner'
+- 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/platform_mcp_client'
+- 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/social'
+- 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/instavibe'
+- 'us-central1-docker.pkg.dev/$PROJECT_ID/instavibe-images/tools'

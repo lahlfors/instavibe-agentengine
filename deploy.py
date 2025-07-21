@@ -16,7 +16,7 @@ def deploy_service(service_name, env_vars=None):
 
     command = [
         "gcloud", "run", "deploy", service_name,
-        "--image", f"gcr.io/{os.environ['PROJECT_ID']}/{service_name}",
+        "--image", f"us-central1-docker.pkg.dev/{os.environ['PROJECT_ID']}/instavibe-images/{service_name}",
         "--platform", "managed",
         "--region", os.environ["REGION"],
         "--allow-unauthenticated",

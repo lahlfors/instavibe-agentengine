@@ -1,23 +1,33 @@
-# Use an official Python runtime as a parent image
 FROM python:3.12-slim
 
-# Set the working directory in the container
+ENV PYTHONUNBUFFERED True
+ENV PIP_NO_CACHE_DIR True
+
 WORKDIR /usr/src/app
 
-# Copy the requirements file and the wheel file into the container
-COPY requirements.txt ./
+# --- Install the local a2a_common wheel ---
 COPY a2a_common-0.1.0-py3-none-any.whl ./
+RUN echo "--- Attempting to install a2a_common wheel ---" && \
+    pip install ./a2a_common-0.1.0-py3-none-any.whl
 
-# Install the wheel file and the other requirements
-RUN python -m pip install --upgrade pip
-RUN pip install --no-cache-dir a2a_common-0.1.0-py3-none-any.whl
-RUN pip install --no-cache-dir -r requirements.txt
+# --- Verification steps ---
+RUN echo "--- PIP FREEZE after wheel install ---" && pip freeze | grep a2a
+RUN echo "--- PIP SHOW a2a-common ---" && pip show a2a-common
+RUN echo "--- Contents of site-packages ---" && ls -l $(python -c 'import site; print(site.getsitepackages()[0])')
+RUN echo "--- Contents of a2a in site-packages ---" && ls -l $(python -c 'import site; print(site.getsitepackages()[0])')/a2a
 
-# Copy the rest of the application's code into the container at /usr/src/app
+# --- CRITICAL TEST: Try importing the module ---
+RUN echo "--- Testing 'import a2a' ---" && \
+    python -c "import a2a; print('SUCCESS: a2a module imported')"
+
+# --- Install other dependencies ---
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+
+# --- Copy Application Code ---
 COPY . .
 
-# Make port 8080 available to the world outside this container
-EXPOSE 8080
+RUN echo "--- Final contents of /usr/src/app ---" && ls -lR /usr/src/app
 
-# Run a2a_server.py when the container launches
-CMD ["uvicorn", "a2a_server:app", "--host", "0.0.0.0", "--port", "8080"]
+ENV PORT 8080
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 a2a_server:app

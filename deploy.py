@@ -54,7 +54,7 @@ def deploy_orchestrator(remote_agent_addresses):
 if __name__ == "__main__":
     # Build the container images using Google Cloud Build
     print("--- Building container images ---")
-    subprocess.run(["gcloud", "builds", "submit", "--config", "cloudbuild.yaml", "."], check=True)
+    subprocess.run(["gcloud", "builds", "submit", "--config", "cloudbuild.yaml", ".", "--no-cache"], check=True)
     print("--- Container images built successfully ---")
 
     # Deploy all the services and capture their URLs

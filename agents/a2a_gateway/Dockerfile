@@ -16,6 +16,7 @@ RUN echo "--- PIP SHOW a2a-common ---" && pip show a2a-common
 RUN echo "--- Contents of site-packages ---" && ls -l $(python -c 'import site; print(site.getsitepackages()[0])')
 RUN echo "--- Contents of a2a in site-packages ---" && ls -l $(python -c 'import site; print(site.getsitepackages()[0])')/a2a
 
+
 # --- CRITICAL TEST: Try importing the module ---
 RUN echo "--- Testing 'import a2a' ---" && \
     python -c "import a2a; print('SUCCESS: a2a module imported')"
@@ -23,6 +24,7 @@ RUN echo "--- Testing 'import a2a' ---" && \
 # --- Install other dependencies ---
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
+
 
 # --- Copy Application Code ---
 COPY . .

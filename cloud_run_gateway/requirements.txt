@@ -1,0 +1,4 @@
+google-agent-development-kit
+google-auth
+httpx
+uvicorn

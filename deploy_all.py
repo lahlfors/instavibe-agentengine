@@ -199,6 +199,55 @@ def deploy_platform_mcp_client(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
 
 
+def deploy_unified_agent_gateway(project_id: str, region: str, env_vars_string: str | None = None):
+    """Deploys the Unified Agent Gateway to Cloud Run."""
+    service_name = "unified-agent-gateway"
+    print(f"--- Deploying {service_name} ---")
+
+    # The gcloud command provided in the instructions uses --source
+    # which builds and deploys in one step.
+    print(f"Building and deploying {service_name} from source './cloud_run_gateway'...")
+    try:
+        deploy_command = [
+            "gcloud", "run", "deploy", service_name,
+            "--source", "./cloud_run_gateway",
+            "--platform", "managed",
+            "--region", region,
+            "--project", project_id,
+            "--allow-unauthenticated",
+        ]
+        if env_vars_string:
+            deploy_command.extend(["--set-env-vars", env_vars_string])
+
+        # Example from user included a service account, which is good practice.
+        # I'll add it here, commented out, as the exact SA is not in the env.
+        # deploy_command.append("--service-account=gateway-sa@YOUR_PROJECT.iam.gserviceaccount.com")
+
+        print(f"Deploying {service_name} to Cloud Run in {region}...")
+        subprocess.run(deploy_command, check=True, capture_output=True, text=True)
+        print(f"{service_name} deployed successfully to Cloud Run in {region}.")
+
+        # Retrieve the URL of the deployed service
+        describe_command = [
+            "gcloud", "run", "services", "describe", service_name,
+            "--platform", "managed", "--region", region, "--project", project_id,
+            "--format", "value(status.url)"
+        ]
+        result = subprocess.run(describe_command, check=True, capture_output=True, text=True)
+        service_url = result.stdout.strip()
+        if not service_url:
+            raise ValueError(f"gcloud command did not return a URL for {service_name}.")
+        print(f"Successfully retrieved URL for {service_name}: {service_url}")
+        return service_url
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error deploying {service_name}: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred during {service_name} deployment: {e}")
+        raise
+
+
 def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity
     """Deploys the Instavibe app to Cloud Run, attempting to enable Kaniko and using --no-cache."""
     print(f"--- Deploying Instavibe App ({image_name_param}) ---")
@@ -438,9 +487,9 @@ def main(argv=None):
     if not args.skip_agents:
         print("--- Deploying Individual Agents (Planner, Social) ---")
         planner_resource_name = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})")
         social_resource_name = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})")
     else:
         print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
 
@@ -449,38 +498,55 @@ def main(argv=None):
         mcp_tool_server_env_vars_list = [
             f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
             f"TOOLS_INSTAVIBE_BASE_URL={sanitize_env_var_value(os.environ.get('TOOLS_INSTAVIBE_BASE_URL', ''))}",
-            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', 'True'))}", # Default to True
+            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', 'True'))}",
             f"TOOLS_GOOGLE_CLOUD_LOCATION={region}",
             f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}"
         ]
         mcp_tool_server_env_vars_string = ",".join(var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1])
-        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'") # ADDED FOR DEBUGGING
+        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'")
         mcp_tool_server_url = deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
     else:
         print("Skipping MCP Tool Server deployment.")
 
-    if not args.skip_platform_mcp_client: # Not skipped by --skip_agents, has its own flag
+    if not args.skip_platform_mcp_client:
         print("--- Deploying Platform MCP Client Agent ---")
         if mcp_tool_server_url:
             os.environ['AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL'] = mcp_tool_server_url
         platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})")
     else:
         print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
 
-    # DIAGNOSTIC_TRACE: Log contents of valid_remote_agent_names before join
+    # --- Deploy the Unified Agent Gateway ---
+    gateway_env_vars = {}
+    if social_resource_name:
+        gateway_env_vars['SOCIAL_AGENT_URL'] = f"https://{region}-aiplatform.googleapis.com/v1beta1/{social_resource_name}:predict"
+    if planner_resource_name:
+        gateway_env_vars['PLANNER_AGENT_URL'] = f"https://{region}-aiplatform.googleapis.com/v1beta1/{planner_resource_name}:predict"
+    if platform_mcp_client_resource_name:
+        gateway_env_vars['MCP_AGENT_URL'] = f"https://{region}-aiplatform.googleapis.com/v1beta1/{platform_mcp_client_resource_name}:predict"
+
+    gateway_env_vars_string = ",".join([f"{k}={v}" for k, v in gateway_env_vars.items()])
+    print(f"DEBUG: gateway_env_vars_string for unified-agent-gateway: '{gateway_env_vars_string}'")
+
+    unified_gateway_url = None
+    if gateway_env_vars:
+        unified_gateway_url = deploy_unified_agent_gateway(project_id, region, env_vars_string=gateway_env_vars_string)
+    else:
+        print("Skipping Unified Agent Gateway deployment because no backend agents were deployed.")
+
+
     temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
     print(f"DIAGNOSTIC_TRACE: main() - Names for orchestrator_dynamic_addresses before filtering: {temp_remote_names_for_debug}")
     valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
     print(f"DIAGNOSTIC_TRACE: main() - Valid names for orchestrator_dynamic_addresses after filtering: {valid_remote_agent_names}")
     orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
-    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'") # DIAGNOSTIC_TRACE
+    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'")
 
-
-    if not args.skip_agents: # Orchestrator is skipped if all agents are skipped
+    if not args.skip_agents:
         print("--- Deploying Orchestrate Agent ---")
         orchestrate_resource_name = deploy_orchestrate_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})") # DIAGNOSTIC_TRACE
+        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})")
     else:
         print("Skipping Orchestrate agent deployment due to --skip_agents flag.")
 
@@ -489,20 +555,28 @@ def main(argv=None):
             f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
             f"COMMON_SPANNER_INSTANCE_ID={spanner_instance_id}",
             f"COMMON_SPANNER_DATABASE_ID={spanner_database_id}",
-            f"INSTAVIBE_FLASK_SECRET_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', 'defaultSecretKey'))}", # Added default
+            f"INSTAVIBE_FLASK_SECRET_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', 'defaultSecretKey'))}",
             f"INSTAVIBE_APP_HOST={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0'))}",
             f"INSTAVIBE_APP_PORT={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_PORT', '8080'))}",
             f"INSTAVIBE_GOOGLE_MAPS_API_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', ''))}",
             f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', ''))}",
             f"COMMON_GOOGLE_CLOUD_LOCATION={region}"
         ]
+        # Instead of passing individual agent resource names, we now pass the gateway URL.
+        # The app will need to be updated to use this gateway.
+        # For now, I will add the gateway URL to the env vars.
+        if unified_gateway_url:
+            instavibe_env_vars_list.append(f"UNIFIED_AGENT_GATEWAY_URL={unified_gateway_url}")
+
+        # For backwards compatibility during transition, I'll leave the old resource names.
+        # A future cleanup step would be to remove the app's dependency on them.
         if planner_resource_name: instavibe_env_vars_list.append(f"AGENTS_PLANNER_RESOURCE_NAME={planner_resource_name}")
         if social_resource_name: instavibe_env_vars_list.append(f"AGENTS_SOCIAL_RESOURCE_NAME={social_resource_name}")
         if platform_mcp_client_resource_name: instavibe_env_vars_list.append(f"AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME={platform_mcp_client_resource_name}")
         if orchestrate_resource_name: instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
 
-        instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1]) # Ensure value is not empty
-        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'") # ADDED FOR DEBUGGING
+        instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1])
+        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'")
         deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
         print("Skipping Instavibe app deployment.")

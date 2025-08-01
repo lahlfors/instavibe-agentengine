@@ -2,13 +2,6 @@ import subprocess
 import argparse
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__))) # Add repo root to path
-from dotenv import load_dotenv
-from google.cloud import aiplatform as vertexai
-from google.cloud.aiplatform_v1.services import reasoning_engine_service
-from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest # MODIFIED: Added DeleteReasoningEngineRequest
-from google.api_core import exceptions as api_exceptions
-import time
 
 # Pre-install root dependencies
 try:
@@ -23,6 +16,14 @@ except subprocess.CalledProcessError as e:
     if e.stdout: print(f"Stdout: {e.stdout}")
     if e.stderr: print(f"Stderr: {e.stderr}")
     raise
+
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__))) # Add repo root to path
+from dotenv import load_dotenv
+from google.cloud import aiplatform as vertexai
+from google.cloud.aiplatform_v1.services import reasoning_engine_service
+from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest # MODIFIED: Added DeleteReasoningEngineRequest
+from google.api_core import exceptions as api_exceptions
+import time
 
 from agents.planner.deploy import deploy_planner_main_func
 from agents.social.deploy import deploy_social_main_func

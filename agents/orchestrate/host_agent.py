@@ -1,7 +1,7 @@
-import adk
-from adk.agents import Agent
-from adk.agents.readonly_context import ReadonlyContext
-from adk.tools.tool_context import ToolContext
+from google import adk
+from google.adk.agents import Agent
+from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.tools.tool_context import ToolContext
 
 
 class HostAgent:

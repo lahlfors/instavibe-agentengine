@@ -152,7 +152,18 @@ class PlatformMCPClientServiceAgent:
             log.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
             return {"error": "No response event received from agent execution"}
 
-    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        action = input.get("action")
+        data = input.get("data", {})
+
+        if action == "create_post":
+            # Construct a natural language query for the LLM
+            query = f"Create a post for {data.get('author_name')} with text '{data.get('text')}' and sentiment '{data.get('sentiment')}'"
+        elif action == "create_event":
+            query = f"Create an event named '{data.get('event_name')}' on {data.get('event_date')} for {data.get('attendee_name')}"
+        else:
+            return {"error": f"Unsupported action: {action}"}
+
         return asyncio.run(self._execute_query_async(query=query, **kwargs))
 
     async def close_async(self):

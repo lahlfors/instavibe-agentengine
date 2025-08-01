@@ -29,18 +29,12 @@ class OrchestrateServiceAgent:
     """
     SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"]
 
-    def __init__(self, remote_agent_addresses_str: str):
+    def __init__(self):
         self._user_id: str = "orchestrate_service_user"
 
-        # Parse the remote_agent_addresses_str into a list
-        parsed_addresses: List[str] = [
-            addr.strip() for addr in remote_agent_addresses_str.split(',') if addr.strip()
-        ]
-        log.info(f"OrchestrateServiceAgent received remote_agent_addresses: {parsed_addresses}")
-
-        # Instantiate HostAgent and create the underlying LlmAgent
-        # Assuming HostAgent does not require a task_callback for basic agent creation
-        host_agent_logic = HostAgent(remote_agent_addresses=parsed_addresses, task_callback=None)
+        # Instantiate HostAgent and create the underlying LlmAgent.
+        # The remote_agent_addresses_str is no longer needed.
+        host_agent_logic = HostAgent()
         self._agent: BaseAgent = host_agent_logic.create_agent()
 
         self._runner = Runner(

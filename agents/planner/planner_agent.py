@@ -13,7 +13,6 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part # Modified import
-from agents.app.common.task_manager import AgentTaskManager # Corrected to agents.app.common
 from . import agent
 
 # Load environment variables from the root .env file.
@@ -25,7 +24,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # Apply nest_asyncio to allow asyncio.run() within an existing event loop (e.g., server)
 nest_asyncio.apply()
 
-class PlannerAgent(AgentTaskManager):
+class PlannerAgent:
   """An agent to help user planning a night out with its desire location."""
 
   SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
@@ -48,9 +47,18 @@ class PlannerAgent(AgentTaskManager):
     """Builds the LLM agent for the night out planning agent."""
     return agent.root_agent
 
-  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Renamed query_text back to query, made sync
+  def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
+
+        action = input.get("action")
+        if action != "get_plans":
+            return {"error": f"Unsupported action: {action}"}
+
+        data = input.get("data", {})
+        query = data.get("query", "")
+        if not query:
+            return {"error": "Missing 'query' in data."}
 
         # Determine the user_id and desired_session_id for this interaction
         # ADK 1.0.0 examples use user_id for session context and run_async.

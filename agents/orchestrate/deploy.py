@@ -1,106 +1,37 @@
 import os
-# import uuid # No longer needed
-# from urllib.parse import urlparse # No longer needed
-# import cloudpickle # Handled by ADK
-# import tarfile # Handled by ADK
-# import tempfile # Handled by ADK
-# import shutil # Handled by ADK
+import logging
+from typing import Optional
 
-from google.cloud import aiplatform as vertexai # Standard alias
-# from vertexai.preview import reasoning_engines # ADK for deployment - Old
-from vertexai.preview.reasoning_engines import AdkApp # For wrapping
-from vertexai import agent_engines # For the new create method
-# from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
-# from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
-#
-# from google.cloud import storage # Handled by ADK or not needed directly
-# import google.auth # For google.auth.exceptions
-import logging # For logging
-from typing import Optional # For Optional type hint
+from google.cloud import aiplatform as vertexai
+from vertexai.preview.reasoning_engines import AdkApp
+from vertexai import agent_engines
 
-from dotenv import load_dotenv # For loading .env file
-from agents.orchestrate.orchestrate_service_agent import OrchestrateServiceAgent
+from agents.orchestrate import agent as orchestrate_agent_module
+from dotenv import load_dotenv
 
-# Load environment variables from the root .env file
-# This is crucial for capturing AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES at deployment time.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 log = logging.getLogger(__name__)
 
-def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dynamic_remote_agent_addresses: Optional[str] = None):
+def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     """
     Deploys the Orchestrate Agent to Vertex AI Reasoning Engines using ADK.
-
-    Args:
-        project_id: The Google Cloud project ID.
-        region: The Google Cloud region for deployment.
-        base_dir: The base directory of the repository (repo root).
-        dynamic_remote_agent_addresses: Optional string of comma-separated remote agent addresses.
     """
     display_name = "Orchestrate Agent"
-    description = """
-  This is the agent responsible for choosing which remote agents to send
-  tasks to and coordinate their work on helping user to get social 
-"""
+    description = "This agent orchestrates the decomposition of the user request into tasks that can be performed by the child agents."
 
-    # vertexai.init() should be called externally (e.g., in deploy_all.py)
-    # project, region, staging_bucket are picked up from that global config.
-
-    # Instantiate the agent. The ADK will pickle this instance.
-    # The OrchestrateServiceAgent constructor requires remote_agent_addresses_str.
-
-    remote_agent_addresses_str_from_env = os.getenv("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES", "")
-    if dynamic_remote_agent_addresses:
-        remote_agent_addresses_str = dynamic_remote_agent_addresses
-        log.info(f"Using dynamically provided remote agent addresses for OrchestrateServiceAgent: {remote_agent_addresses_str}")
-    else:
-        remote_agent_addresses_str = remote_agent_addresses_str_from_env
-        log.info(f"Using environment variable AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES for OrchestrateServiceAgent: {remote_agent_addresses_str}")
-
-    if not remote_agent_addresses_str:
-        log.warning("AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES is not set from dynamic input or environment. Orchestrator may not connect to remote agents.")
-        # Consider if this should be an error or just a warning. For now, warning.
-
-    local_agent_instance = OrchestrateServiceAgent(remote_agent_addresses_str=remote_agent_addresses_str)
+    local_agent_instance = orchestrate_agent_module.root_agent
+    if local_agent_instance is None:
+        raise ValueError("Error: The root_agent in orchestrate.agent is None. Ensure it's initialized.")
     adk_app = AdkApp(agent=local_agent_instance)
 
-    # env_vars_for_deployment has been removed.
-    # The agent constructor now receives the necessary configuration directly.
-    # The print statement below now uses the final remote_agent_addresses_str
-    print(f"OrchestrateServiceAgent initialized with remote agent addresses: '{remote_agent_addresses_str}'")
-
-
-    # base_dir is the repository root.
     requirements_path = os.path.join(base_dir, "agents/orchestrate/requirements.txt")
     requirements_list = []
     if os.path.exists(requirements_path):
         with open(requirements_path, "r") as f:
-            # Strip comments and blank lines
             requirements_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
     else:
         log.warning(f"Requirements file not found: {requirements_path}. Proceeding with an empty requirements list.")
-        # Consider raising FileNotFoundError if requirements are essential for this agent
-
-    # Ensure nest_asyncio is present with the correct version constraint
-    # (agents/orchestrate/requirements.txt already has nest_asyncio==1.6.0 which satisfies this)
-    nest_asyncio_req_line = "nest_asyncio>=1.5.0,<2.0.0"
-    found_nest_asyncio = False
-    for i, req in enumerate(requirements_list):
-        if req.startswith("nest_asyncio"):
-            if req != nest_asyncio_req_line: # If it's already more specific like ==1.6.0, this might change it.
-                                          # For consistency, we will ensure it matches this general constraint if different.
-                                          # However, if 1.6.0 is in the file, it meets ">=1.5.0,<2.0.0".
-                                          # Let's ensure it if it's not exactly "nest_asyncio==1.6.0" or similar compatible.
-                                          # The logic in other deploy files would update if not exactly matching nest_asyncio_req_line.
-                                          # Since 1.6.0 is fine, this specific update might not trigger often but good for robustness.
-                pass # Assuming 1.6.0 from file is fine and satisfies the broader constraint.
-                     # If stricter enforcement to ">=" was needed, logic would be:
-                     # requirements_list[i] = nest_asyncio_req_line
-            found_nest_asyncio = True
-            break
-    if not found_nest_asyncio: # This will add it if totally missing.
-        log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {display_name} deployment.")
-        requirements_list.append(nest_asyncio_req_line)
 
     extra_packages = [
         os.path.join(base_dir, "agents")
@@ -113,34 +44,24 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, dy
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
     print(f"  Requirements file (source): {requirements_path}")
-    print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
+    print(f"  Processed requirements list (for deployment): {requirements_list}")
     print(f"  Extra packages: {extra_packages}")
 
-    # Prepare environment variables for the deployed agent
-    # OrchestrateServiceAgent itself takes remote_agent_addresses_str via constructor.
-    # These env vars would be for other clients or services it might use.
     env_vars_for_deployment = {
         "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
         "COMMON_GOOGLE_CLOUD_LOCATION": region,
-        "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
-        "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
-        # AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES is handled by passing to constructor,
-        # but if the agent code also tries to read it from env, it should be the same.
-        "AGENTS_ORCHESTRATE_REMOTE_AGENT_ADDRESSES": remote_agent_addresses_str
     }
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
 
     try:
         remote_agent = agent_engines.create(
-            adk_app,  # Pass the AdkApp instance
+            adk_app,
             display_name=display_name,
             description=description,
-            requirements=requirements_list, # Pass the processed list
+            requirements=requirements_list,
             extra_packages=extra_packages,
-            env_vars=env_vars_for_deployment, # Changed to env_vars
-            # project=project_id, # Optional: ADK uses vertexai.init() global config
-            # location=region,    # Optional: ADK uses vertexai.init() global config
+            env_vars=env_vars_for_deployment,
         )
     except Exception as e:
         print(f"ERROR: ADK agent_engines.create() failed for Orchestrate Agent: {e}")

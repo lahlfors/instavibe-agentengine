@@ -192,9 +192,8 @@ def deploy_planner_agent(project_id: str, region: str):
 def deploy_social_agent(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Social Agent", deploy_social_main_func)
 
-def deploy_orchestrate_agent(project_id: str, region: str, remote_addresses_str: str):
-    additional_args = {"dynamic_remote_agent_addresses": remote_addresses_str}
-    return deploy_agent_with_forced_update(project_id, region, "Orchestrate Agent", deploy_orchestrate_main_func, additional_deploy_args=additional_args)
+def deploy_orchestrate_agent(project_id: str, region: str):
+    return deploy_agent_with_forced_update(project_id, region, "Orchestrate Agent", deploy_orchestrate_main_func)
 
 def deploy_platform_mcp_client(project_id: str, region: str):
     return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
@@ -480,7 +479,7 @@ def main(argv=None):
 
     if not args.skip_agents: # Orchestrator is skipped if all agents are skipped
         print("--- Deploying Orchestrate Agent ---")
-        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
+        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region)
         print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})") # DIAGNOSTIC_TRACE
     else:
         print("Skipping Orchestrate agent deployment due to --skip_agents flag.")

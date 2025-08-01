@@ -195,7 +195,7 @@ def initialize_global_agent():
     else:
         log.info("PlatformMCPClientServiceAgent (agent.root_agent) already initialized.")
 
-try:
-    initialize_global_agent()
-except Exception as e:
-    log.critical(f"CRITICAL: Module-level initialization of root_agent failed: {e}", exc_info=True)
+# try:
+#     initialize_global_agent()
+# except Exception as e:
+#     log.critical(f"CRITICAL: Module-level initialization of root_agent failed: {e}", exc_info=True)

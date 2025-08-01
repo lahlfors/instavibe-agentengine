@@ -35,6 +35,9 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     # vertexai.init should be called externally, e.g. in deploy_all.py
     # project, region, staging_bucket are picked up from that global config.
 
+    # Explicitly initialize the agent before using it.
+    platform_mcp_client_agent_module.initialize_global_agent()
+
     local_agent_instance = platform_mcp_client_agent_module.root_agent
     if local_agent_instance is None:
         raise ValueError("Error: The root_agent in platform_mcp_client.agent is None. Ensure it's initialized.")

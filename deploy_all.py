@@ -311,6 +311,27 @@ def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str =
         print(f"Error deploying MCP Tool Server to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
         raise
 
+    # 4. Get the URL of the deployed service
+    print(f"\nStep 4: Retrieving URL for Cloud Run service {image_name_param}...")
+    try:
+        describe_command = [
+            "gcloud", "run", "services", "describe", image_name_param,
+            "--platform", "managed", "--region", region, "--project", project_id,
+            "--format", "value(status.url)"
+        ]
+        result = subprocess.run(describe_command, check=True, capture_output=True, text=True)
+        service_url = result.stdout.strip()
+        if not service_url:
+            raise ValueError("gcloud command did not return a URL.")
+        print(f"Successfully retrieved URL: {service_url}")
+        return service_url
+    except subprocess.CalledProcessError as e:
+        print(f"Error retrieving URL for MCP Tool Server: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred while retrieving the service URL: {e}")
+        raise
+
 def main(argv=None):
     load_dotenv()
     project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
@@ -424,8 +445,25 @@ def main(argv=None):
     else:
         print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
 
+    mcp_tool_server_url = None
+    if not args.skip_mcp_tool_server:
+        mcp_tool_server_env_vars_list = [
+            f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
+            f"TOOLS_INSTAVIBE_BASE_URL={sanitize_env_var_value(os.environ.get('TOOLS_INSTAVIBE_BASE_URL', ''))}",
+            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', 'True'))}", # Default to True
+            f"TOOLS_GOOGLE_CLOUD_LOCATION={region}",
+            f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}"
+        ]
+        mcp_tool_server_env_vars_string = ",".join(var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1])
+        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'") # ADDED FOR DEBUGGING
+        mcp_tool_server_url = deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
+    else:
+        print("Skipping MCP Tool Server deployment.")
+
     if not args.skip_platform_mcp_client: # Not skipped by --skip_agents, has its own flag
         print("--- Deploying Platform MCP Client Agent ---")
+        if mcp_tool_server_url:
+            os.environ['AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL'] = mcp_tool_server_url
         platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
         print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})") # DIAGNOSTIC_TRACE
     else:
@@ -469,20 +507,6 @@ def main(argv=None):
         deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
     else:
         print("Skipping Instavibe app deployment.")
-
-    if not args.skip_mcp_tool_server:
-        mcp_tool_server_env_vars_list = [
-            f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
-            f"TOOLS_INSTAVIBE_BASE_URL={sanitize_env_var_value(os.environ.get('TOOLS_INSTAVIBE_BASE_URL', ''))}",
-            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', 'True'))}", # Default to True
-            f"TOOLS_GOOGLE_CLOUD_LOCATION={region}",
-            f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}"
-        ]
-        mcp_tool_server_env_vars_string = ",".join(var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1])
-        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'") # ADDED FOR DEBUGGING
-        deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
-    else:
-        print("Skipping MCP Tool Server deployment.")
 
     print("All selected components deployed.")
 

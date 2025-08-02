@@ -1,4 +1,4 @@
-google-agent-development-kit
+google-adk==1.4.2
 google-auth
 httpx
 uvicorn

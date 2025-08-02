@@ -1,6 +1,6 @@
 import os
-import adk
-from adk.a2a import to_a2a
+from google import adk
+from google.adk.a2a import to_a2a
 import google.auth
 import google.auth.transport.requests
 import httpx

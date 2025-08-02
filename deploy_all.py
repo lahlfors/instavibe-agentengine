@@ -2,6 +2,7 @@ import subprocess
 import argparse
 import sys
 import os
+import json
 
 # Pre-install root dependencies
 try:
@@ -200,49 +201,77 @@ def deploy_platform_mcp_client(project_id: str, region: str):
 
 
 def deploy_unified_agent_gateway(project_id: str, region: str, env_vars_string: str | None = None):
-    """Deploys the Unified Agent Gateway to Cloud Run by first building the image and then deploying with the image digest."""
+    """Deploys the Unified Agent Gateway to Cloud Run by submitting a build, polling for completion, and deploying with the final image digest."""
     service_name = "unified-agent-gateway"
     image_name = f"{region}-docker.pkg.dev/{project_id}/cloud-run-source-deploy/{service_name}"
 
     print(f"--- Building and Deploying {service_name} ---")
 
-    # 1. Build the image using gcloud builds submit and get the result as JSON
-    print("DEBUG: Submitting build to Cloud Build...")
+    # 1. Submit the build asynchronously
+    print("Step 1: Submitting async build to Cloud Build...")
     build_submit_cmd = [
         "gcloud", "builds", "submit", "./cloud_run_gateway",
         "--tag", f"{image_name}:latest",
         "--project", project_id,
         "--region", region,
-        "--format=json"
+        "--async",
+        "--format=json" # Get the build ID back as JSON
     ]
     try:
         completed_build = subprocess.run(build_submit_cmd, capture_output=True, text=True, check=True)
-        build_result = json.loads(completed_build.stdout)
-        print(f"DEBUG: Full Build Result JSON:\n{json.dumps(build_result, indent=2)}")
-    except subprocess.CalledProcessError as e:
-        print(f"DEBUG: Cloud Build Submission Failed:\nSTDOUT:{e.stdout}\nSTDERR:{e.stderr}")
-        raise
-    except json.JSONDecodeError as e:
-        print(f"DEBUG: Failed to parse build result JSON: {e}")
+        build_info = json.loads(completed_build.stdout)
+        build_id = build_info.get('id')
+        if not build_id:
+            raise ValueError("Could not get build ID from async submission.")
+        print(f"Successfully submitted build with ID: {build_id}")
+    except (subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as e:
+        print(f"Error submitting async build: {e}")
         raise
 
-    # 2. Extract the image digest from the build result
+    # 2. Poll the build status until it's finished
+    print(f"Step 2: Polling build {build_id} for completion...")
+    for i in range(20): # Poll for up to 5 minutes (20 * 15s)
+        try:
+            describe_cmd = [
+                "gcloud", "builds", "describe", build_id,
+                "--project", project_id,
+                "--region", region,
+                "--format=json"
+            ]
+            build_status_result = subprocess.run(describe_cmd, capture_output=True, text=True, check=True)
+            build_details = json.loads(build_status_result.stdout)
+            status = build_details.get('status')
+            print(f"  - Build status: {status}")
+
+            if status == 'SUCCESS':
+                break
+            elif status in ['FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED']:
+                raise RuntimeError(f"Build {build_id} failed with status: {status}")
+
+            time.sleep(15) # Wait before polling again
+        except (subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as e:
+            print(f"Error polling build status: {e}")
+            raise
+    else: # This 'else' belongs to the 'for' loop, executes if the loop finishes without a 'break'
+        raise TimeoutError(f"Build {build_id} did not complete in time.")
+
+    # 3. Extract the image digest from the final build details
     image_name_with_digest = None
     try:
-        # The image information is in the 'results.images' list
-        for image in build_result.get('results', {}).get('images', []):
+        for image in build_details.get('results', {}).get('images', []):
             if image_name in image.get('name', ''):
                 image_name_with_digest = f"{image['name'].split(':')[0]}@{image['digest']}"
                 break
         if not image_name_with_digest:
-            raise ValueError("Could not find image digest in build results.")
+            raise ValueError("Could not find image digest in successful build results.")
     except KeyError as e:
-        print(f"DEBUG: Error parsing build result for image digest: {e}")
+        print(f"Error parsing successful build result for image digest: {e}")
         raise
 
-    print(f"DEBUG: USING IMAGE WITH DIGEST: {image_name_with_digest}")
+    print(f"Step 3: Successfully retrieved image digest: {image_name_with_digest}")
 
-    # 3. Deploy to Cloud Run using the DIGEST
+    # 4. Deploy to Cloud Run using the DIGEST
+    print(f"Step 4: Deploying {image_name_with_digest} to Cloud Run...")
     deploy_cmd = [
         "gcloud", "run", "deploy", service_name,
         "--image", image_name_with_digest,
@@ -254,15 +283,15 @@ def deploy_unified_agent_gateway(project_id: str, region: str, env_vars_string: 
     if env_vars_string:
         deploy_cmd.extend(["--set-env-vars", env_vars_string])
 
-    print(f"DEBUG: Executing Cloud Run deploy command: {' '.join(deploy_cmd)}")
     try:
-        deploy_result = subprocess.run(deploy_cmd, capture_output=True, text=True, check=True)
-        print(f"DEBUG: Cloud Run Deployment Succeeded:\n{deploy_result.stdout}")
+        subprocess.run(deploy_cmd, check=True, capture_output=True, text=True)
+        print(f"Successfully deployed {service_name} with image {image_name_with_digest}.")
     except subprocess.CalledProcessError as e:
-        print(f"DEBUG: Cloud Run Deployment Failed:\nSTDOUT:{e.stdout}\nSTDERR:{e.stderr}")
+        print(f"Error deploying to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
         raise
 
-    # 4. Retrieve the URL of the deployed service
+    # 5. Retrieve the URL of the deployed service
+    print(f"Step 5: Retrieving URL for {service_name}...")
     describe_url_command = [
         "gcloud", "run", "services", "describe", service_name,
         "--platform", "managed", "--region", region, "--project", project_id,
@@ -614,3 +643,5 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+
+[end of deploy_all.py]

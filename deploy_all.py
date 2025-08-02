@@ -200,17 +200,52 @@ def deploy_platform_mcp_client(project_id: str, region: str):
 
 
 def deploy_unified_agent_gateway(project_id: str, region: str, env_vars_string: str | None = None):
-    """Deploys the Unified Agent Gateway to Cloud Run."""
+    """Deploys the Unified Agent Gateway to Cloud Run by first building the image and then deploying with the image digest."""
     service_name = "unified-agent-gateway"
-    print(f"--- Deploying {service_name} ---")
+    image_name = f"{region}-docker.pkg.dev/{project_id}/cloud-run-source-deploy/{service_name}"
 
-    # The gcloud command provided in the instructions uses --source
-    # which builds and deploys in one step.
-    print(f"Building and deploying {service_name} from source './cloud_run_gateway'...")
+    print(f"--- Building and Deploying {service_name} ---")
+
+    # 1. Build the image using gcloud builds submit
+    print(f"Step 1: Building Docker image for {service_name}...")
+    try:
+        build_command = [
+            "gcloud", "builds", "submit", "./cloud_run_gateway",
+            "--tag", image_name,
+            "--project", project_id,
+            "--gcs-log-dir", f"gs://{project_id}_cloudbuild/logs", # Optional: specify a logs directory
+        ]
+        build_result = subprocess.run(build_command, check=True, capture_output=True, text=True)
+        print(f"Successfully built image: {image_name}")
+
+        # 2. Get the digest of the newly built image
+        # The digest is the most reliable way to reference the exact image we just built.
+        # We can get it from the build logs or by describing the image.
+        # A simpler way is to describe the image with the 'latest' tag which points to our new build.
+        describe_command = [
+            "gcloud", "artifacts", "docker", "images", "describe",
+            f"{image_name}:latest",
+            "--project", project_id,
+            "--format", "value(image_summary.digest)"
+        ]
+        digest_result = subprocess.run(describe_command, check=True, capture_output=True, text=True)
+        image_digest = digest_result.stdout.strip()
+        if not image_digest:
+            raise ValueError("Could not get image digest after build.")
+
+        image_with_digest = f"{image_name}@{image_digest}"
+        print(f"Step 2: Successfully retrieved image digest: {image_with_digest}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error during image build or digest retrieval: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        raise
+
+    # 3. Deploy the image to Cloud Run using the digest
+    print(f"Step 3: Deploying {image_with_digest} to Cloud Run service {service_name}...")
     try:
         deploy_command = [
             "gcloud", "run", "deploy", service_name,
-            "--source", "./cloud_run_gateway",
+            "--image", image_with_digest,
             "--platform", "managed",
             "--region", region,
             "--project", project_id,
@@ -219,29 +254,25 @@ def deploy_unified_agent_gateway(project_id: str, region: str, env_vars_string: 
         if env_vars_string:
             deploy_command.extend(["--set-env-vars", env_vars_string])
 
-        # Example from user included a service account, which is good practice.
-        # I'll add it here, commented out, as the exact SA is not in the env.
-        # deploy_command.append("--service-account=gateway-sa@YOUR_PROJECT.iam.gserviceaccount.com")
-
-        print(f"Deploying {service_name} to Cloud Run in {region}...")
         subprocess.run(deploy_command, check=True, capture_output=True, text=True)
-        print(f"{service_name} deployed successfully to Cloud Run in {region}.")
+        print(f"{service_name} deployed successfully with image {image_with_digest}.")
 
-        # Retrieve the URL of the deployed service
-        describe_command = [
+        # 4. Retrieve the URL of the deployed service
+        describe_url_command = [
             "gcloud", "run", "services", "describe", service_name,
             "--platform", "managed", "--region", region, "--project", project_id,
             "--format", "value(status.url)"
         ]
-        result = subprocess.run(describe_command, check=True, capture_output=True, text=True)
-        service_url = result.stdout.strip()
+        url_result = subprocess.run(describe_url_command, check=True, capture_output=True, text=True)
+        service_url = url_result.stdout.strip()
         if not service_url:
             raise ValueError(f"gcloud command did not return a URL for {service_name}.")
-        print(f"Successfully retrieved URL for {service_name}: {service_url}")
+
+        print(f"Step 4: Successfully retrieved URL for {service_name}: {service_url}")
         return service_url
 
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying {service_name}: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        print(f"Error deploying {service_name} to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
         raise
     except Exception as e:
         print(f"An unexpected error occurred during {service_name} deployment: {e}")

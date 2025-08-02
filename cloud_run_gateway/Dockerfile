@@ -16,4 +16,7 @@ COPY . .
 EXPOSE 8080
 
 # Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+
+# Debugging command
+CMD ["sh", "-c", "echo '--- Python Path ---' && python -c 'import sys; print(sys.path)' && echo '--- Site Packages Contents ---' && ls -l /usr/local/lib/python3.12/site-packages/google/auth/transport && echo '--- End Diagnostics ---'"]

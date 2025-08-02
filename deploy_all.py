@@ -206,77 +206,75 @@ def deploy_unified_agent_gateway(project_id: str, region: str, env_vars_string: 
 
     print(f"--- Building and Deploying {service_name} ---")
 
-    # 1. Build the image using gcloud builds submit
-    print(f"Step 1: Building Docker image for {service_name}...")
+    # 1. Build the image using gcloud builds submit and get the result as JSON
+    print("DEBUG: Submitting build to Cloud Build...")
+    build_submit_cmd = [
+        "gcloud", "builds", "submit", "./cloud_run_gateway",
+        "--tag", f"{image_name}:latest",
+        "--project", project_id,
+        "--region", region,
+        "--format=json"
+    ]
     try:
-        build_command = [
-            "gcloud", "builds", "submit", "./cloud_run_gateway",
-            "--tag", image_name,
-            "--project", project_id,
-            "--gcs-log-dir", f"gs://{project_id}_cloudbuild/logs", # Optional: specify a logs directory
-        ]
-        build_result = subprocess.run(build_command, check=True, capture_output=True, text=True)
-        print(f"Successfully built image: {image_name}")
-
-        # 2. Get the digest of the newly built image
-        # The digest is the most reliable way to reference the exact image we just built.
-        # We can get it from the build logs or by describing the image.
-        # A simpler way is to describe the image with the 'latest' tag which points to our new build.
-        describe_command = [
-            "gcloud", "artifacts", "docker", "images", "describe",
-            f"{image_name}:latest",
-            "--project", project_id,
-            "--format", "value(image_summary.digest)"
-        ]
-        digest_result = subprocess.run(describe_command, check=True, capture_output=True, text=True)
-        image_digest = digest_result.stdout.strip()
-        if not image_digest:
-            raise ValueError("Could not get image digest after build.")
-
-        image_with_digest = f"{image_name}@{image_digest}"
-        print(f"Step 2: Successfully retrieved image digest: {image_with_digest}")
-
+        completed_build = subprocess.run(build_submit_cmd, capture_output=True, text=True, check=True)
+        build_result = json.loads(completed_build.stdout)
+        print(f"DEBUG: Full Build Result JSON:\n{json.dumps(build_result, indent=2)}")
     except subprocess.CalledProcessError as e:
-        print(f"Error during image build or digest retrieval: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        print(f"DEBUG: Cloud Build Submission Failed:\nSTDOUT:{e.stdout}\nSTDERR:{e.stderr}")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"DEBUG: Failed to parse build result JSON: {e}")
         raise
 
-    # 3. Deploy the image to Cloud Run using the digest
-    print(f"Step 3: Deploying {image_with_digest} to Cloud Run service {service_name}...")
+    # 2. Extract the image digest from the build result
+    image_name_with_digest = None
     try:
-        deploy_command = [
-            "gcloud", "run", "deploy", service_name,
-            "--image", image_with_digest,
-            "--platform", "managed",
-            "--region", region,
-            "--project", project_id,
-            "--allow-unauthenticated",
-        ]
-        if env_vars_string:
-            deploy_command.extend(["--set-env-vars", env_vars_string])
+        # The image information is in the 'results.images' list
+        for image in build_result.get('results', {}).get('images', []):
+            if image_name in image.get('name', ''):
+                image_name_with_digest = f"{image['name'].split(':')[0]}@{image['digest']}"
+                break
+        if not image_name_with_digest:
+            raise ValueError("Could not find image digest in build results.")
+    except KeyError as e:
+        print(f"DEBUG: Error parsing build result for image digest: {e}")
+        raise
 
-        subprocess.run(deploy_command, check=True, capture_output=True, text=True)
-        print(f"{service_name} deployed successfully with image {image_with_digest}.")
+    print(f"DEBUG: USING IMAGE WITH DIGEST: {image_name_with_digest}")
 
-        # 4. Retrieve the URL of the deployed service
-        describe_url_command = [
-            "gcloud", "run", "services", "describe", service_name,
-            "--platform", "managed", "--region", region, "--project", project_id,
-            "--format", "value(status.url)"
-        ]
-        url_result = subprocess.run(describe_url_command, check=True, capture_output=True, text=True)
-        service_url = url_result.stdout.strip()
-        if not service_url:
-            raise ValueError(f"gcloud command did not return a URL for {service_name}.")
+    # 3. Deploy to Cloud Run using the DIGEST
+    deploy_cmd = [
+        "gcloud", "run", "deploy", service_name,
+        "--image", image_name_with_digest,
+        "--platform", "managed",
+        "--region", region,
+        "--project", project_id,
+        "--allow-unauthenticated",
+    ]
+    if env_vars_string:
+        deploy_cmd.extend(["--set-env-vars", env_vars_string])
 
-        print(f"Step 4: Successfully retrieved URL for {service_name}: {service_url}")
-        return service_url
-
+    print(f"DEBUG: Executing Cloud Run deploy command: {' '.join(deploy_cmd)}")
+    try:
+        deploy_result = subprocess.run(deploy_cmd, capture_output=True, text=True, check=True)
+        print(f"DEBUG: Cloud Run Deployment Succeeded:\n{deploy_result.stdout}")
     except subprocess.CalledProcessError as e:
-        print(f"Error deploying {service_name} to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+        print(f"DEBUG: Cloud Run Deployment Failed:\nSTDOUT:{e.stdout}\nSTDERR:{e.stderr}")
         raise
-    except Exception as e:
-        print(f"An unexpected error occurred during {service_name} deployment: {e}")
-        raise
+
+    # 4. Retrieve the URL of the deployed service
+    describe_url_command = [
+        "gcloud", "run", "services", "describe", service_name,
+        "--platform", "managed", "--region", region, "--project", project_id,
+        "--format", "value(status.url)"
+    ]
+    url_result = subprocess.run(describe_url_command, check=True, capture_output=True, text=True)
+    service_url = url_result.stdout.strip()
+    if not service_url:
+        raise ValueError(f"gcloud command did not return a URL for {service_name}.")
+
+    print(f"Successfully retrieved URL for {service_name}: {service_url}")
+    return service_url
 
 
 def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity

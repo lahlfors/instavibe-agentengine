@@ -380,9 +380,9 @@ def main():
         agent_resource_names = {}
         if not args.skip_agents:
             agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func},
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd()}},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd()}},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd()}},
                  "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd()}},
             }
             for key, agent in agent_defs.items():

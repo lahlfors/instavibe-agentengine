@@ -1,4 +1,3 @@
 google-adk==1.4.2
-google-auth[httpx]>=2.22.0
-httpx
+google-auth[httpx]==2.40.0
 uvicorn

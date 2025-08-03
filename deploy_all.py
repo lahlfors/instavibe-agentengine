@@ -264,62 +264,6 @@ def build_and_deploy_cloud_run_service(
 
 
 # --- Main Orchestration ---
-def build_shared_agents_package():
-    """Builds the shared 'a2a_common' package into a wheel file."""
-    logging.info("--- Building shared agents package ---")
-    agent_dir = "agents"
-    if not os.path.exists(os.path.join(agent_dir, "setup.py")):
-        raise FileNotFoundError("agents/setup.py not found. Cannot build shared package.")
-
-    # It's important to run the command from within the 'agents' directory
-    # so that find_packages() works correctly.
-    original_cwd = os.getcwd()
-    try:
-        os.chdir(agent_dir)
-        # Clean up previous builds
-        if os.path.exists("dist"):
-            import shutil
-            shutil.rmtree("dist")
-            logging.info("Removed existing 'dist' directory.")
-
-        build_command = [sys.executable, "-m", "build", "--wheel"]
-        run_command(build_command, check=True)
-
-        # Find the generated wheel file
-        dist_dir = "dist"
-        wheel_files = [f for f in os.listdir(dist_dir) if f.endswith(".whl")]
-        if not wheel_files:
-            raise DeploymentError("Wheel file was not created by setup.py.")
-
-        wheel_path = os.path.abspath(os.path.join(dist_dir, wheel_files[0]))
-        logging.info(f"Successfully built shared package: {wheel_path}")
-        return wheel_path
-    finally:
-        os.chdir(original_cwd)
-
-
-def upload_wheel_to_gcs(local_wheel_path: str, gcs_staging_bucket: str) -> str:
-    """Uploads a wheel file to GCS and returns its gs:// URI."""
-    from google.cloud import storage
-
-    if not gcs_staging_bucket.startswith("gs://"):
-        raise ValueError("gcs_staging_bucket must be a gs:// URI.")
-
-    logging.info(f"--- Uploading wheel file to GCS ---")
-    storage_client = storage.Client()
-    bucket_name = gcs_staging_bucket[5:] # Remove gs:// prefix
-    bucket = storage_client.bucket(bucket_name)
-
-    wheel_filename = os.path.basename(local_wheel_path)
-    # Place it in a 'dist' directory in the bucket for organization
-    blob = bucket.blob(f"dist/{wheel_filename}")
-
-    blob.upload_from_filename(local_wheel_path)
-    gcs_uri = f"gs://{bucket_name}/dist/{wheel_filename}"
-    logging.info(f"Successfully uploaded wheel to {gcs_uri}")
-    return gcs_uri
-
-
 def main():
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
@@ -352,16 +296,15 @@ def main():
 
         agent_resource_names = {}
         if not args.skip_agents:
-            # Build the shared package wheel first
-            local_wheel_path = build_shared_agents_package()
-            # Upload the wheel to GCS
-            gcs_wheel_path = upload_wheel_to_gcs(local_wheel_path, config["staging_bucket"])
+            # Define the shared source directory for the a2a_common package.
+            shared_source_dir = os.path.join(os.getcwd(), "agents", "app")
+            logging.info(f"Using shared agent source directory: {shared_source_dir}")
 
             agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
-                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
+                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
             }
             for key, agent in agent_defs.items():
                 agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=agent.get("args"))

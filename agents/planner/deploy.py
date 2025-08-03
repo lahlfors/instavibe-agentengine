@@ -30,7 +30,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_planner_main_func(project_id: str, region: str, base_dir: str, shared_wheel_path: str):
+def deploy_planner_main_func(project_id: str, region: str, base_dir: str, shared_source_dir: str):
     """
     Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK.
 
@@ -38,7 +38,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str, shared
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
-        shared_wheel_path: The GCS URI of the built 'a2a_common' wheel file.
+        shared_source_dir: The absolute path to the 'a2a_common' source directory.
     """
     display_name = "Planner Agent"
     description = """This agent helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions."""
@@ -123,19 +123,15 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str, shared
         requirements_list.append(nest_asyncio_req_line)
 
 
-    # Define paths for extra_packages relative to base_dir
-    # base_dir is the repository root.
-    # The ADK expects these paths to be directories or .whl files.
-    # The 'agents/app' and 'agents/planner' are directories containing package code.
-    # The 'agents/a2a_common-0.1.0-py3-none-any.whl' is a wheel file.
-    # Add the shared package wheel to the requirements
-    requirements_list.append(shared_wheel_path)
+    # Add the shared package source to the requirements
+    if not os.path.isdir(shared_source_dir):
+        raise FileNotFoundError(f"Shared source package not found at: {shared_source_dir}")
+    requirements_list.append(shared_source_dir)
 
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
     print(f"  Requirements file (source): {requirements_path}") # Log original source
     print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
-    print(f"  Extra packages: {extra_packages}")
     # env_vars_for_deployment is already prepared and filtered above.
     # The print statement for it is also already done.
 

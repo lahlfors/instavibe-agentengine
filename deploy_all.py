@@ -282,7 +282,7 @@ def build_shared_agents_package():
             shutil.rmtree("dist")
             logging.info("Removed existing 'dist' directory.")
 
-        build_command = [sys.executable, "setup.py", "bdist_wheel"]
+        build_command = [sys.executable, "-m", "build", "--wheel"]
         run_command(build_command, check=True)
 
         # Find the generated wheel file

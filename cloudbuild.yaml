@@ -3,14 +3,13 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build'
     args:
-      [
-        'build',
-        '-t',
-        '${_IMAGE_PATH}', # e.g., gcr.io/my-project/my-agent:latest
-        '-f',
-        '${_SERVICE_DIR}/Dockerfile', # e.g., cloud_run_gateway/Dockerfile
-        '${_SERVICE_DIR}', # Build context is the service's directory
-      ]
+      - 'build'
+      - '--tag'
+      - '$_IMAGE_PATH'
+      - '--build-arg'
+      - 'CACHEBUSTER=$BUILD_ID'
+      - '.'
+    dir: '$_SERVICE_DIR'
 
   # 2. Deploy to Cloud Run using the just-built image
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'

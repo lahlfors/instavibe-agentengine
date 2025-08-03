@@ -5,3 +5,4 @@ google-adk>=1.0.0,<1.1.0
 deprecated>=1.2.0
 nest_asyncio>=1.6.0
 cloudpickle>=3.0.0
+pydantic

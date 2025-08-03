@@ -262,6 +262,40 @@ def build_and_deploy_cloud_run_service(
 
 
 # --- Main Orchestration ---
+def build_shared_agents_package():
+    """Builds the shared 'a2a_common' package into a wheel file."""
+    logging.info("--- Building shared agents package ---")
+    agent_dir = "agents"
+    if not os.path.exists(os.path.join(agent_dir, "setup.py")):
+        raise FileNotFoundError("agents/setup.py not found. Cannot build shared package.")
+
+    # It's important to run the command from within the 'agents' directory
+    # so that find_packages() works correctly.
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(agent_dir)
+        # Clean up previous builds
+        if os.path.exists("dist"):
+            import shutil
+            shutil.rmtree("dist")
+            logging.info("Removed existing 'dist' directory.")
+
+        build_command = [sys.executable, "setup.py", "bdist_wheel"]
+        run_command(build_command, check=True)
+
+        # Find the generated wheel file
+        dist_dir = "dist"
+        wheel_files = [f for f in os.listdir(dist_dir) if f.endswith(".whl")]
+        if not wheel_files:
+            raise DeploymentError("Wheel file was not created by setup.py.")
+
+        wheel_path = os.path.abspath(os.path.join(dist_dir, wheel_files[0]))
+        logging.info(f"Successfully built shared package: {wheel_path}")
+        return wheel_path
+    finally:
+        os.chdir(original_cwd)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
@@ -280,24 +314,32 @@ def main():
             setup_spanner(project_id, config["spanner_instance"], config["spanner_db"], region)
         else: logging.info("Skipping Spanner setup.")
 
-        agent_resource_names = {}
-        if not args.skip_agents:
-            agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd()}},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd()}},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd()}},
-                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd()}},
-            }
-            for key, agent in agent_defs.items():
-                agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=agent.get("args"))
-        else: logging.info("Skipping all agent deployments.")
-
         mcp_tool_server_url = None
         if not args.skip_mcp_server:
             mcp_tool_server_url = build_and_deploy_cloud_run_service(
                 project_id, region, "mcp-tool-server",
-                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id, "TOOLS_GOOGLE_CLOUD_LOCATION": region}
+                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id}
             )
+            if mcp_tool_server_url:
+                logging.info(f"Setting MCP_SERVER_URL for agent deployment: {mcp_tool_server_url}")
+                os.environ["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = mcp_tool_server_url
+            else:
+                logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
+
+        agent_resource_names = {}
+        if not args.skip_agents:
+            # Build the shared package wheel first
+            shared_wheel_path = build_shared_agents_package()
+
+            agent_defs = {
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
+                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
+            }
+            for key, agent in agent_defs.items():
+                agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=agent.get("args"))
+        else: logging.info("Skipping all agent deployments.")
 
         gateway_url = None
         if not args.skip_gateway:

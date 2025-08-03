@@ -29,14 +29,15 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 import logging # Added
 log = logging.getLogger(__name__) # Added
 
-def deploy_social_main_func(project_id: str, region: str, base_dir: str):
+def deploy_social_main_func(project_id: str, region: str, base_dir: str, shared_wheel_path: str):
     """
     Deploys the Social Agent as a Vertex AI Reasoning Engine using the ADK.
 
     Args:
-        project_id: The Google Cloud project ID. (Used by vertexai.init if not already set)
-        region: The Google Cloud region for deployment. (Used by vertexai.init if not already set)
+        project_id: The Google Cloud project ID.
+        region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
+        shared_wheel_path: The absolute path to the built 'a2a_common' wheel file.
     """
     display_name = "Social Agent"
     description = """This agent analyzes social profiles, including posts, friend networks, and event participation, to generate comprehensive summaries and identify common ground between individuals."""
@@ -74,20 +75,15 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
         log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {display_name} deployment.")
         requirements_list.append(nest_asyncio_req_line)
 
-    extra_packages = [
-        os.path.join(base_dir, "agents")
-    ]
-
-    # Verify extra_packages paths exist
-    for pkg_path in extra_packages:
-        if not os.path.exists(pkg_path):
-            raise FileNotFoundError(f"Extra package path {pkg_path} not found.")
+    # Add the shared package wheel to the requirements
+    if not os.path.exists(shared_wheel_path):
+        raise FileNotFoundError(f"Shared wheel package not found at: {shared_wheel_path}")
+    requirements_list.append(shared_wheel_path)
 
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
     print(f"  Requirements file (source): {requirements_path}")
     print(f"  Processed requirements list (for deployment): {requirements_list}")
-    print(f"  Extra packages: {extra_packages}")
 
     # Prepare environment variables for the deployed agent
     env_vars_for_deployment = {
@@ -106,8 +102,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
             adk_app, # Pass the AdkApp instance
             display_name=display_name,
             description=description,
-            requirements=requirements_list, # Pass the processed list
-            extra_packages=extra_packages,
+            requirements=requirements_list, # Pass the processed list, now including the wheel
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

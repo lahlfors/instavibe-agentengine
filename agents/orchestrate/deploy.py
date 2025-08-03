@@ -13,7 +13,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__)
 
-def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, shared_source_dir: str):
+def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
     """
     Deploys the Orchestrate Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -21,7 +21,6 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, sh
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
-        shared_source_dir: The absolute path to the 'a2a_common' source directory.
     """
     display_name = "Orchestrate Agent"
     description = "This agent orchestrates the decomposition of the user request into tasks that can be performed by the child agents."
@@ -38,11 +37,6 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, sh
             requirements_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
     else:
         log.warning(f"Requirements file not found: {requirements_path}. Proceeding with an empty requirements list.")
-
-    # Add the shared package source to the requirements
-    if not os.path.isdir(shared_source_dir):
-        raise FileNotFoundError(f"Shared source package not found at: {shared_source_dir}")
-    requirements_list.append(shared_source_dir)
 
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
@@ -62,6 +56,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, sh
             display_name=display_name,
             description=description,
             requirements=requirements_list,
+            extra_packages=[base_dir],
             env_vars=env_vars_for_deployment,
         )
     except Exception as e:

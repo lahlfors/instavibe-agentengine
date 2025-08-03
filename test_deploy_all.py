@@ -9,7 +9,7 @@ import deploy_all
 class TestDeployAllScript(unittest.TestCase):
 
     @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_deploy_instavibe_app(self, mock_build_and_deploy):
+    def test_build_and_deploy_cloud_run_service(self, mock_build_and_deploy):
         deploy_all.build_and_deploy_cloud_run_service(
             'test-project', 'us-central1', 'instavibe-app', './instavibe',
             env_vars={'VAR1': 'val1'}
@@ -18,23 +18,6 @@ class TestDeployAllScript(unittest.TestCase):
             'test-project', 'us-central1', 'instavibe-app', './instavibe',
             env_vars={'VAR1': 'val1'}
         )
-
-    @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_deploy_mcp_tool_server(self, mock_build_and_deploy):
-        mock_build_and_deploy.return_value = 'https://mcp-tool-server-url.a.run.app'
-        url = deploy_all.build_and_deploy_cloud_run_service(
-            'test-project', 'us-central1', 'mcp-tool-server', './tools/instavibe'
-        )
-        self.assertEqual(url, 'https://mcp-tool-server-url.a.run.app')
-
-    @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_deploy_unified_agent_gateway(self, mock_build_and_deploy):
-        mock_build_and_deploy.return_value = 'https://unified-agent-gateway-url'
-        gateway_url = deploy_all.build_and_deploy_cloud_run_service(
-            'test-project', 'us-central1', 'unified-agent-gateway',
-            './cloud_run_gateway', env_vars={'VAR1': 'val1'}
-        )
-        self.assertEqual(gateway_url, 'https://unified-agent-gateway-url')
 
     @patch('deploy_all.deploy_agent', return_value="projects/test-p-env/locations/us-central1/reasoningEngines/test-agent-123")
     @patch('deploy_all.setup_environment', return_value={

@@ -220,17 +220,19 @@ def build_and_deploy_cloud_run_service(
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items()])
-
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_AGENT_NAME": service_name,
-        "_SERVICE_DIR": source_path, # ADDED: Pass the source path to the build
+        "_SERVICE_DIR": source_path,
         "_REGION": region,
-        "_ENV_VARS": env_vars_string,
+        "_COMMON_GOOGLE_CLOUD_PROJECT": env_vars.get("COMMON_GOOGLE_CLOUD_PROJECT", ""),
+        "_COMMON_GOOGLE_CLOUD_LOCATION": env_vars.get("COMMON_GOOGLE_CLOUD_LOCATION", ""),
+        "_COMMON_SPANNER_INSTANCE_ID": env_vars.get("COMMON_SPANNER_INSTANCE_ID", ""),
+        "_COMMON_SPANNER_DATABASE_ID": env_vars.get("COMMON_SPANNER_DATABASE_ID", ""),
+        "_UNIFIED_AGENT_GATEWAY_URL": env_vars.get("UNIFIED_AGENT_GATEWAY_URL", ""),
     }
     # Convert substitutions dict to a format gcloud expects: "_KEY1=val1,_KEY2=val2"
-    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
+    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items() if v is not None])
 
     build_submit_cmd = [
         "gcloud", "builds", "submit", ".", # Submit from the root directory
@@ -296,15 +298,11 @@ def main():
 
         agent_resource_names = {}
         if not args.skip_agents:
-            # Define the shared source directory for the a2a_common package.
-            shared_source_dir = os.path.join(os.getcwd(), "agents", "app")
-            logging.info(f"Using shared agent source directory: {shared_source_dir}")
-
             agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
-                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd(), "shared_source_dir": shared_source_dir}},
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd()}},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd()}},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd()}},
+                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd()}},
             }
             for key, agent in agent_defs.items():
                 agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=agent.get("args"))

@@ -26,7 +26,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str, shared_source_dir: str):
+def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str):
     """
     Deploys the Platform MCP Client Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -34,7 +34,6 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
-        shared_source_dir: The absolute path to the 'a2a_common' source directory.
     """
 
     display_name = "Platform MCP Client Agent"
@@ -73,11 +72,6 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {requirements_path}.")
         requirements_list.append(nest_asyncio_req_line)
 
-    # Add the shared package source to the requirements
-    if not os.path.isdir(shared_source_dir):
-        raise FileNotFoundError(f"Shared source package not found at: {shared_source_dir}")
-    requirements_list.append(shared_source_dir)
-
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}") # Informational
     # Requirements path is still logged for info, but list is used for deployment
@@ -102,6 +96,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
+            extra_packages=[base_dir],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

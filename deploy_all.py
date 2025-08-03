@@ -298,6 +298,28 @@ def build_shared_agents_package():
         os.chdir(original_cwd)
 
 
+def upload_wheel_to_gcs(local_wheel_path: str, gcs_staging_bucket: str) -> str:
+    """Uploads a wheel file to GCS and returns its gs:// URI."""
+    from google.cloud import storage
+
+    if not gcs_staging_bucket.startswith("gs://"):
+        raise ValueError("gcs_staging_bucket must be a gs:// URI.")
+
+    logging.info(f"--- Uploading wheel file to GCS ---")
+    storage_client = storage.Client()
+    bucket_name = gcs_staging_bucket[5:] # Remove gs:// prefix
+    bucket = storage_client.bucket(bucket_name)
+
+    wheel_filename = os.path.basename(local_wheel_path)
+    # Place it in a 'dist' directory in the bucket for organization
+    blob = bucket.blob(f"dist/{wheel_filename}")
+
+    blob.upload_from_filename(local_wheel_path)
+    gcs_uri = f"gs://{bucket_name}/dist/{wheel_filename}"
+    logging.info(f"Successfully uploaded wheel to {gcs_uri}")
+    return gcs_uri
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
@@ -331,13 +353,15 @@ def main():
         agent_resource_names = {}
         if not args.skip_agents:
             # Build the shared package wheel first
-            shared_wheel_path = build_shared_agents_package()
+            local_wheel_path = build_shared_agents_package()
+            # Upload the wheel to GCS
+            gcs_wheel_path = upload_wheel_to_gcs(local_wheel_path, config["staging_bucket"])
 
             agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
-                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": shared_wheel_path}},
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
+                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd(), "shared_wheel_path": gcs_wheel_path}},
             }
             for key, agent in agent_defs.items():
                 agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=agent.get("args"))

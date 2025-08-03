@@ -30,8 +30,7 @@ steps:
       - '${PROJECT_ID}'
       - '--allow-unauthenticated'
       # Pass environment variables if they are provided
-      - '--set-env-vars'
-      - '${_ENV_VARS}'
+      - '--set-env-vars=${_ENV_VARS}'
 
 # Specify the image(s) to push to Artifact Registry upon successful build.
 images:

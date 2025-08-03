@@ -3,7 +3,9 @@ import logging
 import json
 import httpx
 from google import auth
-from google.auth.transport.httpx import AsyncAuthorizedHttp
+# CORRECTED IMPORT
+from google.auth.transport.httpx import AsyncHttpxTransport
+from google.auth.credentials import Credentials
 
 # Corrected ADK imports
 from google import adk
@@ -42,8 +44,10 @@ class GenericVertexForwarder(Capability):
     A reusable capability that forwards requests to a specific backend
     Vertex AI Agent using a shared, authenticated httpx client.
     """
-    def __init__(self, client: httpx.AsyncClient, backend_url: str, action: str):
+    # MODIFIED: Now requires credentials for manual header application
+    def __init__(self, client: httpx.AsyncClient, credentials: Credentials, backend_url: str, action: str):
         self.client = client
+        self.credentials = credentials
         self.backend_url = backend_url
         self.action = action
         super().__init__()
@@ -54,9 +58,14 @@ class GenericVertexForwarder(Capability):
         logging.info(f"Gateway forwarding action '{self.action}' to {self.backend_url}")
 
         try:
-            # The AsyncAuthorizedHttp client automatically handles the 'Authorization' header.
+            # MODIFIED: Manually refresh credentials and apply auth headers
+            transport = AsyncHttpxTransport()
+            await self.credentials.refresh(transport)
+            headers = {}
+            self.credentials.apply(headers)
+
             response = await self.client.post(
-                self.backend_url, json=vertex_payload, timeout=60
+                self.backend_url, json=vertex_payload, timeout=60, headers=headers
             )
             response.raise_for_status()
             # Safely get the 'output' key.
@@ -80,21 +89,25 @@ class GenericVertexForwarder(Capability):
 
 # --- Agent Definition ---
 
-def create_authorized_client() -> httpx.AsyncClient:
-    """Creates an httpx client that automatically handles Google Cloud authentication."""
+# CORRECTED: This function now returns credentials and a standard client
+def create_auth_objects() -> tuple[Credentials, httpx.AsyncClient]:
+    """Creates auth credentials and a standard httpx client."""
     credentials, project = auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
-    return AsyncAuthorizedHttp(credentials)
+    client = httpx.AsyncClient()
+    return credentials, client
 
 def build_agent() -> tuple[Agent, httpx.AsyncClient]:
     """Builds the unified proxy agent and its capabilities, returns agent and client."""
-    client = create_authorized_client()
+    # MODIFIED: Get both credentials and client
+    credentials, client = create_auth_objects()
     capabilities = {}
     for name, (service, action) in CAPABILITY_MAP.items():
         backend_url = SERVICE_URLS.get(service)
         if not backend_url:
             logging.warning(f"Skipping capability '{name}' because service URL for '{service}' is not set.")
             continue
-        capabilities[name] = GenericVertexForwarder(client, backend_url, action)
+        # MODIFIED: Pass credentials to the forwarder
+        capabilities[name] = GenericVertexForwarder(client, credentials, backend_url, action)
         logging.info(f"Registered capability '{name}' -> {backend_url} (action: {action})")
 
     agent = Agent(
@@ -102,7 +115,7 @@ def build_agent() -> tuple[Agent, httpx.AsyncClient]:
         description="A centralized proxy for requests to backend agents on Vertex AI.",
         capabilities=capabilities,
     )
-    return agent, client
+    return agent, client # Returns the standard client for shutdown handling
 
 # Create the agent and expose it as an A2A web application
 unified_proxy_agent, shared_client = build_agent()

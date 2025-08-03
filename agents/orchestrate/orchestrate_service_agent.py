@@ -10,7 +10,7 @@ from dotenv import load_dotenv # To load .env
 from google.genai.types import Content, Part # Added import
 
 # Import HostAgent to create the underlying LlmAgent
-from agents.orchestrate.host_agent import HostAgent
+from orchestrate.host_agent import HostAgent
 import logging # For logging addresses
 
 # Load environment variables from the root .env file

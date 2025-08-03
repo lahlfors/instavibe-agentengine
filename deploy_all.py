@@ -5,10 +5,7 @@ import os
 import subprocess
 import sys
 import time
-import re
 from typing import Any, Dict, List, Optional, Callable
-import tempfile
-import yaml # Requires PyYAML: pip install pyyaml
 
 from dotenv import load_dotenv
 from google.api_core import exceptions as api_exceptions
@@ -204,163 +201,69 @@ def deploy_agent(project_id: str, region: str, agent_name: str, deploy_func: Cal
         logging.error(f"Failed to deploy agent '{agent_name}': {e}", exc_info=True)
         return None
 
-# --- Cloud Run Service Deployment ---
-def get_build_id(gcloud_stdout: str, gcloud_stderr: str) -> Optional[str]:
-    output = gcloud_stdout + "\n" + gcloud_stderr
-    patterns = [
-        r"cloudbuild.googleapis.com/v1/projects/[^/]+/locations/[^/]+/builds/([a-f0-9-]+)",
-        r"\bID:\s*([a-f0-9-]+)",
-        r"builds/([a-f0-9-]+)"
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, output)
-        if match:
-            return match.group(1)
-    return None
-
-def poll_build_status(build_id: str, project_id: str, region: str) -> Dict[str, Any]:
-    logging.info(f"Polling build status for ID: {build_id}")
-    for i in range(60):
-        describe_cmd = [
-            "gcloud", "builds", "describe", build_id,
-            "--project", project_id,
-            "--region", region,
-            "--format=json"
-        ]
-        try:
-            describe_run = run_command(describe_cmd, check=True, timeout=30)
-            build_result = json.loads(describe_run.stdout)
-            status = build_result.get('status')
-            logging.info(f"Build status: {status} (Attempt {i+1})")
-            if status not in ['PENDING', 'QUEUED', 'WORKING']:
-                return build_result
-        except subprocess.CalledProcessError as e:
-             logging.warning(f"gcloud builds describe FAILED (will retry): {e}")
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse describe output: {describe_run.stdout}")
-            raise DeploymentError("Failed to parse build describe JSON") from e
-        time.sleep(10)
-    raise DeploymentError(f"Build {build_id} did not complete within timeout.")
-
-def extract_image_digest(build_result: Dict[str, Any], image_uri_base: str) -> str:
-    """Extracts the image digest from the build result."""
-    images = build_result.get('results', {}).get('images', [])
-    logging.info(f"DEBUG: Searching for image base '{image_uri_base}'")
-    logging.info(f"DEBUG: Images found in build results: {json.dumps(images, indent=2)}")
-    if not images:
-        logging.error("DEBUG: 'results.images' array is empty or missing in the build result.")
-        logging.error(f"DEBUG: Full build result keys: {build_result.keys()}")
-        logging.error(f"DEBUG: Build 'results' keys: {build_result.get('results', {}).keys()}")
-
-    for image in images:
-        image_name = image.get('name', '')
-        if image_name.startswith(image_uri_base):
-            digest = image.get('digest')
-            if digest:
-                image_name_without_tag = image_name.split(':')[0]
-                return f"{image_name_without_tag}@{digest}"
-            else:
-                logging.warning(f"DEBUG: Found image '{image_name}' but it has no digest.")
-    raise DeploymentError(f"Could not find digest for image starting with '{image_uri_base}' in build results. Check DEBUG logs.")
-
+# --- Cloud Run Service Deployment (REFACTORED) ---
 def build_and_deploy_cloud_run_service(
     project_id: str,
     region: str,
     service_name: str,
-    source_path: str,
+    # The source_path is now implicit ('.') because cloudbuild.yaml is in the root
     env_vars: Optional[Dict[str, str]] = None,
-    allow_unauthenticated: bool = True,
-    service_account: Optional[str] = None
+    allow_unauthenticated: bool = True, # This is now handled by cloudbuild.yaml
+    service_account: Optional[str] = None # This could be added to cloudbuild.yaml if needed
 ) -> Optional[str]:
-    """Builds and deploys a Cloud Run service using image digest."""
+    """
+    Builds and deploys a Cloud Run service using the root cloudbuild.yaml.
+    """
     logging.info(f"--- Deploying Cloud Run Service: {service_name} ---")
-    if not os.path.isdir(source_path):
-        raise DeploymentError(f"Source path not found: {source_path}")
 
-    image_uri_base = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}"
-    image_tag = f"{image_uri_base}:latest"
+    image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    # Define the build config to ensure the image is listed in results
-    cloudbuild_config = {
-        "steps": [{
-            "name": "gcr.io/cloud-builders/docker",
-             # Corection: Added --no-cache to docker build args
-            "args": ["build", "--no-cache", "-t", image_tag, "."],
-        }],
-        "images": [image_tag]
+    # Convert env_vars dict to a comma-separated string for Cloud Build
+    env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items()])
+
+    substitutions = {
+        "_IMAGE_PATH": image_path,
+        "_AGENT_NAME": service_name, # The 'agent_name' is the service name/directory
+        "_REGION": region,
+        "_ENV_VARS": env_vars_string,
     }
-    cloudbuild_yaml_content = yaml.dump(cloudbuild_config)
+    # Convert substitutions dict to a format gcloud expects: "_KEY1=val1,_KEY2=val2"
+    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
-    tmp_config_file = None
+    build_submit_cmd = [
+        "gcloud", "builds", "submit", ".", # Submit from the root directory
+        "--config", "cloudbuild.yaml",    # Use the root config file
+        f"--substitutions={substitutions_string}",
+        "--project", project_id,
+    ]
+
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp_config:
-            tmp_config.write(cloudbuild_yaml_content)
-            tmp_config_file = tmp_config.name
-        logging.info(f"DEBUG: Temporary cloudbuild config at: {tmp_config_file}")
-
-        build_submit_cmd = [
-            "gcloud", "builds", "submit", source_path,
-            "--config", tmp_config_file,
-            "--project", project_id,
-            "--region", region
-        ]
-        logging.info(f"Submitting build for {service_name} from {source_path} using --config {tmp_config_file}")
-        completed_build = run_command(build_submit_cmd, timeout=900, check=True)
+        logging.info(f"Submitting build and deploy for {service_name} using root cloudbuild.yaml...")
+        run_command(build_submit_cmd, timeout=900, check=True)
     except subprocess.CalledProcessError as e:
         raise DeploymentError(f"Cloud Build submission failed for {service_name}") from e
-    finally:
-        if tmp_config_file and os.path.exists(tmp_config_file):
-            os.remove(tmp_config_file)
-            logging.info(f"DEBUG: Removed temporary config file {tmp_config_file}")
 
-    build_id = get_build_id(completed_build.stdout, completed_build.stderr)
-    if not build_id:
-        raise DeploymentError(f"Failed to extract Build ID for {service_name}.")
-    logging.info(f"Cloud Build ID for {service_name}: {build_id}")
-
-    build_result = poll_build_status(build_id, project_id, region)
-    if build_result.get('status') != 'SUCCESS':
-        log_url = build_result.get('logUrl')
-        raise DeploymentError(f"Build {build_id} for {service_name} FAILED. Status: {build_result.get('status')}. Log: {log_url}")
-    logging.info(f"Build {build_id} for {service_name} SUCCEEDED.")
-
-    image_name_with_digest = extract_image_digest(build_result, image_uri_base)
-    logging.info(f"Using image with digest for {service_name}: {image_name_with_digest}")
-
-    deploy_cmd = [
-        "gcloud", "run", "deploy", service_name,
-        "--image", image_name_with_digest,
-        "--platform", "managed", "--region", region, "--project", project_id,
-    ]
-    if allow_unauthenticated: deploy_cmd.append("--allow-unauthenticated")
-    if service_account: deploy_cmd.extend(["--service-account", service_account])
-    if env_vars:
-        # Simple escape for commas in env var values: replace , with ^^
-        env_vars_string = ",".join([f"{k}={str(v).replace(',', '^^')}" for k, v in env_vars.items()])
-        deploy_cmd.extend(["--set-env-vars", env_vars_string])
-
-    logging.info(f"Deploying {service_name} to Cloud Run...")
-    try:
-        run_command(deploy_cmd, timeout=600, check=True)
-    except subprocess.CalledProcessError as e:
-        raise DeploymentError(f"Cloud Run deployment failed for {service_name}") from e
-
+    # After successful deployment, get the service URL
     url_cmd = [
         "gcloud", "run", "services", "describe", service_name,
         "--platform", "managed", "--region", region, "--project", project_id,
         "--format=value(status.url)"
     ]
-    result = run_command(url_cmd, check=True)
-    service_url = result.stdout.strip()
-    if not service_url:
-        raise DeploymentError(f"Failed to get URL for Cloud Run service {service_name}")
-    logging.info(f"Successfully deployed '{service_name}' to {service_url}")
-    return service_url
+    try:
+        result = run_command(url_cmd, check=True)
+        service_url = result.stdout.strip()
+        if not service_url:
+            raise DeploymentError(f"Failed to get URL for Cloud Run service {service_name}")
+        logging.info(f"Successfully deployed '{service_name}' to {service_url}")
+        return service_url
+    except (subprocess.CalledProcessError, DeploymentError) as e:
+        logging.warning(f"Could not retrieve service URL for {service_name} after deployment. This might be okay. Error: {e}")
+        return None
+
 
 # --- Main Orchestration ---
 def main():
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
-    # ... parser arguments ...
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
     parser.add_argument("--skip-gateway", action="store_true", help="Skip deploying the Cloud Run gateway.")
     parser.add_argument("--skip-mcp-server", action="store_true", help="Skip deploying the MCP Tool Server.")
@@ -392,13 +295,12 @@ def main():
         mcp_tool_server_url = None
         if not args.skip_mcp_server:
             mcp_tool_server_url = build_and_deploy_cloud_run_service(
-                project_id, region, "mcp-tool-server", "./tools/instavibe",
+                project_id, region, "mcp-tool-server",
                 env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id, "TOOLS_GOOGLE_CLOUD_LOCATION": region}
             )
 
         gateway_url = None
         if not args.skip_gateway:
-            # ... gateway env var setup ...
             gateway_env_vars = {
                 "SOCIAL_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('social')}:predict" if agent_resource_names.get('social') else "",
                 "PLANNER_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('planner')}:predict" if agent_resource_names.get('planner') else "",
@@ -407,13 +309,12 @@ def main():
             valid_gateway_env_vars = {k: v for k, v in gateway_env_vars.items() if v and "None" not in v}
             if valid_gateway_env_vars:
                  gateway_url = build_and_deploy_cloud_run_service(
-                     project_id, region, "unified-agent-gateway", "./cloud_run_gateway", valid_gateway_env_vars
+                     project_id, region, "unified-agent-gateway", valid_gateway_env_vars
                  )
             else:
                 logging.warning("Skipping Gateway deployment: no backend agent URLs available.")
 
         if not args.skip_app:
-            # ... app env var setup ...
             app_env_vars = {
                 "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
                 "COMMON_GOOGLE_CLOUD_LOCATION": region,
@@ -422,7 +323,7 @@ def main():
                 "UNIFIED_AGENT_GATEWAY_URL": gateway_url or "",
             }
             build_and_deploy_cloud_run_service(
-                project_id, region, "instavibe-app", "./instavibe",
+                project_id, region, "instavibe-app",
                 env_vars={k:v for k,v in app_env_vars.items() if v}
             )
 

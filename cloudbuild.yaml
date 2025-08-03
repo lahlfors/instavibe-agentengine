@@ -1,0 +1,44 @@
+steps:
+  # 1. Build and push the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build'
+    args:
+      [
+        'build',
+        '-t',
+        '${_IMAGE_PATH}', # e.g., gcr.io/my-project/my-agent:latest
+        '-f',
+        '${_AGENT_NAME}/Dockerfile', # e.g., unified-agent-gateway/Dockerfile
+        '.', # Build context is the project root
+      ]
+
+  # 2. Deploy to Cloud Run using the just-built image
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_AGENT_NAME}' # Deploy to a service with the same name as the agent
+      - '--image'
+      - '${_IMAGE_PATH}' # Use the exact image we just built
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--project'
+      - '${PROJECT_ID}'
+      - '--allow-unauthenticated'
+      # Pass environment variables if they are provided
+      - '--set-env-vars'
+      - '${_ENV_VARS}'
+
+# Specify the image(s) to push to Artifact Registry upon successful build.
+images:
+  - '${_IMAGE_PATH}'
+
+# Available substitutions:
+# _IMAGE_PATH: The full path to the image in Artifact Registry (e.g., gcr.io/my-project/my-agent:latest)
+# _AGENT_NAME: The name of the service and sub-directory (e.g., unified-agent-gateway)
+# _REGION: The GCP region for deployment (e.g., us-central1)
+# _ENV_VARS: A comma-separated string of KEY=VALUE pairs for environment variables.

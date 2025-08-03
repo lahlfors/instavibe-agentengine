@@ -8,8 +8,8 @@ steps:
         '-t',
         '${_IMAGE_PATH}', # e.g., gcr.io/my-project/my-agent:latest
         '-f',
-        '${_AGENT_NAME}/Dockerfile', # e.g., unified-agent-gateway/Dockerfile
-        '.', # Build context is the project root
+        '${_SERVICE_DIR}/Dockerfile', # e.g., cloud_run_gateway/Dockerfile
+        '${_SERVICE_DIR}', # Build context is the service's directory
       ]
 
   # 2. Deploy to Cloud Run using the just-built image
@@ -39,6 +39,7 @@ images:
 
 # Available substitutions:
 # _IMAGE_PATH: The full path to the image in Artifact Registry (e.g., gcr.io/my-project/my-agent:latest)
-# _AGENT_NAME: The name of the service and sub-directory (e.g., unified-agent-gateway)
+# _AGENT_NAME: The name of the service to deploy (e.g., unified-agent-gateway)
+# _SERVICE_DIR: The path to the directory containing the service's Dockerfile (e.g., ./cloud_run_gateway)
 # _REGION: The GCP region for deployment (e.g., us-central1)
 # _ENV_VARS: A comma-separated string of KEY=VALUE pairs for environment variables.

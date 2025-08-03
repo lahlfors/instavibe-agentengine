@@ -206,24 +206,26 @@ def build_and_deploy_cloud_run_service(
     project_id: str,
     region: str,
     service_name: str,
-    # The source_path is now implicit ('.') because cloudbuild.yaml is in the root
+    source_path: str, # ADDED: The path to the service's source directory
     env_vars: Optional[Dict[str, str]] = None,
-    allow_unauthenticated: bool = True, # This is now handled by cloudbuild.yaml
-    service_account: Optional[str] = None # This could be added to cloudbuild.yaml if needed
+    allow_unauthenticated: bool = True,
+    service_account: Optional[str] = None
 ) -> Optional[str]:
     """
     Builds and deploys a Cloud Run service using the root cloudbuild.yaml.
     """
-    logging.info(f"--- Deploying Cloud Run Service: {service_name} ---")
+    logging.info(f"--- Deploying Cloud Run Service: {service_name} from path {source_path} ---")
+    if not os.path.isdir(source_path):
+        raise DeploymentError(f"Source path not found: {source_path}")
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    # Convert env_vars dict to a comma-separated string for Cloud Build
     env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items()])
 
     substitutions = {
         "_IMAGE_PATH": image_path,
-        "_AGENT_NAME": service_name, # The 'agent_name' is the service name/directory
+        "_AGENT_NAME": service_name,
+        "_SERVICE_DIR": source_path, # ADDED: Pass the source path to the build
         "_REGION": region,
         "_ENV_VARS": env_vars_string,
     }
@@ -317,7 +319,7 @@ def main():
         mcp_tool_server_url = None
         if not args.skip_mcp_server:
             mcp_tool_server_url = build_and_deploy_cloud_run_service(
-                project_id, region, "mcp-tool-server",
+                project_id, region, "mcp-tool-server", "./tools/instavibe",
                 env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id}
             )
             if mcp_tool_server_url:
@@ -351,7 +353,8 @@ def main():
             valid_gateway_env_vars = {k: v for k, v in gateway_env_vars.items() if v and "None" not in v}
             if valid_gateway_env_vars:
                  gateway_url = build_and_deploy_cloud_run_service(
-                     project_id, region, "unified-agent-gateway", valid_gateway_env_vars
+                     project_id, region, "unified-agent-gateway", "./cloud_run_gateway",
+                     env_vars=valid_gateway_env_vars
                  )
             else:
                 logging.warning("Skipping Gateway deployment: no backend agent URLs available.")
@@ -365,7 +368,7 @@ def main():
                 "UNIFIED_AGENT_GATEWAY_URL": gateway_url or "",
             }
             build_and_deploy_cloud_run_service(
-                project_id, region, "instavibe-app",
+                project_id, region, "instavibe-app", "./instavibe",
                 env_vars={k:v for k,v in app_env_vars.items() if v}
             )
 

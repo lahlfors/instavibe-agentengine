@@ -206,13 +206,13 @@ def build_and_deploy_cloud_run_service(
     project_id: str,
     region: str,
     service_name: str,
-    source_path: str, # ADDED: The path to the service's source directory
+    source_path: str,
     env_vars: Optional[Dict[str, str]] = None,
-    allow_unauthenticated: bool = True,
-    service_account: Optional[str] = None
+    allow_unauthenticated: bool = True, # Note: allow_unauthenticated is now handled in cloudbuild.yaml
+    service_account: Optional[str] = None # Note: service_account is not used in the new cloudbuild.yaml
 ) -> Optional[str]:
     """
-    Builds and deploys a Cloud Run service using the root cloudbuild.yaml.
+    Builds and deploys a Cloud Run service using the generic root cloudbuild.yaml.
     """
     logging.info(f"--- Deploying Cloud Run Service: {service_name} from path {source_path} ---")
     if not os.path.isdir(source_path):
@@ -220,19 +220,20 @@ def build_and_deploy_cloud_run_service(
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
+    # Format environment variables into a single comma-separated string for _ENV_VARS
+    env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items() if v])
+
+    # Define substitutions for the generic cloudbuild.yaml
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_AGENT_NAME": service_name,
         "_SERVICE_DIR": source_path,
         "_REGION": region,
-        "_COMMON_GOOGLE_CLOUD_PROJECT": env_vars.get("COMMON_GOOGLE_CLOUD_PROJECT", ""),
-        "_COMMON_GOOGLE_CLOUD_LOCATION": env_vars.get("COMMON_GOOGLE_CLOUD_LOCATION", ""),
-        "_COMMON_SPANNER_INSTANCE_ID": env_vars.get("COMMON_SPANNER_INSTANCE_ID", ""),
-        "_COMMON_SPANNER_DATABASE_ID": env_vars.get("COMMON_SPANNER_DATABASE_ID", ""),
-        "_UNIFIED_AGENT_GATEWAY_URL": env_vars.get("UNIFIED_AGENT_GATEWAY_URL", ""),
+        "_ENV_VARS": env_vars_string,
     }
+
     # Convert substitutions dict to a format gcloud expects: "_KEY1=val1,_KEY2=val2"
-    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items() if v is not None])
+    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
     build_submit_cmd = [
         "gcloud", "builds", "submit", ".", # Submit from the root directory

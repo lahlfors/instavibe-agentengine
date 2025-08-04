@@ -56,7 +56,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
             display_name=display_name,
             description=description,
             requirements=requirements_list,
-            extra_packages=[base_dir],
+            extra_packages=["/Users/laah/Code/instavibe-agentengine/agents"],
             env_vars=env_vars_for_deployment,
         )
     except Exception as e:

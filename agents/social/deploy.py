@@ -97,7 +97,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list, now including the wheel
-            extra_packages=[base_dir],
+            extra_packages=["/Users/laah/Code/instavibe-agentengine/agents"],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

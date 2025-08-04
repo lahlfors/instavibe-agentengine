@@ -1,26 +1,46 @@
+# A reusable and authoritative cloudbuild.yaml for deploying services to Cloud Run.
+
+# Define all the substitution variables that this build expects.
+# Providing default empty values makes them optional.
+substitutions:
+  _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
+  _AGENT_NAME: 'your-service-name'
+  _SERVICE_DIR: '.'
+  _REGION: 'us-central1'
+  # This single variable will hold the comma-separated list of environment variables.
+  _ENV_VARS: ''
+
 steps:
-  # 1. Build and push the container image
+  # 1. Build the container image from the specified service directory.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build'
     args:
       - 'build'
       - '--tag'
-      - '$_IMAGE_PATH'
+      - '${_IMAGE_PATH}'
+      # Use the unique build ID as a cache-busting mechanism.
       - '--build-arg'
-      - 'CACHEBUSTER=$BUILD_ID'
+      - 'CACHEBUSTER=${BUILD_ID}'
       - '.'
-    dir: '$_SERVICE_DIR'
+    dir: '${_SERVICE_DIR}'
 
-  # 2. Deploy to Cloud Run using the just-built image
+  # 2. Push the container image to Artifact Registry.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push'
+    args: ['push', '${_IMAGE_PATH}']
+    # This step depends on the build step completing successfully.
+    wait_for: ['Build']
+
+  # 3. Deploy the just-pushed image to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - '${_AGENT_NAME}' # Deploy to a service with the same name as the agent
+      - '${_AGENT_NAME}'
       - '--image'
-      - '${_IMAGE_PATH}' # Use the exact image we just built
+      - '${_IMAGE_PATH}'
       - '--region'
       - '${_REGION}'
       - '--platform'
@@ -28,16 +48,12 @@ steps:
       - '--project'
       - '${PROJECT_ID}'
       - '--allow-unauthenticated'
-      # Pass environment variables if they are provided
-      - '--set-env-vars=^##^COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT}##COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION}##COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID}##COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID}##UNIFIED_AGENT_GATEWAY_URL=${_UNIFIED_AGENT_GATEWAY_URL}'
+      # Pass the fully-formatted, comma-separated environment variables string.
+      - '--set-env-vars'
+      - '${_ENV_VARS}'
+    # This step depends on the push step completing successfully.
+    wait_for: ['Push']
 
-# Specify the image(s) to push to Artifact Registry upon successful build.
+# Tell Cloud Build to expect this image as an output of the build.
 images:
   - '${_IMAGE_PATH}'
-
-# Available substitutions:
-# _IMAGE_PATH: The full path to the image in Artifact Registry (e.g., gcr.io/my-project/my-agent:latest)
-# _AGENT_NAME: The name of the service to deploy (e.g., unified-agent-gateway)
-# _SERVICE_DIR: The path to the directory containing the service's Dockerfile (e.g., ./cloud_run_gateway)
-# _REGION: The GCP region for deployment (e.g., us-central1)
-# _ENV_VARS: A comma-separated string of KEY=VALUE pairs for environment variables.

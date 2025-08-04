@@ -10,10 +10,11 @@ WORKDIR /app
 # Copy the requirements file
 COPY requirements.txt .
 
-# Add this line to use the argument and bust the cache
-RUN echo "Cache buster value: $CACHEBUSTER"
+# --- NEW: Upgrade pip and setuptools ---
+# Ensures the latest packaging standards are supported
+RUN pip install --upgrade pip setuptools
 
-# This pip install step will now be forced to re-run
+# Install dependencies using the upgraded pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code

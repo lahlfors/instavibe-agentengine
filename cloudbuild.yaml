@@ -9,6 +9,11 @@ substitutions:
   _REGION: 'us-central1'
   # This single variable will hold the comma-separated list of environment variables.
   _ENV_VARS: ''
+  # Add specific substitutions for the genai-toolbox service
+  _COMMON_GOOGLE_CLOUD_PROJECT: ''
+  _COMMON_SPANNER_INSTANCE_ID: ''
+  _COMMON_SPANNER_DATABASE_ID: ''
+  _TOOLS_INSTAVIBE_BASE_URL: ''
 
 steps:
   # 1. Build the container image from the specified service directory.
@@ -34,23 +39,24 @@ steps:
   # 3. Deploy the just-pushed image to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy'
-    entrypoint: gcloud
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'deploy'
-      - '${_AGENT_NAME}'
-      - '--image'
-      - '${_IMAGE_PATH}'
-      - '--region'
-      - '${_REGION}'
-      - '--platform'
-      - 'managed'
-      - '--project'
-      - '${PROJECT_ID}'
-      - '--allow-unauthenticated'
-      # Pass the fully-formatted, comma-separated environment variables string.
-      - '--set-env-vars'
-      - '${_ENV_VARS}'
+      - '-c'
+      - |
+        # If _ENV_VARS is provided, use it directly.
+        # Otherwise, construct it from the specific variables for the toolbox.
+        if [ -n "${_ENV_VARS}" ]; then
+          FINAL_ENV_VARS="${_ENV_VARS}"
+        else
+          FINAL_ENV_VARS="COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT},COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID},COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID},TOOLS_INSTAVIBE_BASE_URL=${_TOOLS_INSTAVIBE_BASE_URL}"
+        fi
+        gcloud run deploy "${_AGENT_NAME}" \
+          --image "${_IMAGE_PATH}" \
+          --region "${_REGION}" \
+          --platform "managed" \
+          --project "${PROJECT_ID}" \
+          --allow-unauthenticated \
+          --set-env-vars "$${FINAL_ENV_VARS}"
     # This step depends on the push step completing successfully.
     wait_for: ['Push']
 

@@ -292,11 +292,8 @@ def main():
                 "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
-                # This is for the http tool to call back to the instavibe app
-                "TOOLS_INSTAVIBE_BASE_URL": f"https://instavibe-app-???-{region}.a.run.app" # Placeholder, needs actual URL after app deploy
+                "TOOLS_INSTAVIBE_BASE_URL": f"https://instavibe-app-???-{region}.a.run.app"
             }
-            # Note: A real-world scenario might require deploying the app first to get its URL.
-            # For this script, we are using a placeholder and might need to re-run or manually set.
             logging.warning("Using a placeholder URL for TOOLS_INSTAVIBE_BASE_URL. The create_event tool may fail unless the instavibe-app is deployed and the URL is updated.")
 
             toolbox_url = build_and_deploy_cloud_run_service(

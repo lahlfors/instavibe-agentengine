@@ -308,7 +308,8 @@ def main():
             for key, agent in agent_defs.items():
                 deploy_args = agent.get("args", {})
                 if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
-                    deploy_args["extra_packages"] = ["agents"]
+                    # This relative path is correct for Cloud Build and local execution.
+                    deploy_args["extra_packages"] = [os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agents')]
                 agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
         else: logging.info("Skipping all agent deployments.")
 

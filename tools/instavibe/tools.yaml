@@ -10,7 +10,7 @@ tools:
     kind: spanner-execute-sql
     source: instavibe-spanner-db
     description: "Creates a new post in the Instavibe app. Takes the author's name, the text of the post, and the sentiment."
-    parameters:
+    args:
       - name: author_name
         type: string
         description: "The full name of the person creating the post (e.g., 'Alice')."
@@ -36,7 +36,7 @@ tools:
     method: POST
     url: ${TOOLS_INSTAVIBE_BASE_URL}/internal/create_event
     description: "Creates a new event with a name, description, date, locations, and attendees."
-    parameters:
+    args:
       - name: event_name
         type: string
         description: "The name of the event."

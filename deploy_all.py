@@ -334,10 +334,10 @@ def main():
         agent_resource_names = {}
         if not args.skip_agents:
             agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func},
-                "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func},
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": PROJECT_ROOT}},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": PROJECT_ROOT}},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": PROJECT_ROOT}},
+                "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": PROJECT_ROOT}},
             }
             original_cwd = os.getcwd()
             os.chdir(PROJECT_ROOT)

@@ -272,7 +272,7 @@ def main():
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
     parser.add_argument("--skip-gateway", action="store_true", help="Skip deploying the Cloud Run gateway.")
-    parser.add_argument("--skip-mcp-server", action="store_true", help="Skip deploying the MCP Tool Server.")
+    parser.add_argument("--skip-toolbox", action="store_true", help="Skip deploying the GenAI Toolbox server.")
     parser.add_argument("--skip-app", action="store_true", help="Skip deploying the main InstaVibe web app.")
     parser.add_argument("--skip-spanner", action="store_true", help="Skip Spanner setup.")
     args = parser.parse_args()
@@ -287,16 +287,27 @@ def main():
         else: logging.info("Skipping Spanner setup.")
 
         mcp_tool_server_url = None
-        if not args.skip_mcp_server:
-            mcp_tool_server_url = build_and_deploy_cloud_run_service(
-                project_id, region, "mcp-tool-server", "./tools/instavibe",
-                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id}
+        if not args.skip_toolbox:
+            toolbox_env_vars = {
+                "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+                "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
+                "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
+                # This is for the http tool to call back to the instavibe app
+                "TOOLS_INSTAVIBE_BASE_URL": f"https://instavibe-app-???-{region}.a.run.app" # Placeholder, needs actual URL after app deploy
+            }
+            # Note: A real-world scenario might require deploying the app first to get its URL.
+            # For this script, we are using a placeholder and might need to re-run or manually set.
+            logging.warning("Using a placeholder URL for TOOLS_INSTAVIBE_BASE_URL. The create_event tool may fail unless the instavibe-app is deployed and the URL is updated.")
+
+            toolbox_url = build_and_deploy_cloud_run_service(
+                project_id, region, "genai-toolbox", "./tools/instavibe",
+                env_vars=toolbox_env_vars
             )
-            if mcp_tool_server_url:
-                logging.info(f"Setting MCP_SERVER_URL for agent deployment: {mcp_tool_server_url}")
-                os.environ["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = mcp_tool_server_url
+            if toolbox_url:
+                logging.info(f"Setting GENAI_TOOLBOX_URL for agent deployment: {toolbox_url}")
+                os.environ["GENAI_TOOLBOX_URL"] = toolbox_url
             else:
-                logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
+                logging.warning("GenAI Toolbox deployment did not return a URL. Platform MCP Client Agent may fail.")
 
         agent_resource_names = {}
         if not args.skip_agents:

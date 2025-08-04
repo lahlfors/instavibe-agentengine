@@ -35,12 +35,12 @@ With these steps completed, your environment is ready for deploying the applicat
 A central Python script `deploy_all.py` is provided in the root directory to orchestrate the deployment of all components.
 The script deploys:
 - Google Cloud Spanner instance and database (if they don't already exist, using `COMMON_SPANNER_INSTANCE_ID` and `COMMON_SPANNER_DATABASE_ID` from your `.env` file). Subsequently, it runs `instavibe/setup.py` to initialize the schema and populate data.
+- **GenAI Toolbox Server (Cloud Run)**: This service now replaces the old MCP Tool Server. It is configured via `tools/instavibe/tools.yaml` to securely expose database operations as tools for agents.
 - Planner Agent (Vertex AI Agent Engine)
 - Social Agent (Vertex AI Agent Engine)
 - Orchestrate Agent (Vertex AI Agent Engine)
-- Platform MCP Client Agent (Vertex AI Agent Engine)
-- Instavibe App (Cloud Run, built via Google Cloud Build)
-- MCP Tool Server (Cloud Run, built via Google Cloud Build)
+- **Platform MCP Client Agent (Vertex AI Agent Engine)**: This agent has been refactored to use the official `toolbox-core` SDK to communicate with the new GenAI Toolbox server.
+- Instavibe App (Cloud Run, built via Google Cloud Build): The main web application. Its database write logic has been removed and is now handled by the GenAI Toolbox.
 
 ### Prerequisites
 
@@ -69,7 +69,7 @@ You can skip deploying certain parts of the application using the following flag
 *   `--skip_agents`: Skips the deployment of the Planner, Social, Orchestrate, and Platform MCP Client agents.
 *   `--skip_app`: Skips the deployment of the Instavibe App.
 *   `--skip_platform_mcp_client`: Skips the deployment of the Platform MCP Client Agent. (Note: If `--skip_agents` is used, this agent is also skipped).
-*   `--skip_mcp_tool_server`: Skips the deployment of the MCP Tool Server.
+*   `--skip_toolbox`: Skips the deployment of the GenAI Toolbox server.
 
 **Example:**
 
@@ -150,8 +150,8 @@ For each service:
     *   Directory for `gcloud builds submit`: `instavibe/`
     *   Dockerfile Location: `instavibe/Dockerfile`
 
-2.  **MCP Tool Server:**
-    *   Service Name: `mcp-tool-server` (or your preferred name)
+2.  **GenAI Toolbox Server:**
+    *   Service Name: `genai-toolbox` (or your preferred name)
     *   Directory for `gcloud builds submit`: `tools/instavibe/`
     *   Dockerfile Location: `tools/instavibe/Dockerfile`
 

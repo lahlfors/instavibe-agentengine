@@ -48,9 +48,22 @@ async def main():
     data_to_share = {"message": "Hello from the test client!"}
     await share_via_proxy(data_to_share)
 
-    print("\n--- Running A2A Test Client for Platform MCP Client Agent ---")
-    post_data = {"author_name": "test_user", "text": "This is a test post", "sentiment": "positive"}
+    print("\n--- Running A2A Test Client for Platform MCP Client Agent (Create Post) ---")
+    post_data = {"author_name": "test_user", "text": "This is a test post from the client", "sentiment": "neutral"}
     await create_post_via_proxy(post_data)
+
+    print("\n--- Running A2A Test Client for Platform MCP Client Agent (Create Event) ---")
+    event_data = {
+        "event_name": "Tech Conference 2025",
+        "description": "Annual conference for tech enthusiasts.",
+        "event_date": "2025-09-15T10:00:00Z",
+        "locations": [
+            {"name": "Main Hall", "latitude": 37.7749, "longitude": -122.4194, "address": "123 Main St"},
+            {"name": "Breakout Room A", "latitude": 37.7750, "longitude": -122.4195, "address": "123 Main St"}
+        ],
+        "attendee_names": ["Alice", "Bob"]
+    }
+    await create_event_via_proxy(event_data)
 
     print("\n--- Test Client Finished ---")
 
@@ -72,6 +85,29 @@ async def create_post_via_proxy(data_to_share: dict):
 
         print("Invoking 'create_post' via proxy...")
         response_data = await create_post_capability.invoke(data_to_share)
+        print("✓ Call via proxy successful! Response:", response_data)
+        return response_data
+    except Exception as e:
+        print(f"✗ An error occurred: {e}")
+        return None
+
+async def create_event_via_proxy(data_to_share: dict):
+    """
+    Finds the platform mcp client proxy and invokes its 'create_event' capability.
+    """
+    try:
+        print(f"Attempting to find agent 'platform-mcp-client-v1'...")
+        agent = adk.agents.find('platform-mcp-client-v1')
+        if not agent:
+            raise ValueError("Agent 'platform-mcp-client-v1' not found. Is the proxy running and registered?")
+
+        print("Agent found. Getting 'create_event' capability...")
+        create_event_capability = agent.a2a.get_capability('create_event')
+        if not create_event_capability:
+            raise ValueError("Capability 'create_event' not available on the agent.")
+
+        print("Invoking 'create_event' via proxy...")
+        response_data = await create_event_capability.invoke(data_to_share)
         print("✓ Call via proxy successful! Response:", response_data)
         return response_data
     except Exception as e:

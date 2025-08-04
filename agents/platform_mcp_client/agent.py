@@ -1,7 +1,7 @@
 import asyncio
 from dotenv import load_dotenv
 from google.adk.agents.llm_agent import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams # Updated SseServerParams
+from toolbox_core import ToolboxClient
 import logging
 import os
 import nest_asyncio
@@ -24,10 +24,10 @@ log = logging.getLogger(__name__)
 class PlatformMCPClientServiceAgent:
     SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"]
 
-    def __init__(self, mcp_server_url: str):
-        self.mcp_server_url = mcp_server_url
+    def __init__(self, toolbox_url: str):
+        self.toolbox_url = toolbox_url
         self._user_id: str = "platform_mcp_client_service_user"
-        self._mcp_toolset: Optional[MCPToolset] = None
+        self._toolbox_client: Optional[ToolboxClient] = None
         self._agent: Optional[BaseAgent] = None
         self._runner: Optional[Runner] = None
         # Removed asyncio.run for lazy initialization
@@ -36,36 +36,35 @@ class PlatformMCPClientServiceAgent:
         if self._runner is not None:
             return
 
-        log.info(f"PlatformMCPClientServiceAgent: Initializing components with MCP URL: {self.mcp_server_url}")
-        self._mcp_toolset = MCPToolset(
-            connection_params=SseConnectionParams(url=self.mcp_server_url, headers={}) # Updated SseServerParams
-        )
+        log.info(f"PlatformMCPClientServiceAgent: Initializing components with Toolbox URL: {self.toolbox_url}")
+        self._toolbox_client = ToolboxClient(service_url=self.toolbox_url)
+
+        # Load the tools from the 'genai-toolbox' server
+        instavibe_tools = await self._toolbox_client.load_toolset("instavibe_v2")
 
         self._agent = LlmAgent(
             model='gemini-2.0-flash-001',
             name='platform_mcp_client_agent',
             instruction="""
             You are a friendly and efficient assistant for the Instavibe social app.
-            Your primary goal is to help users create posts and register for events using the available tools.
+            Your primary goal is to help users create posts and events using the available tools.
 
             When a user asks to create a post:
             1.  You MUST identify the **author's name** and the **post text**.
-            2.  You MUST determine the **sentiment** of the post.
-                - If the user explicitly states a sentiment (e.g., "make it positive", "this is a sad post", "keep it neutral"), use that sentiment. Valid sentiments are 'positive', 'negative', or 'neutral'.
-                - **If the user does NOT provide a sentiment, you MUST analyze the post text yourself, infer the most appropriate sentiment ('positive', 'negative', or 'neutral'), and use this inferred sentiment directly for the tool call. Do NOT ask the user to confirm your inferred sentiment. Simply state the sentiment you've chosen as part of a summary if you confirm the overall action.**
-            3.  Once you have the `author_name`, `text`, and `sentiment` (either provided or inferred), you will prepare to call the `create_post` tool with these three arguments.
+            2.  You MUST determine the **sentiment** of the post ('positive', 'negative', or 'neutral'). If the user does not provide one, you MUST infer it from the text. Do not ask for confirmation.
+            3.  You will then call the `create_post` tool with `author_name`, `text`, and `sentiment`.
 
-            When a user asks to create an event or register for one:
-            1.  You MUST identify the **event name**, the **event date**, and the **attendee's name**.
-            2.  For the `event_date`, aim to get it in a structured format if possible (e.g., "YYYY-MM-DDTHH:MM:SSZ" or "tomorrow at 3 PM"). If the user provides a vague date, you can ask for clarification or make a reasonable interpretation. The tool expects a string.
-            3.  Once you have the `event_name`, `event_date`, and `attendee_name`, you will prepare to call the `create_event` tool with these three arguments.
+            When a user asks to create an event:
+            1.  You MUST identify the **event name**, a **description**, the **event date** (in ISO 8601 format), a list of **locations**, and a list of **attendee names**.
+            2.  For locations, you need a list of objects, each with 'name', 'latitude', and 'longitude'.
+            3.  You will then call the `create_event` tool with these arguments.
 
             General Guidelines:
-            - If any required information for an action (like author_name for a post, or event_name for an event) is missing from the user's initial request, politely ask the user for the specific missing pieces of information.
-            - Before executing an action (calling a tool), you can optionally provide a brief summary of what you are about to do (e.g., "Okay, I'll create a post for [author_name] saying '[text]' with a [sentiment] sentiment."). This summary should include the inferred sentiment if applicable, but it should not be phrased as a question seeking validation for the sentiment.
+            - If any required information is missing, politely ask the user for it.
+            - Before executing an action, you can optionally provide a brief summary of what you are about to do.
             - Use only the provided tools. Do not try to perform actions outside of their scope.
             """,
-            tools=[self._mcp_toolset]
+            tools=instavibe_tools
         )
         log.info("PlatformMCPClientServiceAgent: LlmAgent created.")
 
@@ -160,16 +159,17 @@ class PlatformMCPClientServiceAgent:
             # Construct a natural language query for the LLM
             query = f"Create a post for {data.get('author_name')} with text '{data.get('text')}' and sentiment '{data.get('sentiment')}'"
         elif action == "create_event":
-            query = f"Create an event named '{data.get('event_name')}' on {data.get('event_date')} for {data.get('attendee_name')}"
+            # This part of the query might need to be adjusted based on how the LLM best handles structured data like locations
+            query = f"Create an event named '{data.get('event_name')}' on {data.get('event_date')} for attendees {data.get('attendee_names')} with description '{data.get('description')}' and locations {data.get('locations')}"
         else:
             return {"error": f"Unsupported action: {action}"}
 
         return asyncio.run(self._execute_query_async(query=query, **kwargs))
 
     async def close_async(self):
-        if self._mcp_toolset:
-            log.info("PlatformMCPClientServiceAgent: Closing MCPToolset connection.")
-            await self._mcp_toolset.close()
+        if self._toolbox_client:
+            log.info("PlatformMCPClientServiceAgent: Closing ToolboxClient connection.")
+            await self._toolbox_client.close()
 
 # Global agent instance for pickling
 root_agent: PlatformMCPClientServiceAgent | None = None
@@ -181,13 +181,13 @@ def initialize_global_agent():
     global root_agent
     if root_agent is None:
         log.info("Initializing PlatformMCPClientServiceAgent...")
-        mcp_url = os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL", "http://0.0.0.0:8080/sse")
-        if not mcp_url:
-            log.error("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL is not set.")
-            raise ValueError("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL not set for PlatformMCPClientServiceAgent.")
+        toolbox_url = os.environ.get("GENAI_TOOLBOX_URL", "http://127.0.0.1:5000")
+        if not toolbox_url:
+            log.error("GENAI_TOOLBOX_URL is not set.")
+            raise ValueError("GENAI_TOOLBOX_URL not set for PlatformMCPClientServiceAgent.")
 
         try:
-            root_agent = PlatformMCPClientServiceAgent(mcp_server_url=mcp_url)
+            root_agent = PlatformMCPClientServiceAgent(toolbox_url=toolbox_url)
             log.info("PlatformMCPClientServiceAgent initialized successfully and assigned to agent.root_agent.")
         except Exception as e:
             log.critical(f"CRITICAL: Failed to initialize PlatformMCPClientServiceAgent: {e}", exc_info=True)

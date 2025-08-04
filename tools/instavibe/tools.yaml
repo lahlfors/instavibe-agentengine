@@ -1,0 +1,65 @@
+sources:
+  instavibe-spanner-db:
+    kind: spanner
+    project: ${COMMON_GOOGLE_CLOUD_PROJECT}
+    instance: ${COMMON_SPANNER_INSTANCE_ID}
+    database: ${COMMON_SPANNER_DATABASE_ID}
+
+tools:
+  create_post:
+    kind: spanner-execute-sql
+    source: instavibe-spanner-db
+    description: "Creates a new post in the Instavibe app. Takes the author's name, the text of the post, and the sentiment."
+    parameters:
+      - name: author_name
+        type: string
+        description: "The full name of the person creating the post (e.g., 'Alice')."
+      - name: text
+        type: string
+        description: "The content of the post."
+      - name: sentiment
+        type: string
+        description: "The sentiment of the post ('positive', 'negative', or 'neutral')."
+    statement: |
+      INSERT INTO Post (post_id, author_id, text, sentiment, post_timestamp, create_time)
+      VALUES (
+          GENERATE_UUID(),
+          (SELECT person_id FROM Person WHERE name = @author_name LIMIT 1),
+          @text,
+          @sentiment,
+          CURRENT_TIMESTAMP(),
+          PENDING_COMMIT_TIMESTAMP()
+      )
+
+  create_event:
+    kind: http
+    method: POST
+    url: ${TOOLS_INSTAVIBE_BASE_URL}/internal/create_event
+    description: "Creates a new event with a name, description, date, locations, and attendees."
+    parameters:
+      - name: event_name
+        type: string
+        description: "The name of the event."
+      - name: description
+        type: string
+        description: "A detailed description of the event."
+      - name: event_date
+        type: string
+        description: "The date and time of the event in ISO 8601 format (e.g., '2025-07-04T19:00:00Z')."
+      - name: locations
+        type: array
+        description: "A list of location objects for the event."
+        items:
+          type: map
+          description: "A location object. Must include 'name', 'latitude', and 'longitude'."
+      - name: attendee_names
+        type: array
+        description: "A list of the full names of people attending the event."
+        items:
+          type: string
+          description: "The name of an attendee."
+
+toolsets:
+  instavibe_v2:
+    - create_post
+    - create_event

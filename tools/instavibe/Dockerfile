@@ -1,22 +1,18 @@
-# Use an official Python runtime as a parent image
-FROM python:3.12-slim
+# Use the official genai-toolbox image as the base
+# Using a specific, recent version for stability.
+FROM us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:0.10.0
 
-# Set the working directory in the container
+# Copy the custom tools.yaml configuration file into the container
+# This file defines our Spanner source and our custom tools.
+COPY tools.yaml /app/tools.yaml
+
+# Set the working directory
 WORKDIR /app
 
-# --- Dependency Installation ---
-COPY requirements.txt /app/requirements.txt 
-RUN pip install --no-cache-dir -r requirements.txt
+# Expose the default port for the toolbox service
+EXPOSE 5000
 
-# --- Application Code ---
-COPY . /app
-
-# --- Environment ---
-ENV PYTHONPATH=/app
-
-# Make port 8080 available to the world outside this container
-# Cloud Run uses the PORT env var, but EXPOSE is good practice.
-EXPOSE 8080
-
-# --- Run the application ---
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread mcp_server:app"]
+# Set the command to run the toolbox, pointing to our custom configuration.
+# The environment variables referenced inside tools.yaml (like ${COMMON_GOOGLE_CLOUD_PROJECT})
+# will be injected into the Cloud Run service environment by the deploy_all.py script.
+CMD ["./toolbox", "--tools-file", "/app/tools.yaml"]

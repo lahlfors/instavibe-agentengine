@@ -4,11 +4,12 @@
 # Providing default empty values makes them optional.
 substitutions:
   _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
-  _AGENT_NAME: 'your-service-name'
+  _SERVICE_NAME: 'your-service-name'
   _SERVICE_DIR: '.'
   _REGION: 'us-central1'
-  # This single variable will hold the comma-separated list of environment variables.
-  _ENV_VARS: ''
+  _ENV_VARS: ''  # Comma-separated list of environment variables (e.g., KEY1=val1,KEY2=val2)
+  _SERVICE_ACCOUNT: '' # The email of the service account to run the service as.
+  _ALLOW_UNAUTHENTICATED: 'true' # 'true' or 'false'
 
 steps:
   # 1. Build the container image from the specified service directory.
@@ -34,23 +35,42 @@ steps:
   # 3. Deploy the just-pushed image to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy'
-    entrypoint: gcloud
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'deploy'
-      - '${_AGENT_NAME}'
-      - '--image'
-      - '${_IMAGE_PATH}'
-      - '--region'
-      - '${_REGION}'
-      - '--platform'
-      - 'managed'
-      - '--project'
-      - '${PROJECT_ID}'
-      - '--allow-unauthenticated'
-      # Pass the fully-formatted, comma-separated environment variables string.
-      - '--set-env-vars'
-      - '${_ENV_VARS}'
+    - '-c'
+    - |
+      set -e # Exit immediately if a command exits with a non-zero status.
+
+      # Base command arguments
+      CMD_ARGS=(
+        "run" "deploy" "${_SERVICE_NAME}"
+        "--image" "${_IMAGE_PATH}"
+        "--region" "${_REGION}"
+        "--platform" "managed"
+        "--project" "${PROJECT_ID}"
+      )
+
+      # Conditionally add service account if provided
+      if [[ -n "${_SERVICE_ACCOUNT}" ]]; then
+        CMD_ARGS+=("--service-account" "${_SERVICE_ACCOUNT}")
+      fi
+
+      # Conditionally add authentication flag
+      if [[ "${_ALLOW_UNAUTHENTICATED}" == "true" ]]; then
+        CMD_ARGS+=("--allow-unauthenticated")
+      else
+        CMD_ARGS+=("--no-allow-unauthenticated")
+      fi
+
+      # Conditionally add environment variables if provided
+      if [[ -n "${_ENV_VARS}" ]]; then
+        CMD_ARGS+=("--set-env-vars" "${_ENV_VARS}")
+      else
+        # If no env vars are provided, clear any existing ones on the service
+        CMD_ARGS+=("--clear-env-vars")
+      fi
+
+      gcloud "${CMD_ARGS[@]}"
     # This step depends on the push step completing successfully.
     wait_for: ['Push']
 

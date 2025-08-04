@@ -88,7 +88,14 @@ def setup_environment() -> Dict[str, str]:
         "spanner_instance": "COMMON_SPANNER_INSTANCE_ID",
         "spanner_db": "COMMON_SPANNER_DATABASE_ID",
     }
+    optional_vars = {
+        "service_account": "SERVICE_ACCOUNT_EMAIL",
+    }
+
     env_config = {key: sanitize_env_var(os.environ.get(var_name)) for key, var_name in required_vars.items()}
+
+    for key, var_name in optional_vars.items():
+        env_config[key] = sanitize_env_var(os.environ.get(var_name))
 
     missing = [var_name for key, var_name in required_vars.items() if not env_config[key]]
     if missing:
@@ -209,8 +216,8 @@ def build_and_deploy_cloud_run_service(
     service_name: str,
     source_path: str,
     env_vars: Optional[Dict[str, str]] = None,
-    allow_unauthenticated: bool = True, # Note: allow_unauthenticated is now handled in cloudbuild.yaml
-    service_account: Optional[str] = None # Note: service_account is not used in the new cloudbuild.yaml
+    allow_unauthenticated: bool = False, # Default to secure
+    service_account: Optional[str] = None
 ) -> Optional[str]:
     """
     Builds and deploys a Cloud Run service using the generic root cloudbuild.yaml.
@@ -227,10 +234,12 @@ def build_and_deploy_cloud_run_service(
     # Define substitutions for the generic cloudbuild.yaml
     substitutions = {
         "_IMAGE_PATH": image_path,
-        "_AGENT_NAME": service_name,
+        "_SERVICE_NAME": service_name,
         "_SERVICE_DIR": source_path,
         "_REGION": region,
         "_ENV_VARS": env_vars_string,
+        "_SERVICE_ACCOUNT": service_account or "",
+        "_ALLOW_UNAUTHENTICATED": str(allow_unauthenticated).lower(),
     }
 
     # Convert substitutions dict to a format gcloud expects: "_KEY1=val1,_KEY2=val2"
@@ -289,8 +298,12 @@ def main():
         mcp_tool_server_url = None
         if not args.skip_mcp_server:
             mcp_tool_server_url = build_and_deploy_cloud_run_service(
-                project_id, region, "mcp-tool-server", "./tools/instavibe",
-                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id}
+                project_id,
+                region,
+                "mcp-tool-server",
+                "./tools/instavibe",
+                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id},
+                allow_unauthenticated=False, # Internal tool, requires auth
             )
             if mcp_tool_server_url:
                 logging.info(f"Setting MCP_SERVER_URL for agent deployment: {mcp_tool_server_url}")
@@ -355,8 +368,12 @@ def main():
             valid_gateway_env_vars = {k: v for k, v in gateway_env_vars.items() if v and "None" not in v}
             if valid_gateway_env_vars:
                  gateway_url = build_and_deploy_cloud_run_service(
-                     project_id, region, "unified-agent-gateway", "./cloud_run_gateway",
-                     env_vars=valid_gateway_env_vars
+                     project_id,
+                     region,
+                     "unified-agent-gateway",
+                     "./cloud_run_gateway",
+                     env_vars=valid_gateway_env_vars,
+                     allow_unauthenticated=False, # Internal service
                  )
             else:
                 logging.warning("Skipping Gateway deployment: no backend agent URLs available.")
@@ -370,8 +387,13 @@ def main():
                 "UNIFIED_AGENT_GATEWAY_URL": gateway_url or "",
             }
             build_and_deploy_cloud_run_service(
-                project_id, region, "instavibe-app", "./instavibe",
-                env_vars={k:v for k,v in app_env_vars.items() if v}
+                project_id,
+                region,
+                "instavibe-app",
+                "./instavibe",
+                env_vars={k:v for k,v in app_env_vars.items() if v},
+                allow_unauthenticated=True, # Public-facing web app
+                service_account=config.get("service_account"),
             )
 
         logging.info("--- Deployment script finished successfully! ---")

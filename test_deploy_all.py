@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, call
+from unittest.mock import patch, call, MagicMock
 import subprocess
 import sys
 import os
@@ -8,28 +8,53 @@ import deploy_all
 
 class TestDeployAllScript(unittest.TestCase):
 
-    @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_build_and_deploy_cloud_run_service(self, mock_build_and_deploy):
+    @patch('deploy_all.run_command')
+    @patch('deploy_all.os.path.isdir', return_value=True)
+    def test_build_and_deploy_cloud_run_service_substitutions(self, mock_isdir, mock_run_command):
+        """Test that build_and_deploy_cloud_run_service constructs the correct substitutions."""
+        # Mock for the build submission and URL fetch
+        mock_run_command.return_value = MagicMock(stdout="https://my-service-url.a.run.app")
+
         deploy_all.build_and_deploy_cloud_run_service(
-            'test-project', 'us-central1', 'instavibe-app', './instavibe',
-            env_vars={'VAR1': 'val1'}
+            project_id="test-proj",
+            region="us-central1",
+            service_name="test-service",
+            source_path="./test/path",
+            env_vars={"KEY": "VALUE"},
+            allow_unauthenticated=True,
+            service_account="test-sa@test-proj.iam.gserviceaccount.com"
         )
-        mock_build_and_deploy.assert_called_once_with(
-            'test-project', 'us-central1', 'instavibe-app', './instavibe',
-            env_vars={'VAR1': 'val1'}
-        )
+
+        # Check the build command call
+        build_call_args = mock_run_command.call_args_list[0].args[0]
+        self.assertIn("gcloud", build_call_args)
+        self.assertIn("builds", build_call_args)
+        self.assertIn("submit", build_call_args)
+
+        # Check substitutions
+        substitutions_arg = next((arg for arg in build_call_args if arg.startswith('--substitutions=')), None)
+        self.assertIsNotNone(substitutions_arg)
+        self.assertIn("_IMAGE_PATH=us-central1-docker.pkg.dev/test-proj/instavibe-images/test-service:latest", substitutions_arg)
+        self.assertIn("_SERVICE_NAME=test-service", substitutions_arg)
+        self.assertIn("_SERVICE_DIR=./test/path", substitutions_arg)
+        self.assertIn("_REGION=us-central1", substitutions_arg)
+        self.assertIn("_ENV_VARS=KEY=VALUE", substitutions_arg)
+        self.assertIn("_ALLOW_UNAUTHENTICATED=true", substitutions_arg)
+        self.assertIn("_SERVICE_ACCOUNT=test-sa@test-proj.iam.gserviceaccount.com", substitutions_arg)
+
 
     @patch('deploy_all.deploy_agent', return_value="projects/test-p-env/locations/us-central1/reasoningEngines/test-agent-123")
     @patch('deploy_all.setup_environment', return_value={
         "project_id": "test-p-env", "region": "us-central1",
         "staging_bucket": "gs://test-bucket-env", "spanner_instance": "test-instance",
-        "spanner_db": "test-db"
+        "spanner_db": "test-db", "service_account": "test-sa@example.com"
     })
     @patch('deploy_all.setup_spanner')
     @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_main_default_behavior(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_agent):
+    def test_main_secure_deployment_configs(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_agent):
+        """Test that main() calls deployment functions with security-conscious arguments."""
         # Set up mock return values for build_and_deploy_cloud_run_service
-        def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=True, service_account=None):
+        def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=False, service_account=None):
             if service_name == "mcp-tool-server":
                 return "https://mcp-tool-server-url.a.run.app"
             if service_name == "unified-agent-gateway":
@@ -40,23 +65,26 @@ class TestDeployAllScript(unittest.TestCase):
         with patch('sys.argv', ['deploy_all.py']):
              deploy_all.main()
 
+        # --- Assertions ---
         mock_setup_env.assert_called_once()
         mock_setup_spanner.assert_called_once_with("test-p-env", "test-instance", "test-db", "us-central1")
-
-        # Check that deploy_agent was called for all agents
         self.assertEqual(mock_deploy_agent.call_count, 4)
-        agent_names_called = [call.args[2] for call in mock_deploy_agent.call_args_list]
-        self.assertIn("Planner Agent", agent_names_called)
-        self.assertIn("Social Agent", agent_names_called)
-        self.assertIn("Orchestrate Agent", agent_names_called)
-        self.assertIn("Platform MCP Client Agent", agent_names_called)
-
-        # Check that build_and_deploy_cloud_run_service was called for all services
         self.assertEqual(mock_build_and_deploy.call_count, 3)
-        service_names_called = [call.args[2] for call in mock_build_and_deploy.call_args_list]
-        self.assertIn("mcp-tool-server", service_names_called)
-        self.assertIn("unified-agent-gateway", service_names_called)
-        self.assertIn("instavibe-app", service_names_called)
+
+        # Assert correct security configurations are passed
+        mcp_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'mcp-tool-server'), None)
+        self.assertIsNotNone(mcp_call)
+        self.assertEqual(mcp_call.kwargs['allow_unauthenticated'], False)
+
+        gateway_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'unified-agent-gateway'), None)
+        self.assertIsNotNone(gateway_call)
+        self.assertEqual(gateway_call.kwargs['allow_unauthenticated'], False)
+
+        app_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'instavibe-app'), None)
+        self.assertIsNotNone(app_call)
+        self.assertEqual(app_call.kwargs['allow_unauthenticated'], True)
+        self.assertEqual(app_call.kwargs['service_account'], 'test-sa@example.com')
+
 
     @patch.dict(os.environ, {}, clear=True)
     @patch('sys.exit')

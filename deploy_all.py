@@ -208,9 +208,7 @@ def build_and_deploy_cloud_run_service(
     region: str,
     service_name: str,
     source_path: str,
-    env_vars: Optional[Dict[str, str]] = None,
-    allow_unauthenticated: bool = True, # Note: allow_unauthenticated is now handled in cloudbuild.yaml
-    service_account: Optional[str] = None # Note: service_account is not used in the new cloudbuild.yaml
+    env_vars: Optional[Dict[str, str]] = None
 ) -> Optional[str]:
     """
     Builds and deploys a Cloud Run service using the generic root cloudbuild.yaml.
@@ -221,28 +219,22 @@ def build_and_deploy_cloud_run_service(
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    # Format environment variables into a single comma-separated string for _ENV_VARS
+    # Format environment variables into a single comma-separated string for _ENV_VARS.
+    # This is the string that will be passed inside the _ENV_VARS substitution.
     env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items() if v])
 
-    # Define substitutions for the generic cloudbuild.yaml
+    # Define the substitutions dictionary.
+    # The keys here MUST match the placeholders in cloudbuild.yaml.
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_AGENT_NAME": service_name,
         "_SERVICE_DIR": source_path,
         "_REGION": region,
-        "_ENV_VARS": env_vars_string,
+        "_ENV_VARS": env_vars_string, # All env vars are bundled here.
     }
 
-    # CORRECTED VERSION
-    # This logic properly quotes the _ENV_VARS value.
-    substitutions_list = []
-    for k, v in substitutions.items():
-        if k == "_ENV_VARS":
-            # Add quotes around the value if it's the environment variables
-            substitutions_list.append(f'{k}="{v}"')
-        else:
-            substitutions_list.append(f"{k}={v}")
-    substitutions_string = ",".join(substitutions_list)
+    # Convert the substitutions dictionary to the format gcloud expects: "_KEY1=val1,_KEY2=val2"
+    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
     build_submit_cmd = [
         "gcloud", "builds", "submit", ".", # Submit from the root directory
@@ -271,7 +263,7 @@ def build_and_deploy_cloud_run_service(
         logging.info(f"Successfully deployed '{service_name}' to {service_url}")
         return service_url
     except (subprocess.CalledProcessError, DeploymentError) as e:
-        logging.warning(f"Could not retrieve service URL for {service_name} after deployment. This might be okay. Error: {e}")
+        logging.warning(f"Could not retrieve service URL for {service_name} after deployment. Error: {e}")
         return None
 
 

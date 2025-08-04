@@ -220,7 +220,6 @@ def build_and_deploy_cloud_run_service(
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
     # Format environment variables into a single comma-separated string for _ENV_VARS.
-    # This is the string that will be passed inside the _ENV_VARS substitution.
     env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items() if v])
 
     # Define the substitutions dictionary.
@@ -233,8 +232,15 @@ def build_and_deploy_cloud_run_service(
         "_ENV_VARS": env_vars_string, # All env vars are bundled here.
     }
 
-    # Convert the substitutions dictionary to the format gcloud expects: "_KEY1=val1,_KEY2=val2"
-    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
+    # Convert the substitutions dictionary to the format gcloud expects: "_KEY1='val1',_KEY2='val2'"
+    # We wrap values in single quotes to handle potential commas within the values, especially in _ENV_VARS.
+    substitutions_list = []
+    for k, v in substitutions.items():
+        # Escape single quotes within the value string
+        escaped_v = str(v).replace("'", "'\\''")
+        substitutions_list.append(f"{k}='{escaped_v}'")
+
+    substitutions_string = ",".join(substitutions_list)
 
     build_submit_cmd = [
         "gcloud", "builds", "submit", ".", # Submit from the root directory

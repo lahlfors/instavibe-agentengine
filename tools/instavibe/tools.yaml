@@ -20,7 +20,7 @@ tools:
       - name: sentiment
         type: string
         description: "The sentiment of the post ('positive', 'negative', or 'neutral')."
-    statement: |
+    query: |
       INSERT INTO Post (post_id, author_id, text, sentiment, post_timestamp, create_time)
       VALUES (
           GENERATE_UUID(),

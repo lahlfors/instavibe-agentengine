@@ -284,18 +284,41 @@ def main():
 
         if not args.skip_spanner:
             setup_spanner(project_id, config["spanner_instance"], config["spanner_db"], region)
-        else: logging.info("Skipping Spanner setup.")
+        else:
+            logging.info("Skipping Spanner setup.")
 
-        mcp_tool_server_url = None
+        # --- PASS 1: Deploy InstaVibe App to get its URL ---
+        instavibe_app_url = None
+        if not args.skip_app:
+            logging.info("--- Deployment Pass 1: Deploying InstaVibe App (initial) ---")
+            app_env_vars_pass1 = {
+                "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+                "COMMON_GOOGLE_CLOUD_LOCATION": region,
+                "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
+                "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
+                "UNIFIED_AGENT_GATEWAY_URL": "placeholder", # Use a placeholder
+            }
+            instavibe_app_url = build_and_deploy_cloud_run_service(
+                project_id, region, "instavibe-app", "./instavibe",
+                env_vars={k:v for k,v in app_env_vars_pass1.items() if v}
+            )
+            if not instavibe_app_url:
+                logging.error("Critical: Could not get InstaVibe App URL. Aborting subsequent deployments.")
+                raise DeploymentError("Failed to deploy instavibe-app in the first pass.")
+        else:
+            logging.info("Skipping InstaVibe App deployment. Subsequent dependent deployments may fail.")
+
+
+        # --- PASS 2: Deploy Toolbox, Agents, and Gateway ---
+        logging.info("--- Deployment Pass 2: Deploying Toolbox, Agents, and Gateway ---")
+        toolbox_url = None
         if not args.skip_toolbox:
             toolbox_env_vars = {
                 "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
-                "TOOLS_INSTAVIBE_BASE_URL": f"https://instavibe-app-???-{region}.a.run.app"
+                "TOOLS_INSTAVIBE_BASE_URL": instavibe_app_url or ""
             }
-            logging.warning("Using a placeholder URL for TOOLS_INSTAVIBE_BASE_URL. The create_event tool may fail unless the instavibe-app is deployed and the URL is updated.")
-
             toolbox_url = build_and_deploy_cloud_run_service(
                 project_id, region, "genai-toolbox", "./tools/instavibe",
                 env_vars=toolbox_env_vars
@@ -309,47 +332,21 @@ def main():
         agent_resource_names = {}
         if not args.skip_agents:
             agent_defs = {
-                "planner": {
-                    "name": "Planner Agent",
-                    "func": deploy_planner_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
-                },
-                "social": {
-                    "name": "Social Agent",
-                    "func": deploy_social_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
-                },
-                "mcp_client": {
-                    "name": "Platform MCP Client Agent",
-                    "func": deploy_platform_mcp_client_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
-                },
-                "orchestrate": {
-                    "name": "Orchestrate Agent",
-                    "func": deploy_orchestrate_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
-                },
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func},
+                "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func},
             }
-
-            # --- START: Added Code ---
             original_cwd = os.getcwd()
-            os.chdir(PROJECT_ROOT) # Temporarily change to project root
-            # --- END: Added Code ---
-
+            os.chdir(PROJECT_ROOT)
             try:
                 for key, agent in agent_defs.items():
                     deploy_args = agent.get("args", {})
                     if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
-                        # Use the simple relative path now that we are in the correct directory
                         deploy_args["extra_packages"] = ['agents']
-                        logging.info(f"Including shared code for '{agent['name']}' from relative path: agents")
-
                     agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
             finally:
-                # --- START: Added Code ---
-                os.chdir(original_cwd) # Always change back to the original directory
-                # --- END: Added Code ---
-
+                os.chdir(original_cwd)
         else:
             logging.info("Skipping all agent deployments.")
 
@@ -369,8 +366,10 @@ def main():
             else:
                 logging.warning("Skipping Gateway deployment: no backend agent URLs available.")
 
+        # --- PASS 3: Re-deploy InstaVibe App with the final Gateway URL ---
         if not args.skip_app:
-            app_env_vars = {
+            logging.info("--- Deployment Pass 3: Re-deploying InstaVibe App with final Gateway URL ---")
+            app_env_vars_pass3 = {
                 "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
                 "COMMON_GOOGLE_CLOUD_LOCATION": region,
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
@@ -379,7 +378,7 @@ def main():
             }
             build_and_deploy_cloud_run_service(
                 project_id, region, "instavibe-app", "./instavibe",
-                env_vars={k:v for k,v in app_env_vars.items() if v}
+                env_vars={k:v for k,v in app_env_vars_pass3.items() if v}
             )
 
         logging.info("--- Deployment script finished successfully! ---")

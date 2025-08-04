@@ -17,29 +17,51 @@ steps:
 
   # 3. Deploy the container image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'gcloud'
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'deploy'
-      - '${_AGENT_NAME}'
-      - '--image'
-      - '${_IMAGE_PATH}'
-      - '--region'
-      - '${_REGION}'
-      - '--platform'
-      - 'managed'
-      - '--allow-unauthenticated'
-      # This line correctly uses the single _ENV_VARS variable
-      - '--set-env-vars=${_ENV_VARS}'
+      - '-c'
+      - |
+        env_vars=""
+        if [ -n "${_COMMON_GOOGLE_CLOUD_PROJECT}" ]; then env_vars="${env_vars},COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT}"; fi
+        if [ -n "${_COMMON_GOOGLE_CLOUD_LOCATION}" ]; then env_vars="${env_vars},COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION}"; fi
+        if [ -n "${_COMMON_SPANNER_INSTANCE_ID}" ]; then env_vars="${env_vars},COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID}"; fi
+        if [ -n "${_COMMON_SPANNER_DATABASE_ID}" ]; then env_vars="${env_vars},COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID}"; fi
+        if [ -n "${_UNIFIED_AGENT_GATEWAY_URL}" ]; then env_vars="${env_vars},UNIFIED_AGENT_GATEWAY_URL=${_UNIFIED_AGENT_GATEWAY_URL}"; fi
+        if [ -n "${_GENAI_TOOLBOX_URL}" ]; then env_vars="${env_vars},GENAI_TOOLBOX_URL=${_GENAI_TOOLBOX_URL}"; fi
+        if [ -n "${_TOOLS_INSTAVIBE_BASE_URL}" ]; then env_vars="${env_vars},TOOLS_INSTAVIBE_BASE_URL=${_TOOLS_INSTAVIBE_BASE_URL}"; fi
+        if [ -n "${_SOCIAL_AGENT_URL}" ]; then env_vars="${env_vars},SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL}"; fi
+        if [ -n "${_PLANNER_AGENT_URL}" ]; then env_vars="${env_vars},PLANNER_AGENT_URL=${_PLANNER_AGENT_URL}"; fi
+        if [ -n "${_MCP_AGENT_URL}" ]; then env_vars="${env_vars},MCP_AGENT_URL=${_MCP_AGENT_URL}"; fi
+
+        # Remove leading comma if present
+        if [[ "${env_vars}" == ,* ]]; then env_vars="${env_vars:1}"; fi
+
+        gcloud run deploy "${_AGENT_NAME}" \
+          --image "${_IMAGE_PATH}" \
+          --region "${_REGION}" \
+          --platform "managed" \
+          --allow-unauthenticated \
+          ${env_vars:+"--set-env-vars" "$env_vars"}
+
     id: 'Deploy'
 
-# Define the substitution variables that this build expects
+# Define all the individual substitution variables this build might expect.
 substitutions:
   _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
   _AGENT_NAME: 'default-service-name'
   _SERVICE_DIR: '.'
   _REGION: 'us-central1'
-  _ENV_VARS: '' # An empty default for the environment variables
+  # Add default empty values for all potential environment variables
+  _COMMON_GOOGLE_CLOUD_PROJECT: ''
+  _COMMON_GOOGLE_CLOUD_LOCATION: ''
+  _COMMON_SPANNER_INSTANCE_ID: ''
+  _COMMON_SPANNER_DATABASE_ID: ''
+  _UNIFIED_AGENT_GATEWAY_URL: ''
+  _GENAI_TOOLBOX_URL: ''
+  _TOOLS_INSTAVIBE_BASE_URL: ''
+  _SOCIAL_AGENT_URL: ''
+  _PLANNER_AGENT_URL: ''
+  _MCP_AGENT_URL: ''
 
 images:
   - '${_IMAGE_PATH}'

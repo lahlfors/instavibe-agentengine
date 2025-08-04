@@ -233,8 +233,16 @@ def build_and_deploy_cloud_run_service(
         "_ENV_VARS": env_vars_string,
     }
 
-    # Convert substitutions dict to a format gcloud expects: "_KEY1=val1,_KEY2=val2"
-    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
+    # CORRECTED VERSION
+    # This logic properly quotes the _ENV_VARS value.
+    substitutions_list = []
+    for k, v in substitutions.items():
+        if k == "_ENV_VARS":
+            # Add quotes around the value if it's the environment variables
+            substitutions_list.append(f'{k}="{v}"')
+        else:
+            substitutions_list.append(f"{k}={v}")
+    substitutions_string = ",".join(substitutions_list)
 
     build_submit_cmd = [
         "gcloud", "builds", "submit", ".", # Submit from the root directory

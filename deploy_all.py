@@ -301,19 +301,33 @@ def main():
         agent_resource_names = {}
         if not args.skip_agents:
             agent_defs = {
-                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func, "args": {"base_dir": os.getcwd()}},
-                "social": {"name": "Social Agent", "func": deploy_social_main_func, "args": {"base_dir": os.getcwd()}},
-                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func, "args": {"base_dir": os.getcwd()}},
-                 "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd()}},
+                "planner": {"name": "Planner Agent", "func": deploy_planner_main_func},
+                "social": {"name": "Social Agent", "func": deploy_social_main_func},
+                "mcp_client": {"name": "Platform MCP Client Agent", "func": deploy_platform_mcp_client_main_func},
+                "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func},
             }
-            for key, agent in agent_defs.items():
-                deploy_args = agent.get("args", {})
-                if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
-                    shared_code_path = os.path.join(PROJECT_ROOT, 'agents')
-                    logging.info(f"Including shared code for '{agent['name']}' from: {shared_code_path}")
-                    deploy_args["extra_packages"] = [shared_code_path]
-                agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
-        else: logging.info("Skipping all agent deployments.")
+
+            # --- START: Added Code ---
+            original_cwd = os.getcwd()
+            os.chdir(PROJECT_ROOT) # Temporarily change to project root
+            # --- END: Added Code ---
+
+            try:
+                for key, agent in agent_defs.items():
+                    deploy_args = agent.get("args", {})
+                    if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
+                        # Use the simple relative path now that we are in the correct directory
+                        deploy_args["extra_packages"] = ['agents']
+                        logging.info(f"Including shared code for '{agent['name']}' from relative path: agents")
+
+                    agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
+            finally:
+                # --- START: Added Code ---
+                os.chdir(original_cwd) # Always change back to the original directory
+                # --- END: Added Code ---
+
+        else:
+            logging.info("Skipping all agent deployments.")
 
         gateway_url = None
         if not args.skip_gateway:

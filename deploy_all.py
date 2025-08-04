@@ -24,6 +24,7 @@ from agents.social.deploy import deploy_social_main_func
 
 
 # --- Configuration ---
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 GCLOUD_COMMON_ARGS = [] # Will be populated in setup_environment
 
@@ -308,8 +309,9 @@ def main():
             for key, agent in agent_defs.items():
                 deploy_args = agent.get("args", {})
                 if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
-                    # This relative path is correct for Cloud Build and local execution.
-                    deploy_args["extra_packages"] = [os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agents')]
+                    shared_code_path = os.path.join(PROJECT_ROOT, 'agents')
+                    logging.info(f"Including shared code for '{agent['name']}' from: {shared_code_path}")
+                    deploy_args["extra_packages"] = [shared_code_path]
                 agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
         else: logging.info("Skipping all agent deployments.")
 

@@ -306,7 +306,10 @@ def main():
                  "orchestrate": {"name": "Orchestrate Agent", "func": deploy_orchestrate_main_func, "args": {"base_dir": os.getcwd()}},
             }
             for key, agent in agent_defs.items():
-                agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=agent.get("args"))
+                deploy_args = agent.get("args", {})
+                if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
+                    deploy_args["extra_packages"] = ["agents"]
+                agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
         else: logging.info("Skipping all agent deployments.")
 
         gateway_url = None

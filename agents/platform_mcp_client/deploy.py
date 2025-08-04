@@ -26,7 +26,9 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str):
+from typing import List, Optional
+
+def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None):
     """
     Deploys the Platform MCP Client Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -34,6 +36,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
+        extra_packages: A list of extra packages to install.
     """
 
     display_name = "Platform MCP Client Agent"
@@ -96,7 +99,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
-            extra_packages=["agents"],
+            extra_packages=extra_packages or [],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

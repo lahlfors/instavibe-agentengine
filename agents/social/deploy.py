@@ -29,7 +29,9 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 import logging # Added
 log = logging.getLogger(__name__) # Added
 
-def deploy_social_main_func(project_id: str, region: str, base_dir: str):
+from typing import List, Optional
+
+def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None):
     """
     Deploys the Social Agent as a Vertex AI Reasoning Engine using the ADK.
 
@@ -37,6 +39,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
+        extra_packages: A list of extra packages to install.
     """
     display_name = "Social Agent"
     description = """This agent analyzes social profiles, including posts, friend networks, and event participation, to generate comprehensive summaries and identify common ground between individuals."""
@@ -97,7 +100,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str):
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list, now including the wheel
-            extra_packages=["agents"],
+            extra_packages=extra_packages or [],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

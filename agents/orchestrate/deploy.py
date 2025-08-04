@@ -13,7 +13,9 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__)
 
-def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
+from typing import List, Optional
+
+def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None):
     """
     Deploys the Orchestrate Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -21,6 +23,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
         project_id: The Google Cloud project ID.
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
+        extra_packages: A list of extra packages to install.
     """
     display_name = "Orchestrate Agent"
     description = "This agent orchestrates the decomposition of the user request into tasks that can be performed by the child agents."
@@ -56,7 +59,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str):
             display_name=display_name,
             description=description,
             requirements=requirements_list,
-            extra_packages=["agents"],
+            extra_packages=extra_packages or [],
             env_vars=env_vars_for_deployment,
         )
     except Exception as e:

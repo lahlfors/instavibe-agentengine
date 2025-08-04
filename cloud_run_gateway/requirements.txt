@@ -1,4 +1,6 @@
-google-auth[httpx]>=2.40.0
+Use authlib for robust, async OAuth 2.0 handling
+authlib>=1.0.0
+google-auth>=2.17.0
 httpx>=0.27.0
 uvicorn
-google-adk==1.4.2
+fastapi

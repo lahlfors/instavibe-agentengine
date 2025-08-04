@@ -1,16 +1,10 @@
 import os
 import logging
 import json
-import httpx
-from google import auth
-# CORRECTED IMPORT
-from google.auth.transport.httpx import AsyncHttpxTransport
-from google.auth.credentials import Credentials
-
-# Corrected ADK imports
-from google import adk
-from google.adk.a2a import to_a2a
-from google.adk.core import Agent, Capability, CapabilityContext, CapabilityError
+from fastapi import FastAPI, HTTPException
+from authlib.integrations.httpx_client import AsyncOAuth2Client
+import google.auth
+from google.auth.exceptions import RefreshError
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +23,6 @@ if missing_envs:
 
 # 3. Map public capability names to backend services and actions
 CAPABILITY_MAP = {
-    # Public Name: (Service Key, Backend Action)
     "social_share": ("social", "share"),
     "social_get_profile": ("social", "get_profile"),
     "planner_get_plans": ("planner", "get_plans"),
@@ -37,93 +30,92 @@ CAPABILITY_MAP = {
     "mcp_create_event": ("mcp", "create_event"),
 }
 
-# --- Shared HTTP Client & Capability ---
+# --- Reusable Forwarding Logic with Authlib ---
 
-class GenericVertexForwarder(Capability):
+# A global dictionary to hold initialized clients for each service
+# This acts as a simple connection pool.
+_clients = {}
+
+async def get_authed_client(service_name: str) -> AsyncOAuth2Client:
     """
-    A reusable capability that forwards requests to a specific backend
-    Vertex AI Agent using a shared, authenticated httpx client.
+    Initializes and returns an authenticated AsyncOAuth2Client for a given service.
+    This function uses Application Default Credentials (ADC).
     """
-    # MODIFIED: Now requires credentials for manual header application
-    def __init__(self, client: httpx.AsyncClient, credentials: Credentials, backend_url: str, action: str):
-        self.client = client
-        self.credentials = credentials
-        self.backend_url = backend_url
-        self.action = action
-        super().__init__()
+    if service_name in _clients:
+        return _clients[service_name]
 
-    async def invoke(self, data: dict, context: CapabilityContext) -> dict:
-        """Constructs the Vertex AI payload and forwards the request."""
-        vertex_payload = {"input": {"action": self.action, "data": data}}
-        logging.info(f"Gateway forwarding action '{self.action}' to {self.backend_url}")
-
-        try:
-            # MODIFIED: Manually refresh credentials and apply auth headers
-            transport = AsyncHttpxTransport()
-            await self.credentials.refresh(transport)
-            headers = {}
-            self.credentials.apply(headers)
-
-            response = await self.client.post(
-                self.backend_url, json=vertex_payload, timeout=60, headers=headers
-            )
-            response.raise_for_status()
-            # Safely get the 'output' key.
-            return response.json().get("output", {})
-        except httpx.HTTPStatusError as e:
-            error_detail = e.response.text
-            try:
-                error_detail = e.response.json()
-            except json.JSONDecodeError:
-                pass
-            logging.error(
-                f"Backend error for action '{self.action}'. Status: {e.response.status_code}. Details: {error_detail}"
-            )
-            raise CapabilityError(
-                message=f"Backend agent failed for action '{self.action}' with status {e.response.status_code}.",
-                details={"backend_response": error_detail}
-            )
-        except Exception as e:
-            logging.exception(f"Unexpected gateway error for action '{self.action}'.")
-            raise CapabilityError(f"Gateway error processing action '{self.action}': {str(e)}")
-
-# --- Agent Definition ---
-
-# CORRECTED: This function now returns credentials and a standard client
-def create_auth_objects() -> tuple[Credentials, httpx.AsyncClient]:
-    """Creates auth credentials and a standard httpx client."""
-    credentials, project = auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
-    client = httpx.AsyncClient()
-    return credentials, client
-
-def build_agent() -> tuple[Agent, httpx.AsyncClient]:
-    """Builds the unified proxy agent and its capabilities, returns agent and client."""
-    # MODIFIED: Get both credentials and client
-    credentials, client = create_auth_objects()
-    capabilities = {}
-    for name, (service, action) in CAPABILITY_MAP.items():
-        backend_url = SERVICE_URLS.get(service)
-        if not backend_url:
-            logging.warning(f"Skipping capability '{name}' because service URL for '{service}' is not set.")
-            continue
-        # MODIFIED: Pass credentials to the forwarder
-        capabilities[name] = GenericVertexForwarder(client, credentials, backend_url, action)
-        logging.info(f"Registered capability '{name}' -> {backend_url} (action: {action})")
-
-    agent = Agent(
-        name="Unified Agent Gateway",
-        description="A centralized proxy for requests to backend agents on Vertex AI.",
-        capabilities=capabilities,
+    logging.info(f"Initializing new authenticated client for '{service_name}' service...")
+    credentials, project = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
-    return agent, client # Returns the standard client for shutdown handling
 
-# Create the agent and expose it as an A2A web application
-unified_proxy_agent, shared_client = build_agent()
-app = to_a2a(unified_proxy_agent)
+    # Authlib requires a token dictionary. We construct one.
+    # The google-auth library will manage the refresh token internally for ADC.
+    token = {
+        "access_token": credentials.token,
+        "token_type": "Bearer",
+    }
 
-# Add a shutdown event to gracefully close the shared HTTP client
+    client = AsyncOAuth2Client(
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        token_endpoint=credentials.token_uri,
+        token=token,
+    )
+
+    _clients[service_name] = client
+    return client
+
+async def forward_request(service_name: str, action: str, data: dict):
+    """
+    Forwards a request to the specified backend agent using an authenticated client.
+    """
+    backend_url = SERVICE_URLS.get(service_name)
+    if not backend_url:
+        raise HTTPException(status_code=500, detail=f"Service URL for '{service_name}' not configured.")
+
+    client = await get_authed_client(service_name)
+    vertex_payload = {"input": {"action": action, "data": data}}
+    logging.info(f"Gateway forwarding action '{action}' to {backend_url}")
+
+    try:
+        response = await client.post(backend_url, json=vertex_payload, timeout=60)
+        response.raise_for_status()
+        return response.json().get("output", {})
+    except RefreshError as e:
+        logging.error(f"Authlib token refresh failed for '{service_name}': {e}")
+        # Clear the faulty client so a new one is created on next request
+        if service_name in _clients:
+            del _clients[service_name]
+        raise HTTPException(status_code=503, detail="Authentication token could not be refreshed.")
+    except Exception as e:
+        logging.exception(f"Unexpected error forwarding to '{service_name}'.")
+        raise HTTPException(status_code=500, detail=f"Gateway error: {str(e)}")
+
+
+# --- FastAPI Application ---
+app = FastAPI(
+    title="Unified Agent Gateway",
+    description="A centralized proxy for requests to backend agents on Vertex AI.",
+)
+
+# Dynamically create an endpoint for each capability in the map
+for capability_name, (service, action) in CAPABILITY_MAP.items():
+    # This function uses a closure to capture the correct service and action
+    def create_endpoint(service_name=service, action_name=action):
+        async def endpoint_func(data: dict):
+            return await forward_request(service_name, action_name, data)
+        return endpoint_func
+
+    app.post(f"/{capability_name}", name=capability_name)(create_endpoint())
+
 @app.on_event("shutdown")
 async def shutdown_event():
-    logging.info("Shutting down gateway, closing shared HTTP client...")
-    await shared_client.aclose()
-    logging.info("Shared HTTP client closed.")
+    logging.info("Shutting down gateway, closing all shared HTTP clients...")
+    for client in _clients.values():
+        await client.aclose()
+    logging.info("All shared HTTP clients closed.")
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}

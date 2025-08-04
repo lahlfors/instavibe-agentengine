@@ -219,43 +219,39 @@ def build_and_deploy_cloud_run_service(
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    # Format environment variables into a single comma-separated string for _ENV_VARS.
-    env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items() if v])
-
-    # Define the substitutions dictionary.
-    # The keys here MUST match the placeholders in cloudbuild.yaml.
+    # Start with the base substitutions
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_AGENT_NAME": service_name,
         "_SERVICE_DIR": source_path,
         "_REGION": region,
-        "_ENV_VARS": env_vars_string, # All env vars are bundled here.
     }
 
-    # Convert the substitutions dictionary to the format gcloud expects: "_KEY1='val1',_KEY2='val2'"
-    # We wrap values in single quotes to handle potential commas within the values, especially in _ENV_VARS.
-    substitutions_list = []
-    for k, v in substitutions.items():
-        # Escape single quotes within the value string
-        escaped_v = str(v).replace("'", "'\\''")
-        substitutions_list.append(f"{k}='{escaped_v}'")
+    # Add environment variables directly to the substitutions dictionary.
+    # The key is prefixed with an underscore to match the YAML placeholder.
+    if env_vars:
+        for k, v in env_vars.items():
+            if v is not None:
+                substitutions[f"_{k}"] = str(v)
 
-    substitutions_string = ",".join(substitutions_list)
+    # Convert the final substitutions dictionary to the format gcloud expects.
+    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
     build_submit_cmd = [
-        "gcloud", "builds", "submit", ".", # Submit from the root directory
-        "--config", "cloudbuild.yaml",    # Use the root config file
+        "gcloud", "builds", "submit", ".",
+        "--config", "cloudbuild.yaml",
         f"--substitutions={substitutions_string}",
         "--project", project_id,
     ]
 
     try:
         logging.info(f"Submitting build and deploy for {service_name} using root cloudbuild.yaml...")
+        logging.info(f"Substitutions: {substitutions_string}")
         run_command(build_submit_cmd, timeout=900, check=True)
     except subprocess.CalledProcessError as e:
         raise DeploymentError(f"Cloud Build submission failed for {service_name}") from e
 
-    # After successful deployment, get the service URL
+    # ... The rest of the function remains the same ...
     url_cmd = [
         "gcloud", "run", "services", "describe", service_name,
         "--platform", "managed", "--region", region, "--project", project_id,

@@ -1,39 +1,22 @@
-# A reusable and authoritative cloudbuild.yaml for deploying services to Cloud Run.
-
-# Define all the substitution variables that this build expects.
-# Providing default empty values makes them optional.
-substitutions:
-  _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
-  _AGENT_NAME: 'your-service-name'
-  _SERVICE_DIR: '.'
-  _REGION: 'us-central1'
-  # This single variable will hold the comma-separated list of environment variables.
-  _ENV_VARS: ''
-
 steps:
-  # 1. Build the container image from the specified service directory.
+  # 1. Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'Build'
     args:
       - 'build'
-      - '--tag'
+      - '-t'
       - '${_IMAGE_PATH}'
-      # Use the unique build ID as a cache-busting mechanism.
       - '--build-arg'
-      - 'CACHEBUSTER=${BUILD_ID}'
+      - 'SERVICE_DIR=${_SERVICE_DIR}'
       - '.'
-    dir: '${_SERVICE_DIR}'
+    id: 'Build'
 
-  # 2. Push the container image to Artifact Registry.
+  # 2. Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    id: 'Push'
     args: ['push', '${_IMAGE_PATH}']
-    # This step depends on the build step completing successfully.
-    wait_for: ['Build']
+    id: 'Push'
 
-  # 3. Deploy the just-pushed image to Cloud Run.
+  # 3. Deploy the container image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'Deploy'
     entrypoint: 'gcloud'
     args:
       - 'run'
@@ -45,15 +28,22 @@ steps:
       - '${_REGION}'
       - '--platform'
       - 'managed'
-      - '--project'
-      - '${PROJECT_ID}'
       - '--allow-unauthenticated'
-      # Pass the fully-formatted, comma-separated environment variables string.
-      - '--set-env-vars'
-      - '${_ENV_VARS}'
-    # This step depends on the push step completing successfully.
-    wait_for: ['Push']
+      # This is the key line that uses the bundled variable
+      - '--set-env-vars=${_ENV_VARS}'
+    id: 'Deploy'
 
-# Tell Cloud Build to expect this image as an output of the build.
+# Define the substitution variables that this build expects.
+substitutions:
+  _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
+  _AGENT_NAME: 'default-service-name'
+  _SERVICE_DIR: '.'
+  _REGION: 'us-central1'
+  _ENV_VARS: '' # An empty default is good practice
+
+# Define the image to be created
 images:
   - '${_IMAGE_PATH}'
+
+# Set a timeout for the build
+timeout: '1200s'

@@ -1,13 +1,13 @@
 steps:
-  # 1. Build the container image
+  # 1. Build the container image using a Dockerfile in the specified directory
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
       - '${_IMAGE_PATH}'
-      - '--build-arg'
-      - 'SERVICE_DIR=${_SERVICE_DIR}'
-      - '.'
+      - '--file'
+      - '${_SERVICE_DIR}/Dockerfile'
+      - '${_SERVICE_DIR}'
     id: 'Build'
 
   # 2. Push the container image to Artifact Registry
@@ -29,21 +29,19 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
-      # This is the key line that uses the bundled variable
+      # This line correctly uses the single _ENV_VARS variable
       - '--set-env-vars=${_ENV_VARS}'
     id: 'Deploy'
 
-# Define the substitution variables that this build expects.
+# Define the substitution variables that this build expects
 substitutions:
   _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
   _AGENT_NAME: 'default-service-name'
   _SERVICE_DIR: '.'
   _REGION: 'us-central1'
-  _ENV_VARS: '' # An empty default is good practice
+  _ENV_VARS: '' # An empty default for the environment variables
 
-# Define the image to be created
 images:
   - '${_IMAGE_PATH}'
 
-# Set a timeout for the build
 timeout: '1200s'

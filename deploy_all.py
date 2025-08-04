@@ -1,3 +1,4 @@
+from typing import Optional, Dict
 # In deploy_all.py
 def build_and_deploy_cloud_run_service(
     project_id: str,

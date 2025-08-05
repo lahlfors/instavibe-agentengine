@@ -216,11 +216,12 @@ def build_and_deploy_cloud_run_service(
     service_name: str,
     source_path: str,
     env_vars: Optional[Dict[str, str]] = None,
-    allow_unauthenticated: bool = False, # Default to secure
+    allow_unauthenticated: bool = True,
     service_account: Optional[str] = None
 ) -> Optional[str]:
     """
-    Builds and deploys a Cloud Run service using the generic root cloudbuild.yaml.
+    Builds and deploys a Cloud Run service using a cloudbuild.yaml that
+    accepts individual substitutions for each environment variable.
     """
     logging.info(f"--- Deploying Cloud Run Service: {service_name} from path {source_path} ---")
     if not os.path.isdir(source_path):
@@ -228,32 +229,35 @@ def build_and_deploy_cloud_run_service(
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    # Format environment variables into a single comma-separated string for _ENV_VARS
-    env_vars_string = ",".join([f"{k}={v}" for k, v in (env_vars or {}).items() if v])
-
-    # Define substitutions for the generic cloudbuild.yaml
+    # Start with base substitutions
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_SERVICE_NAME": service_name,
         "_SERVICE_DIR": source_path,
         "_REGION": region,
-        "_ENV_VARS": env_vars_string,
         "_SERVICE_ACCOUNT": service_account or "",
-        "_ALLOW_UNAUTHENTICATED": str(allow_unauthenticated).lower(),
     }
 
-    # Convert substitutions dict to a format gcloud expects: "_KEY1=val1,_KEY2=val2"
+    # Add environment variables directly into the substitutions dictionary.
+    # The key is prefixed with an underscore to match the placeholder in cloudbuild.yaml.
+    if env_vars:
+        for k, v in env_vars.items():
+            if v is not None:
+                substitutions[f"_{k}"] = str(v)
+
+    # Convert the dictionary to a single, comma-separated string for the --substitutions flag.
+    # This is now safe because none of the values contain commas.
     substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
     build_submit_cmd = [
-        "gcloud", "builds", "submit", ".", # Submit from the root directory
-        "--config", "cloudbuild.yaml",    # Use the root config file
+        "gcloud", "builds", "submit", ".",
+        "--config", "cloudbuild.yaml",
         f"--substitutions={substitutions_string}",
         "--project", project_id,
     ]
 
     try:
-        logging.info(f"Submitting build and deploy for {service_name} using root cloudbuild.yaml...")
+        logging.info(f"Submitting build and deploy for {service_name}...")
         run_command(build_submit_cmd, timeout=900, check=True)
     except subprocess.CalledProcessError as e:
         raise DeploymentError(f"Cloud Build submission failed for {service_name}") from e

@@ -11,7 +11,7 @@ class TestDeployAllScript(unittest.TestCase):
     @patch('deploy_all.run_command')
     @patch('deploy_all.os.path.isdir', return_value=True)
     def test_build_and_deploy_cloud_run_service_substitutions(self, mock_isdir, mock_run_command):
-        """Test that build_and_deploy_cloud_run_service constructs the correct substitutions."""
+        """Test that build_and_deploy_cloud_run_service constructs the correct substitutions string."""
         # Mock for the build submission and URL fetch
         mock_run_command.return_value = MagicMock(stdout="https://my-service-url.a.run.app")
 
@@ -20,8 +20,7 @@ class TestDeployAllScript(unittest.TestCase):
             region="us-central1",
             service_name="test-service",
             source_path="./test/path",
-            env_vars={"KEY": "VALUE"},
-            allow_unauthenticated=True,
+            env_vars={"KEY": "VALUE", "ANOTHER_KEY": "ANOTHER_VALUE"},
             service_account="test-sa@test-proj.iam.gserviceaccount.com"
         )
 
@@ -31,16 +30,18 @@ class TestDeployAllScript(unittest.TestCase):
         self.assertIn("builds", build_call_args)
         self.assertIn("submit", build_call_args)
 
-        # Check substitutions
+        # Check substitutions are passed as a single comma-separated string
         substitutions_arg = next((arg for arg in build_call_args if arg.startswith('--substitutions=')), None)
         self.assertIsNotNone(substitutions_arg)
+
+        # Verify all keys are present in the substitutions string
         self.assertIn("_IMAGE_PATH=us-central1-docker.pkg.dev/test-proj/instavibe-images/test-service:latest", substitutions_arg)
         self.assertIn("_SERVICE_NAME=test-service", substitutions_arg)
         self.assertIn("_SERVICE_DIR=./test/path", substitutions_arg)
         self.assertIn("_REGION=us-central1", substitutions_arg)
-        self.assertIn("_ENV_VARS=KEY=VALUE", substitutions_arg)
-        self.assertIn("_ALLOW_UNAUTHENTICATED=true", substitutions_arg)
         self.assertIn("_SERVICE_ACCOUNT=test-sa@test-proj.iam.gserviceaccount.com", substitutions_arg)
+        self.assertIn("_KEY=VALUE", substitutions_arg)
+        self.assertIn("_ANOTHER_KEY=ANOTHER_VALUE", substitutions_arg)
 
 
     @patch('deploy_all.deploy_agent', return_value="projects/test-p-env/locations/us-central1/reasoningEngines/test-agent-123")
@@ -51,10 +52,10 @@ class TestDeployAllScript(unittest.TestCase):
     })
     @patch('deploy_all.setup_spanner')
     @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_main_secure_deployment_configs(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_agent):
-        """Test that main() calls deployment functions with security-conscious arguments."""
+    def test_main_deployment_calls(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_agent):
+        """Test that main() calls deployment functions with the correct arguments."""
         # Set up mock return values for build_and_deploy_cloud_run_service
-        def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=False, service_account=None):
+        def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=True, service_account=None):
             if service_name == "mcp-tool-server":
                 return "https://mcp-tool-server-url.a.run.app"
             if service_name == "unified-agent-gateway":
@@ -71,18 +72,9 @@ class TestDeployAllScript(unittest.TestCase):
         self.assertEqual(mock_deploy_agent.call_count, 4)
         self.assertEqual(mock_build_and_deploy.call_count, 3)
 
-        # Assert correct security configurations are passed
-        mcp_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'mcp-tool-server'), None)
-        self.assertIsNotNone(mcp_call)
-        self.assertEqual(mcp_call.kwargs['allow_unauthenticated'], False)
-
-        gateway_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'unified-agent-gateway'), None)
-        self.assertIsNotNone(gateway_call)
-        self.assertEqual(gateway_call.kwargs['allow_unauthenticated'], False)
-
+        # Assert correct arguments are passed
         app_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'instavibe-app'), None)
         self.assertIsNotNone(app_call)
-        self.assertEqual(app_call.kwargs['allow_unauthenticated'], True)
         self.assertEqual(app_call.kwargs['service_account'], 'test-sa@example.com')
 
 

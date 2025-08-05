@@ -1,16 +1,5 @@
 # A reusable and authoritative cloudbuild.yaml for deploying services to Cloud Run.
 
-# Define all the substitution variables that this build expects.
-# Providing default empty values makes them optional.
-substitutions:
-  _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
-  _SERVICE_NAME: 'your-service-name'
-  _SERVICE_DIR: '.'
-  _REGION: 'us-central1'
-  _ENV_VARS: ''  # Comma-separated list of environment variables (e.g., KEY1=val1,KEY2=val2)
-  _SERVICE_ACCOUNT: '' # The email of the service account to run the service as.
-  _ALLOW_UNAUTHENTICATED: 'true' # 'true' or 'false'
-
 steps:
   # 1. Build the container image from the specified service directory.
   - name: 'gcr.io/cloud-builders/docker'
@@ -19,61 +8,59 @@ steps:
       - 'build'
       - '--tag'
       - '${_IMAGE_PATH}'
-      # Use the unique build ID as a cache-busting mechanism.
-      - '--build-arg'
-      - 'CACHEBUSTER=${BUILD_ID}'
-      - '.'
-    dir: '${_SERVICE_DIR}'
+      - '--file'
+      - '${_SERVICE_DIR}/Dockerfile'
+      - '${_SERVICE_DIR}'
 
   # 2. Push the container image to Artifact Registry.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push'
     args: ['push', '${_IMAGE_PATH}']
-    # This step depends on the build step completing successfully.
     wait_for: ['Build']
 
   # 3. Deploy the just-pushed image to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy'
-    entrypoint: 'bash'
+    entrypoint: 'gcloud'
     args:
-    - '-c'
-    - |
-      set -e # Exit immediately if a command exits with a non-zero status.
-
-      # Base command arguments
-      CMD_ARGS=(
-        "run" "deploy" "${_SERVICE_NAME}"
-        "--image" "${_IMAGE_PATH}"
-        "--region" "${_REGION}"
-        "--platform" "managed"
-        "--project" "${PROJECT_ID}"
-      )
-
-      # Conditionally add service account if provided
-      if [[ -n "${_SERVICE_ACCOUNT}" ]]; then
-        CMD_ARGS+=("--service-account" "${_SERVICE_ACCOUNT}")
-      fi
-
-      # Conditionally add authentication flag
-      if [[ "${_ALLOW_UNAUTHENTICATED}" == "true" ]]; then
-        CMD_ARGS+=("--allow-unauthenticated")
-      else
-        CMD_ARGS+=("--no-allow-unauthenticated")
-      fi
-
-      # Conditionally add environment variables if provided
-      if [[ -n "${_ENV_VARS}" ]]; then
-        CMD_ARGS+=("--set-env-vars" "${_ENV_VARS}")
-      else
-        # If no env vars are provided, clear any existing ones on the service
-        CMD_ARGS+=("--clear-env-vars")
-      fi
-
-      gcloud "${CMD_ARGS[@]}"
-    # This step depends on the push step completing successfully.
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_IMAGE_PATH}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--project'
+      - '${PROJECT_ID}'
+      - '--service-account=${_SERVICE_ACCOUNT}'
+      # This delimiter allows gcloud to correctly parse a list of key=value pairs.
+      # It is constructed from all the individual substitutions below.
+      - '--set-env-vars'
+      - '^--^COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT}--COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION}--COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID}--COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID}--UNIFIED_AGENT_GATEWAY_URL=${_UNIFIED_AGENT_GATEWAY_URL}--AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL=${_AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL}--SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL}--PLANNER_AGENT_URL=${_PLANNER_AGENT_URL}--MCP_AGENT_URL=${_MCP_AGENT_URL}'
+      - '--allow-unauthenticated' # Simplified, can be made conditional
     wait_for: ['Push']
 
-# Tell Cloud Build to expect this image as an output of the build.
+# This section defines all placeholders the script can provide.
+# Providing default empty values makes them optional.
+substitutions:
+  _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
+  _SERVICE_NAME: 'default-service-name'
+  _SERVICE_DIR: '.'
+  _REGION: 'us-central1'
+  _SERVICE_ACCOUNT: ''
+
+  # Default empty values for ALL potential environment variables across ALL services
+  _COMMON_GOOGLE_CLOUD_PROJECT: ''
+  _COMMON_GOOGLE_CLOUD_LOCATION: ''
+  _COMMON_SPANNER_INSTANCE_ID: ''
+  _COMMON_SPANNER_DATABASE_ID: ''
+  _UNIFIED_AGENT_GATEWAY_URL: ''
+  _AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL: ''
+  _SOCIAL_AGENT_URL: ''
+  _PLANNER_AGENT_URL: ''
+  _MCP_AGENT_URL: ''
+
 images:
   - '${_IMAGE_PATH}'

@@ -321,66 +321,58 @@ def main():
                 "planner": {
                     "name": "Planner Agent",
                     "func": deploy_planner_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
+                    "args": {"base_dir": PROJECT_ROOT}
                 },
                 "social": {
                     "name": "Social Agent",
                     "func": deploy_social_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
+                    "args": {"base_dir": PROJECT_ROOT}
                 },
                 "mcp_client": {
                     "name": "Platform MCP Client Agent",
                     "func": deploy_platform_mcp_client_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
+                    "args": {"base_dir": PROJECT_ROOT}
                 },
+            }
+            orchestrate_def = {
                 "orchestrate": {
                     "name": "Orchestrate Agent",
                     "func": deploy_orchestrate_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}  # Re-add this line
-                },
+                    "args": {"base_dir": PROJECT_ROOT}
+                }
             }
 
-            # --- START: Added Code ---
             original_cwd = os.getcwd()
-            os.chdir(PROJECT_ROOT) # Temporarily change to project root
-            # --- END: Added Code ---
+            os.chdir(PROJECT_ROOT)
 
             try:
                 for key, agent in agent_defs.items():
                     deploy_args = agent.get("args", {})
-                    if agent["name"] in ["Social Agent", "Platform MCP Client Agent", "Orchestrate Agent"]:
-                        # Use the simple relative path now that we are in the correct directory
+                    if agent["name"] in ["Social Agent", "Platform MCP Client Agent"]:
                         deploy_args["extra_packages"] = ['agents']
                         logging.info(f"Including shared code for '{agent['name']}' from relative path: agents")
-
                     agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
+
+                # Deploy the orchestrator agent
+                key = "orchestrate"
+                agent = orchestrate_def[key]
+                deploy_args = agent.get("args", {})
+                deploy_args["extra_packages"] = ['agents']
+                uris = [
+                    f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('planner')}:predict" if agent_resource_names.get('planner') else None,
+                    f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('mcp_client')}:predict" if agent_resource_names.get('mcp_client') else None,
+                    f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('social')}:predict" if agent_resource_names.get('social') else None,
+                ]
+                deploy_args["env_vars"] = {
+                    "ADK_A2A_AGENT_URIS": ",".join(filter(None, uris))
+                }
+                agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
             finally:
-                # --- START: Added Code ---
-                os.chdir(original_cwd) # Always change back to the original directory
-                # --- END: Added Code ---
+                os.chdir(original_cwd)
 
         else:
             logging.info("Skipping all agent deployments.")
 
-        gateway_url = None
-        if not args.skip_gateway:
-            gateway_env_vars = {
-                "SOCIAL_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('social')}:predict" if agent_resource_names.get('social') else "",
-                "PLANNER_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('planner')}:predict" if agent_resource_names.get('planner') else "",
-                "MCP_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('mcp_client')}:predict" if agent_resource_names.get('mcp_client') else "",
-            }
-            valid_gateway_env_vars = {k: v for k, v in gateway_env_vars.items() if v and "None" not in v}
-            if valid_gateway_env_vars:
-                 gateway_url = build_and_deploy_cloud_run_service(
-                     project_id,
-                     region,
-                     "unified-agent-gateway",
-                     "./cloud_run_gateway",
-                     env_vars=valid_gateway_env_vars,
-                     allow_unauthenticated=False, # Internal service
-                 )
-            else:
-                logging.warning("Skipping Gateway deployment: no backend agent URLs available.")
 
         if not args.skip_app:
             app_env_vars = {
@@ -388,7 +380,7 @@ def main():
                 "COMMON_GOOGLE_CLOUD_LOCATION": region,
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
-                "UNIFIED_AGENT_GATEWAY_URL": gateway_url or "",
+                "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate')}:predict" if agent_resource_names.get('orchestrate') else "",
             }
             build_and_deploy_cloud_run_service(
                 project_id,

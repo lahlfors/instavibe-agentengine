@@ -8,7 +8,7 @@ import os
 
 from google.cloud import aiplatform as vertexai # Standard alias
 # from vertexai.preview import reasoning_engines # ADK for deployment - Old
-from vertexai.preview.reasoning_engines import AdkApp # For wrapping
+from agents.app.agent_engine_app import AgentEngineApp # For wrapping
 from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
@@ -51,7 +51,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     local_agent_instance = platform_mcp_client_agent_module.root_agent
     if local_agent_instance is None:
         raise ValueError("Error: The root_agent in platform_mcp_client.agent is None. Ensure it's initialized.")
-    adk_app = AdkApp(agent=local_agent_instance)
+    adk_app = AgentEngineApp(agent=local_agent_instance)
 
     # base_dir is the repository root.
     requirements_path = os.path.join(base_dir, "agents/platform_mcp_client/requirements.txt")
@@ -99,7 +99,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
-            extra_packages=extra_packages or [],
+            extra_packages=(extra_packages or []) + ["agents/app", "agents/a2a_common-0.1.0-py3-none-any.whl"],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

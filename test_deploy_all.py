@@ -4,6 +4,7 @@ import subprocess
 import sys
 import os
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import deploy_all
 
 class TestDeployAllScript(unittest.TestCase):
@@ -58,8 +59,6 @@ class TestDeployAllScript(unittest.TestCase):
         def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=True, service_account=None):
             if service_name == "mcp-tool-server":
                 return "https://mcp-tool-server-url.a.run.app"
-            if service_name == "unified-agent-gateway":
-                return "https://unified-gateway-url.a.run.app"
             return "https://some-other-url.a.run.app"
         mock_build_and_deploy.side_effect = build_and_deploy_side_effect
 
@@ -70,7 +69,7 @@ class TestDeployAllScript(unittest.TestCase):
         mock_setup_env.assert_called_once()
         mock_setup_spanner.assert_called_once_with("test-p-env", "test-instance", "test-db", "us-central1")
         self.assertEqual(mock_deploy_agent.call_count, 4)
-        self.assertEqual(mock_build_and_deploy.call_count, 3)
+        self.assertEqual(mock_build_and_deploy.call_count, 2)
 
         # Assert correct arguments are passed
         app_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'instavibe-app'), None)

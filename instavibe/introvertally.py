@@ -33,24 +33,24 @@ def init_agent_engine(project_id, location):
         logger.warning("ADK App is None due to Vertex AI initialization failure.")
         return
 
-    planner_resource_name_from_env = os.getenv("AGENTS_PLANNER_RESOURCE_NAME")
+    orchestrate_agent_url = os.getenv("ORCHESTRATE_AGENT_URL")
 
-    if not planner_resource_name_from_env:
-        logger.error("AGENTS_PLANNER_RESOURCE_NAME environment variable not set. Cannot initialize ADK App.")
+    if not orchestrate_agent_url:
+        logger.error("ORCHESTRATE_AGENT_URL environment variable not set. Cannot initialize ADK App.")
         adk_app = None
         return
 
+    # The URL is in the format: https://{region}-aiplatform.googleapis.com/v1beta1/{resource_name}:predict
+    # We need to extract the resource_name.
     try:
-        logger.info(f"Attempting to get ADK App with resource name: {planner_resource_name_from_env}")
-        # Ensure vertexai.agent_engines is the correct module path
-        # Based on documentation, it should be vertexai.agent_engines
-        # If it's reasoning_engines for get, we might need to adjust
-        # For now, assuming vertexai.agent_engines as per typical ADK usage for deployed agents
-        from vertexai import agent_engines # Ensure this is imported
-        adk_app = agent_engines.get(planner_resource_name_from_env)
-        logger.info(f"Successfully connected to ADK App using resource name: {planner_resource_name_from_env}")
+        # e.g. "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-id/locations/us-central1/reasoningEngines/12345:predict"
+        # becomes "projects/project-id/locations/us-central1/reasoningEngines/12345"
+        resource_name = orchestrate_agent_url.split('v1beta1/')[1].split(':predict')[0]
+        from vertexai import agent_engines
+        adk_app = agent_engines.get(resource_name)
+        logger.info(f"Successfully connected to ADK App using resource name: {resource_name}")
     except Exception as e:
-        logger.error(f"Failed to get ADK App using resource name '{planner_resource_name_from_env}': {e}", exc_info=True)
+        logger.error(f"Failed to get ADK App using resource name from URL '{orchestrate_agent_url}': {e}", exc_info=True)
         adk_app = None
 
     if adk_app is None:

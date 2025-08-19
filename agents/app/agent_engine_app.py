@@ -30,9 +30,9 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider, export
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
-from app.utils.gcs import create_bucket_if_not_exists
-from app.utils.tracing import CloudTraceLoggingSpanExporter
-from app.utils.typing import Feedback
+from agents.app.utils.gcs import create_bucket_if_not_exists
+from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
+from agents.app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
 # Load environment variables from the root .env file

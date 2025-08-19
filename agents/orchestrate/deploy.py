@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 
 from google.cloud import aiplatform as vertexai
-from vertexai.preview.reasoning_engines import AdkApp
+from agents.app.agent_engine_app import AgentEngineApp
 from vertexai import agent_engines
 
 from agents.orchestrate import agent as orchestrate_agent_module
@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 from typing import List, Optional
 
-def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None):
+def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None, env_vars: Optional[dict] = None):
     """
     Deploys the Orchestrate Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -31,7 +31,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, ex
     local_agent_instance = orchestrate_agent_module.root_agent
     if local_agent_instance is None:
         raise ValueError("Error: The root_agent in orchestrate.agent is None. Ensure it's initialized.")
-    adk_app = AdkApp(agent=local_agent_instance)
+    adk_app = AgentEngineApp(agent=local_agent_instance)
 
     requirements_path = os.path.join(base_dir, "agents/orchestrate/requirements.txt")
     requirements_list = []
@@ -50,6 +50,8 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, ex
         "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
         "COMMON_GOOGLE_CLOUD_LOCATION": region,
     }
+    if env_vars:
+        env_vars_for_deployment.update(env_vars)
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
 
@@ -59,7 +61,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, ex
             display_name=display_name,
             description=description,
             requirements=requirements_list,
-            extra_packages=extra_packages or [],
+            extra_packages=(extra_packages or []) + ["agents/app", "agents/a2a_common-0.1.0-py3-none-any.whl"],
             env_vars=env_vars_for_deployment,
         )
     except Exception as e:

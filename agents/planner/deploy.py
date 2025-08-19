@@ -8,7 +8,7 @@ import os
 
 from google.cloud import aiplatform as vertexai # Standard alias
 # from vertexai.preview import reasoning_engines # ADK for deployment - Old
-from vertexai.preview.reasoning_engines import AdkApp # For wrapping
+from agents.app.agent_engine_app import AgentEngineApp # For wrapping
 from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
@@ -59,7 +59,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # The default VertexAiSessionService is expected to be used by the deployed agent.
     # We will ensure its necessary environment variables are set.
     log.info("Planner Agent: Configuring AdkApp to use default session service. Spanner config will be passed via environment variables.")
-    adk_app_to_deploy = AdkApp(agent=local_agent_instance)
+    adk_app_to_deploy = AgentEngineApp(agent=local_agent_instance)
 
     spanner_instance_id_for_agent = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
     spanner_database_id_for_agent = os.environ.get("COMMON_SPANNER_DATABASE_ID")
@@ -138,7 +138,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
-            extra_packages=[base_dir],
+            extra_packages=[base_dir, "agents/app", "agents/a2a_common-0.1.0-py3-none-any.whl"],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

@@ -9,10 +9,14 @@ import humanize
 import uuid
 import traceback
 from dateutil import parser 
-from ally_routes import ally_bp 
+from ally_routes import ally_bp
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from agents.app.common.tracing import get_tracer
 
 
 app = Flask(__name__)
+FlaskInstrumentor().instrument_app(app)
+tracer = get_tracer(service_name="instavibe-app")
 # Load environment variables from root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 

@@ -31,7 +31,7 @@ from opentelemetry.sdk.trace import TracerProvider, export
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 from agents.app.utils.gcs import create_bucket_if_not_exists
-from agents.app.utils.tracing import CloudTraceLoggingSpanExporter
+from agents.app.common.tracing import get_tracer
 from agents.app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
@@ -47,14 +47,7 @@ class AgentEngineApp(AdkApp):
         super().set_up()
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
-        provider = TracerProvider()
-        processor = export.BatchSpanProcessor(
-            CloudTraceLoggingSpanExporter(
-                project_id=GOOGLE_CLOUD_PROJECT
-            )
-        )
-        provider.add_span_processor(processor)
-        trace.set_tracer_provider(provider)
+        self.tracer = get_tracer(service_name="agent-engine-app")
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""

@@ -9,9 +9,10 @@ setup(
     author_email='dev@example.com', # Placeholder
     keywords='agents a2a instavibe common',
     install_requires=[
-        # List any direct dependencies of the common code here
-        # e.g., 'requests', if it uses requests for HTTP communication directly
-        # For now, assuming it has no external deps not already covered by agents
+        "opentelemetry-api",
+        "opentelemetry-sdk",
+        "opentelemetry-exporter-gcp-trace",
+        "opentelemetry-instrumentation-requests",
     ],
     python_requires='>=3.9', # Based on python:3.12-slim used in Dockerfiles
 )

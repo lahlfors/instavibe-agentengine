@@ -12,13 +12,11 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content, Part # Modified import
+from google.genai.types import Content, Part
 from . import agent
+from app.common.tracing import get_tracer
 
 # Load environment variables from the root .env file.
-# While agent.py also does this, adding it here ensures that if PlannerAgent
-# is used or tested in a context where agent.py wasn't the first import,
-# the environment is still correctly configured.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 # Apply nest_asyncio to allow asyncio.run() within an existing event loop (e.g., server)
@@ -39,6 +37,7 @@ class PlannerAgent:
         session_service=InMemorySessionService(),
         memory_service=InMemoryMemoryService(),
     )
+    self.tracer = get_tracer(service_name="planner-agent")
 
   def get_processing_message(self) -> str:
       return "Processing the planning request..."
@@ -48,6 +47,7 @@ class PlannerAgent:
     return agent.root_agent
 
   def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+    with self.tracer.start_as_current_span("PlannerAgent.run") as span:
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
 
@@ -110,6 +110,7 @@ class PlannerAgent:
 
         response_event_data = None
 
+        # TODO: Instrument tool calls
         async def _execute_run_and_get_first_event():
             """Helper async function to run the agent and get the first event."""
             # Assuming self._runner.run is an async generator or returns an async iterable
@@ -122,8 +123,10 @@ class PlannerAgent:
             return None # Should not happen if agent always yields at least one event before finishing
 
         try:
-            # Run the async helper function using asyncio.run()
-            response_event_data = asyncio.run(_execute_run_and_get_first_event())
+            with self.tracer.start_as_current_span("LLM.call") as span:
+                # Run the async helper function using asyncio.run()
+                response_event_data = asyncio.run(_execute_run_and_get_first_event())
+                span.set_attribute("llm.response", str(response_event_data))
         except Exception as e_run:
             logger.error(f"Error during asyncio.run(_execute_run_and_get_first_event) for session {current_session_obj.id}: {e_run}", exc_info=True)
             return {"error": f"Agent execution error: {e_run}"}

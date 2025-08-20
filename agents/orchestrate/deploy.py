@@ -47,8 +47,10 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, ex
     print(f"  Processed requirements list (for deployment): {requirements_list}")
 
     env_vars_for_deployment = {
-        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
-        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_GOOGLE_CLOUD_PROJECT": os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT", project_id),
+        "COMMON_GOOGLE_CLOUD_LOCATION": os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION", region),
+        "ADK_SESSION_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID"),
+        "ADK_SESSION_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID"),
     }
     if env_vars:
         env_vars_for_deployment.update(env_vars)

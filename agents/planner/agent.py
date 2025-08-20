@@ -10,6 +10,16 @@ print("--- AGENT INITIALIZATION CONTINUING ---")
 # --- END: Agent Environment Debugging Code ---
 
 import os
+import logging
+
+# --- START: Spanner Environment Variable Debugging ---
+logging.basicConfig(level=logging.INFO)
+instance_id = os.environ.get("ADK_SESSION_SPANNER_INSTANCE_ID")
+database_id = os.environ.get("ADK_SESSION_SPANNER_DATABASE_ID")
+logging.info(f"ADK Spanner Instance ID from env: {instance_id}")
+logging.info(f"ADK Spanner Database ID from env: {database_id}")
+# --- END: Spanner Environment Variable Debugging ---
+
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
 # from google.adk.models.google_llm import GoogleLlm # Removed import

@@ -1,8 +1,8 @@
 from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
 from google.adk.artifacts import InMemoryArtifactService
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.sessions import InMemorySessionService # Removed SessionNotFoundError, Session
+from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
+from google.adk.sessions.vertex_ai_session_service import VertexAiSessionService
 from typing import Any, Dict, List, Optional
 import os # For path joining
 # import asyncio # Removed
@@ -10,7 +10,7 @@ from dotenv import load_dotenv # To load .env
 from google.genai.types import Content, Part # Added import
 
 # Import HostAgent to create the underlying LlmAgent
-from orchestrate.host_agent import HostAgent
+from .host_agent import HostAgent
 import logging # For logging addresses
 
 # Load environment variables from the root .env file
@@ -34,19 +34,88 @@ class OrchestrateServiceAgent:
 
         # Instantiate HostAgent and create the underlying LlmAgent.
         # The remote_agent_addresses_str is no longer needed.
-        host_agent_logic = HostAgent()
+
+        self.project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        self.location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+
+        self.memory_bank_client = None
+        if self.project_id:
+            try:
+                self.memory_bank_client = MemoryBankServiceClient(
+                    client_options={"api_endpoint": f"{self.location}-aiplatform.googleapis.com"}
+                )
+                print("Memory Bank client initialized successfully.")
+            except Exception as e:
+                print(f"An unexpected error occurred during Memory Bank initialization: {e}")
+                self.memory_bank_client = None
+        else:
+            print("Skipping Memory Bank client initialization due to missing GOOGLE_CLOUD_PROJECT.")
+
+        host_agent_logic = HostAgent(tools=[self.create_memory, self.search_memories])
         self._agent: BaseAgent = host_agent_logic.create_agent()
+
+        agent_engine_id = os.environ.get("AGENT_ENGINE_ID")
 
         self._runner = Runner(
             app_name=self._agent.name,
             agent=self._agent,
             artifact_service=InMemoryArtifactService(),
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
+            session_service=VertexAiSessionService(
+                project=project_id,
+                location=location,
+                agent_engine_id=agent_engine_id,
+            ),
+            memory_service=VertexAiMemoryBankService(
+                project=project_id,
+                location=location,
+                agent_engine_id=agent_engine_id,
+                client=memory_bank_client
+            ),
         )
 
     def get_processing_message(self) -> str:
         return "Orchestrating the request..."
+
+    def create_memory(self, user_id: str, content: str, metadata: dict):
+        """Creates a new memory in the Memory Bank."""
+        if not self.memory_bank_client:
+            return None
+
+        parent = self.memory_bank_client.common_location_path(self.project_id, self.location)
+        memory = memory_bank_types.Memory(
+            user_id=user_id,
+            content=content,
+            metadata=metadata,
+        )
+        request = memory_bank_types.CreateMemoryRequest(
+            parent=parent,
+            memory=memory,
+        )
+        try:
+            response = self.memory_bank_client.create_memory(request=request)
+            return response
+        except Exception as e:
+            print(f"Error creating memory: {e}")
+            return None
+
+    def search_memories(self, user_id: str, query: str, top_k: int = 5):
+        """Searches for memories in the Memory Bank."""
+        if not self.memory_bank_client:
+            return None
+
+        parent = self.memory_bank_client.common_location_path(self.project_id, self.location)
+        request = memory_bank_types.SearchMemoriesRequest(
+            parent=parent,
+            user_id=user_id,
+            query=query,
+            top_k=top_k,
+        )
+        try:
+            response = self.memory_bank_client.search_memories(request=request)
+            return response
+        except Exception as e:
+            print(f"Error searching memories: {e}")
+            return None
 
     def query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Renamed query_text back to query
         # Using module-level 'log'
@@ -57,9 +126,9 @@ class OrchestrateServiceAgent:
 
         current_session_obj: Optional[Any] = None
         try:
-            log.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
+            log.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
             current_session_obj = self._runner.session_service.get_session( # Synchronous
-                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
+                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
             )
             if current_session_obj:
                  log.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")

@@ -11,9 +11,10 @@ class HostAgent:
   tasks to and coordinate their work.
   """
 
-  def __init__(self, **kwargs):
+  def __init__(self, tools: list, **kwargs):
     # The new implementation does not need remote_agent_addresses or task_callback
     # at initialization. Agent discovery is handled by the ADK.
+    self.tools = tools
     pass
 
   def create_agent(self) -> Agent:
@@ -27,9 +28,7 @@ class HostAgent:
             "This agent orchestrates the decomposition of the user request into"
             " tasks that can be performed by the child agents."
         ),
-        tools=[
-            self.send_task,
-        ]
+        tools=self.tools,
     )
 
   def root_instruction(self, context: ReadonlyContext) -> str:
@@ -61,6 +60,11 @@ class HostAgent:
     - User Request: "Share the event on social media."
         - Your thought process: The user wants to share something on social media. The 'social-agent' is the best agent for this.
         - Your tool call: `send_task(agent_name='social-agent', action='share', data={'message': 'Check out this cool event I just made on Instavibe!'})`
+
+    You also have tools to create and search for memories. You can use these tools to store and retrieve information about the user.
+
+    - `create_memory(user_id: str, content: str, metadata: dict)`: Creates a new memory for a user.
+    - `search_memories(user_id: str, query: str, top_k: int = 5)`: Searches for memories for a user.
 
     Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
     """

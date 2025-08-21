@@ -1,6 +1,18 @@
 from .host_agent import HostAgent
 import asyncio
 import os # Import os to read environment variables
+import logging
+
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
+
+# Log critical environment variables at startup
+logging.info("--- ORCHESTRATOR AGENT RUNTIME ENV CHECK ---")
+logging.info(f"GOOGLE_CLOUD_PROJECT: {os.getenv('GOOGLE_CLOUD_PROJECT')}")
+logging.info(f"GOOGLE_CLOUD_REGION: {os.getenv('GOOGLE_CLOUD_REGION')}")
+logging.info(f"ADK_SESSION_SPANNER_INSTANCE_ID: {os.getenv('ADK_SESSION_SPANNER_INSTANCE_ID')}")
+logging.info(f"ADK_SESSION_SPANNER_DATABASE_ID: {os.getenv('ADK_SESSION_SPANNER_DATABASE_ID')}")
+logging.info("------------------------------------------")
 from dotenv import load_dotenv
 from google.genai import types
 from google.adk.agents import BaseAgent

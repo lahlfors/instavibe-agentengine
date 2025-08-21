@@ -9,10 +9,12 @@ import humanize
 import uuid
 import traceback
 from dateutil import parser 
-from ally_routes import ally_bp 
+from ally_routes import ally_bp
+from telemetry import setup_telemetry
 
 
 app = Flask(__name__)
+setup_telemetry(app)
 # Load environment variables from root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 

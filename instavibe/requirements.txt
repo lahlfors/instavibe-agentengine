@@ -6,3 +6,9 @@ humanize==4.12.3
 gunicorn
 python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-requests
+opentelemetry-exporter-google-cloud-trace

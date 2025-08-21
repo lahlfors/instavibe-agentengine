@@ -1,43 +1,49 @@
-from .host_agent import HostAgent
-import asyncio
-import os # Import os to read environment variables
+import os
 import logging
-
-# Configure basic logging
-logging.basicConfig(level=logging.INFO)
-
-# Log critical environment variables at startup
-logging.info("--- ORCHESTRATOR AGENT RUNTIME ENV CHECK ---")
-logging.info(f"GOOGLE_CLOUD_PROJECT: {os.getenv('GOOGLE_CLOUD_PROJECT')}")
-logging.info(f"GOOGLE_CLOUD_REGION: {os.getenv('GOOGLE_CLOUD_REGION')}")
-logging.info(f"ADK_SESSION_SPANNER_INSTANCE_ID: {os.getenv('ADK_SESSION_SPANNER_INSTANCE_ID')}")
-logging.info(f"ADK_SESSION_SPANNER_DATABASE_ID: {os.getenv('ADK_SESSION_SPANNER_DATABASE_ID')}")
-logging.info("------------------------------------------")
-from dotenv import load_dotenv
-from google.genai import types
-from google.adk.agents import BaseAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset # Removed SseServerParams
-import logging 
-import nest_asyncio # Import nest_asyncio
-import atexit
-
-# Load environment variables from the root .env file
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+from google.adk.agents import Agent
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
- 
-# --- Global variables ---
-# Define them first, initialize as None
 
-# --- Configuration ---
-# The remote agent addresses are no longer needed here, as agent discovery
-# is handled by the ADK framework.
+class OrchestrateAgent(Agent):
+    """
+    Your main agent class that will be deployed.
+    """
+    name: str = "orchestrate-agent"
+    def set_up(self):
+        """
+        This method is called by the ADK framework on the server AFTER
+        the agent is deployed. This is the correct place for runtime logic.
+        """
+        from .host_agent import HostAgent
+        from .tools import create_memory, search_memories
+        from .memory_client import get_memory_bank_client
 
-# --- Agent Initialization ---
-# Instantiate the HostAgent logic class
-host_agent_logic = HostAgent()
+        # --- 1. Move your logging here ---
+        logging.info("--- ORCHESTRATOR AGENT RUNTIME ENV CHECK ---")
+        logging.info(f"ADK_SESSION_SPANNER_INSTANCE_ID: {os.getenv('ADK_SESSION_SPANNER_INSTANCE_ID')}")
+        logging.info(f"ADK_SESSION_SPANNER_DATABASE_ID: {os.getenv('ADK_SESSION_SPANNER_DATABASE_ID')}")
+        logging.info("--------------------------------------")
 
-# Create the actual ADK Agent instance
-root_agent: BaseAgent = host_agent_logic.create_agent()
-log.info(f"Orchestrator root agent '{root_agent.name}' created.")
+        # Initialize dependencies
+        self.memory_client = get_memory_bank_client()
+
+        # Create tools
+        # Example: wrap the functions to be callable methods or objects if needed
+        self.tools = [
+            create_memory(self.memory_client),
+            search_memories(self.memory_client),
+        ]
+
+        # Initialize HostAgent with the created tools
+        self.host_agent = HostAgent(tools=self.tools)
+        logging.info("OrchestrateServiceAgent set_up complete.")
+
+    def query(self, input_text: str) -> str:
+        if not self.host_agent:
+            logging.error("HostAgent not initialized. set_up() was not called.")
+            raise RuntimeError("Agent not properly initialized.")
+        # Delegate the query to the HostAgent instance
+        return self.host_agent.handle_query(input_text)
+
+# 4. Define the root_agent for the ADK to find and deploy.
+root_agent = OrchestrateAgent()

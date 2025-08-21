@@ -69,6 +69,11 @@ class HostAgent:
     Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
     """
 
+  def handle_query(self, query: str) -> str:
+      # This is where you would put the logic to run the agent
+      # and return the result.
+      return "Hello from HostAgent!"
+
   async def send_task(
       self,
       agent_name: str,

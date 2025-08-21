@@ -288,6 +288,7 @@ def main():
     parser.add_argument("--skip-mcp-server", action="store_true", help="Skip deploying the MCP Tool Server.")
     parser.add_argument("--skip-app", action="store_true", help="Skip deploying the main InstaVibe web app.")
     parser.add_argument("--skip-spanner", action="store_true", help="Skip Spanner setup.")
+    parser.add_argument("--deploy-orchestrate-only", action="store_true", help="Deploy only the orchestrate agent.")
     args = parser.parse_args()
 
     try:
@@ -316,7 +317,23 @@ def main():
                 logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
 
         agent_resource_names = {}
-        if not args.skip_agents:
+        if args.deploy_orchestrate_only:
+            orchestrate_def = {
+                "orchestrate": {
+                    "name": "Orchestrate Agent",
+                    "func": deploy_orchestrate_main_func,
+                    "args": {"base_dir": PROJECT_ROOT}
+                }
+            }
+            key = "orchestrate"
+            agent = orchestrate_def[key]
+            deploy_args = agent.get("args", {})
+            deploy_args["extra_packages"] = ['agents']
+            deploy_args["env_vars"] = {
+                "ADK_A2A_AGENT_URIS": ""
+            }
+            agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
+        elif not args.skip_agents:
             agent_defs = {
                 "planner": {
                     "name": "Planner Agent",

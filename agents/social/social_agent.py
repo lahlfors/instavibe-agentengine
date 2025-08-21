@@ -27,6 +27,13 @@ class SocialAgent(AgentTaskManager):
   SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
 
   def __init__(self):
+    self._agent = None
+    self._user_id = None
+    self._runner = None
+
+  def set_up(self):
+    if self._runner:
+        return
     self._agent = self._build_agent()
     self._user_id = "remote_agent"
     self._runner = Runner(
@@ -45,6 +52,7 @@ class SocialAgent(AgentTaskManager):
     return agent.root_agent
 
   def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        self.set_up()
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
 

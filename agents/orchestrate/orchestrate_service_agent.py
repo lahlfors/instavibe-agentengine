@@ -1,20 +1,23 @@
+# In agents/orchestrate/orchestrate_service_agent.py
 import logging
 import os
 from google.adk.agents import Agent
+from google.adk.tools import tool  # Corrected import for the tool decorator
 
 # Correct import path for MemoryBankServiceClient
-from google.cloud.aiplatform_v1beta1 import MemoryBankServiceClient
+from google.cloud.aiplatform.preview.memory_bank import MemoryBankServiceClient
 
 logging.basicConfig(level=logging.INFO)
 
 class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, structured to follow the official
-    ADK Memory Bank template.
+    ADK Memory Bank template using the @tool decorator.
     """
-    name: str = "orchestrate-agent"
     def __init__(self):
-        super().__init__() # Tools are auto-discovered via the @tool decorator
+        # Tools are auto-discovered when using the @tool decorator,
+        # so no need to pass the 'tools' argument to super().__init__()
+        super().__init__()
 
     def set_up(self):
         """
@@ -33,9 +36,16 @@ class OrchestrateServiceAgent(Agent):
         logging.info(f"MemoryBankServiceClient initialized for parent: {self.parent}")
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
+    @tool
     def create_memory(self, description: str) -> str:
         """
         Creates a new memory in the Memory Bank.
+
+        Args:
+            description: The text content of the memory to create.
+
+        Returns:
+            The resource name of the newly created memory.
         """
         if not self.memory_bank_client:
             raise RuntimeError("Memory Bank client not initialized. Call set_up first.")
@@ -48,9 +58,16 @@ class OrchestrateServiceAgent(Agent):
         logging.info(f"Successfully created memory: {response.name}")
         return response.name
 
+    @tool
     def search_memories(self, query: str) -> str:
         """
         Searches for relevant memories in the Memory Bank.
+
+        Args:
+            query: The text query to search for.
+
+        Returns:
+            A string containing the search results.
         """
         if not self.memory_bank_client:
             raise RuntimeError("Memory Bank client not initialized. Call set_up first.")

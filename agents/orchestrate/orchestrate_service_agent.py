@@ -12,9 +12,22 @@ class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, interacting with Memory Bank via REST API.
     """
-    def __init__(self, name, model):
-        # Register tools by passing the method references
-        super().__init__(name=name, model=model, tools=[self.create_memory, self.search_memories])
+    def __init__(self, name: str, model: str, instruction: str = None, description: str = None):
+        # Pass required fields like name and model to the base class
+        super().__init__(
+            name=name,
+            model=model,
+            instruction=instruction or "I am an orchestrator agent with memory capabilities.",
+            description=description or "An agent that can create and search memories.",
+            tools=[self.create_memory, self.search_memories]
+        )
+        self.project = None
+        self.location = None
+        self.api_endpoint = None
+        self.base_url = None
+        self.memory_bank_url = None
+        self.credentials = None
+        self.reasoning_engine_id = None
 
     def set_up(self):
         """
@@ -23,19 +36,15 @@ class OrchestrateServiceAgent(Agent):
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
         self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
         self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-        # This ID is CRITICAL and must be provided to the environment
-        # This env var name is an assumption, please verify
         self.reasoning_engine_id = os.getenv("REASONING_ENGINE_ID")
 
         if not self.project or not self.location:
             raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
         if not self.reasoning_engine_id:
-             # Defaulting to a placeholder if not set, but this SHOULD be set in the environment
-             logging.warning("REASONING_ENGINE_ID not set, using placeholder 'self'. This will likely FAIL.")
-             self.reasoning_engine_id = "self" # This is a placeholder
+            logging.error("REASONING_ENGINE_ID environment variable not set.")
+            raise RuntimeError("REASONING_ENGINE_ID environment variable must be set.")
 
         self.api_endpoint = f"{self.location}-aiplatform.googleapis.com"
-        # The v1beta1 path is used for Memory Bank
         self.base_url = f"https://{self.api_endpoint}/v1beta1/projects/{self.project}/locations/{self.location}/reasoningEngines/{self.reasoning_engine_id}"
         self.memory_bank_url = f"{self.base_url}/memories"
 
@@ -51,7 +60,7 @@ class OrchestrateServiceAgent(Agent):
     def _get_auth_headers(self):
         try:
             auth_req = google.auth.transport.requests.Request()
-            if not self.credentials.valid:
+            if not self.credentials or not self.credentials.valid:
                 self.credentials.refresh(auth_req)
             return {
                 "Content-Type": "application/json; charset=utf-8",
@@ -73,6 +82,7 @@ class OrchestrateServiceAgent(Agent):
         Returns:
             The resource name of the newly created memory.
         """
+        if not self.memory_bank_url: self.set_up() # Ensure set_up called if not already
         headers = self._get_auth_headers()
         payload = {
             "fact": description,
@@ -101,6 +111,7 @@ class OrchestrateServiceAgent(Agent):
         Returns:
             A string containing the search results.
         """
+        if not self.memory_bank_url: self.set_up() # Ensure set_up called if not already
         headers = self._get_auth_headers()
         search_url = f"{self.memory_bank_url}:search"
         payload = {
@@ -119,4 +130,11 @@ class OrchestrateServiceAgent(Agent):
             logging.error(f"Error searching memories: {e} - Response: {e.response.text if e.response else 'No response'}")
             raise
 
-root_agent = OrchestrateServiceAgent(name="orchestrate_service_agent", model="gemini-1.5-flash")
+# Add this line to help Pydantic resolve forward references
+OrchestrateServiceAgent.model_rebuild()
+
+# Instantiate the agent with required name and model
+root_agent = OrchestrateServiceAgent(
+    name="orchestrate_service_agent",
+    model="gemini-1.5-flash"  # Specify a default or desired model
+)

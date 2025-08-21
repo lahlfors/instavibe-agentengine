@@ -1,47 +1,70 @@
-import os
 import logging
-from .host_agent import HostAgent
-from .tools import create_memory, search_memories
-from .memory_client import get_memory_bank_client
+import os
+from google.adk.agents import Agent
+from google.adk import tool  # This is the corrected import path
+
+# Correct import path for MemoryBankServiceClient
+from google.cloud.aiplatform.preview.memory_bank import MemoryBankServiceClient
 
 logging.basicConfig(level=logging.INFO)
 
-class OrchestrateServiceAgent:
+class OrchestrateServiceAgent(Agent):
+    """
+    The main orchestrator agent, structured to follow the official
+    ADK Memory Bank template.
+    """
     def __init__(self):
-        self.host_agent = None
-        self.memory_client = None
-        self.tools = []
-        # IMPORTANT: Don't do heavy initialization or os.getenv here
-        # as __init__ might be called by the framework in various contexts.
+        super().__init__() # Tools are auto-discovered via the @tool decorator
 
     def set_up(self):
         """
-        Called by the Agent Engine framework after the instance is created.
-        This is the place to initialize resources and dependencies.
+        Called by the Agent Engine framework after deployment.
         """
-        logging.info("--- AGENT ENGINE RUNTIME ENV CHECK ---")
-        logging.info(f"GOOGLE_CLOUD_PROJECT: {os.getenv('GOOGLE_CLOUD_PROJECT')}")
-        logging.info(f"ADK_SESSION_SPANNER_INSTANCE_ID: {os.getenv('ADK_SESSION_SPANNER_INSTANCE_ID')}")
-        logging.info(f"ADK_SESSION_SPANNER_DATABASE_ID: {os.getenv('ADK_SESSION_SPANNER_DATABASE_ID')}")
-        logging.info("------------------------------------")
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
 
-        # Initialize dependencies
-        self.memory_client = get_memory_bank_client()
+        if not self.project or not self.location:
+            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
 
-        # Create tools
-        # Example: wrap the functions to be callable methods or objects if needed
-        self.tools = [
-            create_memory(self.memory_client),
-            search_memories(self.memory_client),
-        ]
+        self.parent = f"projects/{self.project}/locations/{self.location}"
 
-        # Initialize HostAgent with the created tools
-        self.host_agent = HostAgent(tools=self.tools)
-        logging.info("OrchestrateServiceAgent set_up complete.")
+        self.memory_bank_client = MemoryBankServiceClient(client_options={"api_endpoint": f"{self.location}-aiplatform.googleapis.com"})
+        logging.info(f"MemoryBankServiceClient initialized for parent: {self.parent}")
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
-    def query(self, input_text: str) -> str:
-        if not self.host_agent:
-            logging.error("HostAgent not initialized. set_up() was not called.")
-            raise RuntimeError("Agent not properly initialized.")
-        # Delegate the query to the HostAgent instance
-        return self.host_agent.handle_query(input_text)
+    @tool
+    def create_memory(self, description: str) -> str:
+        """
+        Creates a new memory in the Memory Bank.
+        """
+        if not self.memory_bank_client:
+            raise RuntimeError("Memory Bank client not initialized. Call set_up first.")
+
+        logging.info(f"Creating memory: {description}")
+        response = self.memory_bank_client.create_memory(
+            parent=self.parent,
+            memory={"description": description}
+        )
+        logging.info(f"Successfully created memory: {response.name}")
+        return response.name
+
+    @tool
+    def search_memories(self, query: str) -> str:
+        """
+        Searches for relevant memories in the Memory Bank.
+        """
+        if not self.memory_bank_client:
+            raise RuntimeError("Memory Bank client not initialized. Call set_up first.")
+
+        logging.info(f"Searching memories with query: {query}")
+        response = self.memory_bank_client.search_memories(
+            parent=self.parent,
+            query=query
+        )
+        results = [memory.memory.description for memory in response.search_results]
+        logging.info(f"Found {len(results)} memories.")
+        return "\n".join(results) if results else "No relevant memories found."
+
+# The ADK framework looks for a 'root_agent' object to deploy.
+root_agent = OrchestrateServiceAgent()

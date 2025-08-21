@@ -12,9 +12,9 @@ class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, interacting with Memory Bank via REST API.
     """
-    def __init__(self):
+    def __init__(self, name, model):
         # Register tools by passing the method references
-        super().__init__(tools=[self.create_memory, self.search_memories])
+        super().__init__(name=name, model=model, tools=[self.create_memory, self.search_memories])
 
     def set_up(self):
         """
@@ -119,4 +119,4 @@ class OrchestrateServiceAgent(Agent):
             logging.error(f"Error searching memories: {e} - Response: {e.response.text if e.response else 'No response'}")
             raise
 
-root_agent = OrchestrateServiceAgent()
+root_agent = OrchestrateServiceAgent(name="orchestrate_service_agent", model="gemini-1.5-flash")

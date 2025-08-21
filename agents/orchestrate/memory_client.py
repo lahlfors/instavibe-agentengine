@@ -1,5 +1,5 @@
 import os
-from google.cloud.aiplatform_v1beta1 import MemoryBankServiceClient
+from vertexai.preview.generative_models import MemoryBankServiceClient
 
 def get_memory_bank_client():
     """Initializes and returns a MemoryBankServiceClient."""

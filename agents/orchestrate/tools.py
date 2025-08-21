@@ -1,4 +1,4 @@
-from google.cloud.aiplatform_v1beta1 import MemoryBankServiceClient
+from vertexai.preview.generative_models import MemoryBankServiceClient
 from google.cloud.aiplatform_v1beta1.types import memory_bank as memory_bank_types
 import os
 

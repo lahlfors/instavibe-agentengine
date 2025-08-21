@@ -36,6 +36,12 @@ class OrchestrateAgent(Agent):
 
         # Initialize HostAgent with the created tools
         self.host_agent = HostAgent(tools=self.tools)
+
+        from agents.app.common.tracing import trace_function_enhanced
+        from opentelemetry import trace
+        tracer = trace.get_tracer(__name__)
+        self.host_agent.handle_query = trace_function_enhanced(tracer, system_name="OrchestrateAgent")(self.host_agent.handle_query)
+
         logging.info("OrchestrateServiceAgent set_up complete.")
 
     def query(self, input_text: str) -> str:

@@ -2,6 +2,7 @@ import asyncio
 from dotenv import load_dotenv
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams # Updated SseServerParams
+from agents.app.common.traced_agent import TracedLlmAgent
 import logging
 import os
 import nest_asyncio
@@ -41,7 +42,7 @@ class PlatformMCPClientServiceAgent:
             connection_params=SseConnectionParams(url=self.mcp_server_url, headers={}) # Updated SseServerParams
         )
 
-        self._agent = LlmAgent(
+        llm_agent = LlmAgent(
             model='gemini-2.0-flash-001',
             name='platform_mcp_client_agent',
             instruction="""
@@ -67,6 +68,7 @@ class PlatformMCPClientServiceAgent:
             """,
             tools=[self._mcp_toolset]
         )
+        self._agent = TracedLlmAgent(llm_agent)
         log.info("PlatformMCPClientServiceAgent: LlmAgent created.")
 
         self._runner = Runner(

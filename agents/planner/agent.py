@@ -11,9 +11,10 @@ print("--- AGENT INITIALIZATION CONTINUING ---")
 
 import os
 from dotenv import load_dotenv
-from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
+from google.adk.agents import LlmAgent, Agent
 # from google.adk.models.google_llm import GoogleLlm # Removed import
 from google.adk.tools import google_search
+from agents.app.common.traced_agent import TracedLlmAgent
 
 # Load environment variables from the root .env file.
 # This is important so that any underlying ADK or Google library calls
@@ -63,11 +64,19 @@ AGENT_INSTRUCTION = """
     """
 root_tools = [google_search] # Assuming this was the original definition
 
-root_agent = Agent(
-    name=AGENT_NAME,
-    model=MODEL_NAME,
-    description="Agent tasked with generating creative and fun event plan suggestions", # Kept original description
-    instruction=AGENT_INSTRUCTION,
-    tools=root_tools
-    # NO model_kwargs
-)
+class PlannerAgent(Agent):
+    def __init__(self):
+        super().__init__(name=AGENT_NAME)
+        self.llm_agent = LlmAgent(
+            name=AGENT_NAME,
+            model=MODEL_NAME,
+            description="Agent tasked with generating creative and fun event plan suggestions", # Kept original description
+            instruction=AGENT_INSTRUCTION,
+            tools=root_tools
+        )
+        self.traced_agent = TracedLlmAgent(self.llm_agent)
+
+    def invoke(self, prompt):
+        return self.traced_agent.invoke(prompt)
+
+root_agent = PlannerAgent()

@@ -4,6 +4,7 @@ from dotenv import load_dotenv # To load .env
 from zoneinfo import ZoneInfo
 from google.adk.agents import LoopAgent, LlmAgent, BaseAgent
 from .instavibe import get_person_posts,get_person_friends,get_person_id_by_name,get_person_attended_events
+from agents.app.common.traced_agent import TracedLlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from typing import AsyncGenerator
@@ -129,9 +130,9 @@ def modify_output_after_agent(callback_context: CallbackContext) -> Optional[typ
 root_agent = LoopAgent(
     name="InteractivePipeline",
     sub_agents=[
-        profile_agent,
-        summary_agent,
-        check_agent,
+        TracedLlmAgent(profile_agent),
+        TracedLlmAgent(summary_agent),
+        TracedLlmAgent(check_agent),
         CheckCondition(name="Checker")
     ],
     description="Find everyone's social profile on events, post and friends",

@@ -3,8 +3,10 @@ import logging
 import os
 import requests
 import google.auth
+import google.auth.credentials  # Import for type hinting
 import google.auth.transport.requests
 from google.adk.agents import Agent
+from typing import Optional, List
 
 logging.basicConfig(level=logging.INFO)
 
@@ -12,7 +14,16 @@ class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, interacting with Memory Bank via REST API.
     """
-    def __init__(self, name: str, model: str, instruction: str = None, description: str = None):
+    # Declare fields at the class level for Pydantic
+    project: Optional[str] = None
+    location: Optional[str] = None
+    api_endpoint: Optional[str] = None
+    base_url: Optional[str] = None
+    memory_bank_url: Optional[str] = None
+    credentials: Optional[google.auth.credentials.Credentials] = None
+    reasoning_engine_id: Optional[str] = None
+
+    def __init__(self, name: str, model: str, instruction: Optional[str] = None, description: Optional[str] = None):
         # Pass required fields like name and model to the base class
         super().__init__(
             name=name,
@@ -21,28 +32,25 @@ class OrchestrateServiceAgent(Agent):
             description=description or "An agent that can create and search memories.",
             tools=[self.create_memory, self.search_memories]
         )
-        self.project = None
-        self.location = None
-        self.api_endpoint = None
-        self.base_url = None
-        self.memory_bank_url = None
-        self.credentials = None
-        self.reasoning_engine_id = None
+        # Do NOT initialize self.project, self.location, etc. here
 
     def set_up(self):
         """
         Called by the Agent Engine framework after deployment.
         """
+        if self.project: # Basic check to see if set_up has run
+            return
+
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
         self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
         self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-        self.reasoning_engine_id = os.getenv("REASONING_ENGINE_ID")
+        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID") # Use system-provided ID
 
         if not self.project or not self.location:
             raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
         if not self.reasoning_engine_id:
-            logging.error("REASONING_ENGINE_ID environment variable not set.")
-            raise RuntimeError("REASONING_ENGINE_ID environment variable must be set.")
+            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
+            raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
 
         self.api_endpoint = f"{self.location}-aiplatform.googleapis.com"
         self.base_url = f"https://{self.api_endpoint}/v1beta1/projects/{self.project}/locations/{self.location}/reasoningEngines/{self.reasoning_engine_id}"
@@ -70,7 +78,6 @@ class OrchestrateServiceAgent(Agent):
             logging.error(f"Error getting auth headers: {e}")
             raise
 
-    # NO @tool decorator
     def create_memory(self, description: str, user_id: str) -> str:
         """
         Creates a new memory in the Memory Bank.
@@ -84,10 +91,7 @@ class OrchestrateServiceAgent(Agent):
         """
         if not self.memory_bank_url: self.set_up() # Ensure set_up called if not already
         headers = self._get_auth_headers()
-        payload = {
-            "fact": description,
-            "user_id": user_id
-        }
+        payload = {"fact": description, "user_id": user_id}
         logging.info(f"Creating memory at {self.memory_bank_url} for user: {user_id}")
         try:
             response = requests.post(url=self.memory_bank_url, headers=headers, json=payload)
@@ -99,7 +103,6 @@ class OrchestrateServiceAgent(Agent):
             logging.error(f"Error creating memory: {e} - Response: {e.response.text if e.response else 'No response'}")
             raise
 
-    # NO @tool decorator
     def search_memories(self, query: str, user_id: str) -> str:
         """
         Searches for relevant memories in the Memory Bank for a specific user.
@@ -111,13 +114,10 @@ class OrchestrateServiceAgent(Agent):
         Returns:
             A string containing the search results.
         """
-        if not self.memory_bank_url: self.set_up() # Ensure set_up called if not already
+        if not self.memory_bank_url: self.set_up()
         headers = self._get_auth_headers()
         search_url = f"{self.memory_bank_url}:search"
-        payload = {
-            "query": query,
-            "user_id": user_id
-        }
+        payload = {"query": query, "user_id": user_id}
         logging.info(f"Searching memories at {search_url} for user: {user_id} with query: '{query}'")
         try:
             response = requests.post(url=search_url, headers=headers, json=payload)
@@ -130,11 +130,9 @@ class OrchestrateServiceAgent(Agent):
             logging.error(f"Error searching memories: {e} - Response: {e.response.text if e.response else 'No response'}")
             raise
 
-# Add this line to help Pydantic resolve forward references
 OrchestrateServiceAgent.model_rebuild()
 
-# Instantiate the agent with required name and model
 root_agent = OrchestrateServiceAgent(
     name="orchestrate_service_agent",
-    model="gemini-1.5-flash"  # Specify a default or desired model
+    model="gemini-1.5-flash"
 )

@@ -6,7 +6,7 @@ from google.cloud import aiplatform as vertexai
 from agents.app.agent_engine_app import AgentEngineApp
 from vertexai import agent_engines
 
-from agents.orchestrate.orchestrate_service_agent import OrchestrateServiceAgent
+from agents.orchestrate.orchestrate_service_agent import root_agent
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -28,7 +28,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, ex
     display_name = "Orchestrate Agent"
     description = "This agent orchestrates the decomposition of the user request into tasks that can be performed by the child agents."
 
-    adk_app = AgentEngineApp(agent=OrchestrateServiceAgent)
+    adk_app = AgentEngineApp(agent=root_agent)
 
     requirements_path = os.path.join(base_dir, "agents/orchestrate/requirements.txt")
     requirements_list = []

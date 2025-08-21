@@ -2,7 +2,7 @@
 import logging
 import os
 from google.adk.agents import Agent
-from google.adk.tools import tool  # Corrected import for the tool decorator
+# No tool decorator import needed
 
 # Correct import path for MemoryBankServiceClient
 from google.cloud.aiplatform.preview.memory_bank import MemoryBankServiceClient
@@ -12,12 +12,11 @@ logging.basicConfig(level=logging.INFO)
 class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, structured to follow the official
-    ADK Memory Bank template using the @tool decorator.
+    ADK Memory Bank template.
     """
     def __init__(self):
-        # Tools are auto-discovered when using the @tool decorator,
-        # so no need to pass the 'tools' argument to super().__init__()
-        super().__init__()
+        # Register tools by passing the method references in a list
+        super().__init__(tools=[self.create_memory, self.search_memories])
 
     def set_up(self):
         """
@@ -36,7 +35,7 @@ class OrchestrateServiceAgent(Agent):
         logging.info(f"MemoryBankServiceClient initialized for parent: {self.parent}")
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
-    @tool
+    # NO @tool decorator
     def create_memory(self, description: str) -> str:
         """
         Creates a new memory in the Memory Bank.
@@ -58,7 +57,7 @@ class OrchestrateServiceAgent(Agent):
         logging.info(f"Successfully created memory: {response.name}")
         return response.name
 
-    @tool
+    # NO @tool decorator
     def search_memories(self, query: str) -> str:
         """
         Searches for relevant memories in the Memory Bank.

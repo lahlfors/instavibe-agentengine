@@ -134,5 +134,5 @@ OrchestrateServiceAgent.model_rebuild()
 
 root_agent = OrchestrateServiceAgent(
     name="orchestrate_service_agent",
-    model="gemini-1.5-flash"
+    model="gemini-2.0-flash-001"
 )

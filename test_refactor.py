@@ -103,7 +103,9 @@ async def test_client_get_person_id_by_name(mock_call_http):
         source_agent="instavibe_tool",
         target_service="instavibe_app",
         http_method="GET",
-        url=f"{instavibe_tool_client.BASE_URL}/api/person/by_name/Alice"
+        url=f"{instavibe_tool_client.BASE_URL}/api/person/by_name/Alice",
+        headers={},
+        json={}
     )
 
 @pytest.mark.asyncio
@@ -115,7 +117,9 @@ async def test_client_get_person_attended_events(mock_call_http):
         source_agent="instavibe_tool",
         target_service="instavibe_app",
         http_method="GET",
-        url=f"{instavibe_tool_client.BASE_URL}/api/person/person-123/attended_events"
+        url=f"{instavibe_tool_client.BASE_URL}/api/person/person-123/attended_events",
+        headers={},
+        json={}
     )
 
 @pytest.mark.asyncio
@@ -127,7 +131,9 @@ async def test_client_get_person_posts(mock_call_http):
         source_agent="instavibe_tool",
         target_service="instavibe_app",
         http_method="GET",
-        url=f"{instavibe_tool_client.BASE_URL}/api/person/person-123/posts"
+        url=f"{instavibe_tool_client.BASE_URL}/api/person/person-123/posts",
+        headers={},
+        json={}
     )
 
 @pytest.mark.asyncio
@@ -139,7 +145,9 @@ async def test_client_get_person_friends(mock_call_http):
         source_agent="instavibe_tool",
         target_service="instavibe_app",
         http_method="GET",
-        url=f"{instavibe_tool_client.BASE_URL}/api/person/person-123/friends"
+        url=f"{instavibe_tool_client.BASE_URL}/api/person/person-123/friends",
+        headers={},
+        json={}
     )
 
 # --- 3. Tests for agents/social/instavibe.py (Refactored Data Access Layer) ---

@@ -117,6 +117,8 @@ async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
             target_service="instavibe_app",
             http_method="GET",
             url=url,
+            headers={},
+            json={}
         )
         # The API returns {"person_id": "..."} on success
         return response.get('person_id') if response else None
@@ -138,6 +140,8 @@ async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
             target_service="instavibe_app",
             http_method="GET",
             url=url,
+            headers={},
+            json={}
         )
         return response
     except aiohttp.ClientError as e:
@@ -158,6 +162,8 @@ async def get_person_posts(person_id: str, base_url: str = BASE_URL):
             target_service="instavibe_app",
             http_method="GET",
             url=url,
+            headers={},
+            json={}
         )
         return response
     except aiohttp.ClientError as e:
@@ -178,6 +184,8 @@ async def get_person_friends(person_id: str, base_url: str = BASE_URL):
             target_service="instavibe_app",
             http_method="GET",
             url=url,
+            headers={},
+            json={}
         )
         return response
     except aiohttp.ClientError as e:

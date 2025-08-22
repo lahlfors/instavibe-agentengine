@@ -5,7 +5,7 @@ import aiohttp
 import google.auth
 import google.auth.credentials  # Import for type hinting
 import google.auth.transport.requests
-import google.auth.transport._aiohttp_requests as aiohttp_requests
+import google.auth.transport.aiohttp
 from google.adk.agents import Agent
 from typing import Optional, List
 from agents.app.utils.communication import call_http_endpoint
@@ -73,7 +73,7 @@ class OrchestrateServiceAgent(Agent):
         """
         try:
             # Use the async-native transport
-            auth_req = aiohttp_requests.Request()
+            auth_req = google.auth.transport.aiohttp.Request()
 
             if not self.credentials or not self.credentials.valid:
                 # Await the non-blocking refresh call

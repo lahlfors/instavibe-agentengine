@@ -15,12 +15,8 @@ from google.cloud.aiplatform_v1.services import \
 from google.cloud.aiplatform_v1.types import (DeleteReasoningEngineRequest,
                                                ReasoningEngine as ReasoningEngineGAPIC)
 
-# Import agent deployment functions
-from agents.orchestrate.deploy import deploy_orchestrate_main_func
-from agents.planner.deploy import deploy_planner_main_func
-from agents.platform_mcp_client.deploy import \
-    deploy_platform_mcp_client_main_func
-from agents.social.deploy import deploy_social_main_func
+# Agent deployment functions are imported locally within main() to ensure
+# dependencies are installed first.
 
 
 # --- Configuration ---
@@ -37,6 +33,21 @@ class DeploymentError(Exception):
     pass
 
 # --- Helper Functions ---
+
+def install_dependencies():
+    """Installs dependencies from requirements.txt."""
+    logging.info("--- Installing/Updating Dependencies from requirements.txt ---")
+    req_path = os.path.join(PROJECT_ROOT, 'requirements.txt')
+    if not os.path.exists(req_path):
+        logging.warning(f"Root requirements.txt not found at {req_path}. Skipping dependency installation.")
+        return
+    try:
+        # Use the already defined run_command to get logging and error handling
+        # We set capture_output to False to see pip's progress in real-time.
+        run_command([sys.executable, "-m", "pip", "install", "--upgrade", "-r", req_path], check=True, capture_output=False)
+        logging.info("--- Dependencies are up to date. ---")
+    except subprocess.CalledProcessError as e:
+        raise DeploymentError("Failed to install dependencies from requirements.txt.") from e
 
 def run_command(command: List[str], check: bool = True, capture_output: bool = True, text: bool = True, timeout: Optional[int] = None, input_str: Optional[str] = None) -> subprocess.CompletedProcess:
     """
@@ -282,6 +293,7 @@ def build_and_deploy_cloud_run_service(
 
 # --- Main Orchestration ---
 def main():
+    install_dependencies()
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
     parser.add_argument("--skip-gateway", action="store_true", help="Skip deploying the Cloud Run gateway.")
@@ -290,6 +302,13 @@ def main():
     parser.add_argument("--skip-spanner", action="store_true", help="Skip Spanner setup.")
     parser.add_argument("--deploy-orchestrate-only", action="store_true", help="Deploy only the orchestrate agent.")
     args = parser.parse_args()
+
+    # --- Import agent deployment functions locally after dependencies are installed. ---
+    from agents.orchestrate.deploy import deploy_orchestrate_main_func
+    from agents.planner.deploy import deploy_planner_main_func
+    from agents.platform_mcp_client.deploy import \
+        deploy_platform_mcp_client_main_func
+    from agents.social.deploy import deploy_social_main_func
 
     try:
         config = setup_environment()

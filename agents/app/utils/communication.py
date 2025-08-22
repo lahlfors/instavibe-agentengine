@@ -1,5 +1,5 @@
 from opentelemetry import trace
-import adk.agents
+from google.adk import agents
 import aiohttp
 
 # Get a tracer for your agent's module

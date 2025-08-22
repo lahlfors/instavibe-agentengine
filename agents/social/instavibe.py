@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime, timezone
 import json # For example usage printing
 
-from google.cloud.spanner_v1.async_client import AsyncClient as SpannerAsyncClient
+from google.cloud.spanner_v1.services.spanner.async_client import SpannerAsyncClient
 from google.cloud.spanner_v1 import param_types
 from google.api_core import exceptions
 

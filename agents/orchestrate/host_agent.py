@@ -2,6 +2,7 @@ from google import adk
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools.tool_context import ToolContext
+from agents.app.utils.communication import call_agent_capability
 
 
 class HostAgent:
@@ -85,15 +86,12 @@ class HostAgent:
       The response dictionary from the remote agent's capability.
     """
     try:
-        agent = adk.agents.find(agent_name)
-        if not agent:
-            raise ValueError(f"Agent '{agent_name}' not found.")
-
-        capability = agent.a2a.get_capability(action)
-        if not capability:
-            raise ValueError(f"Capability '{action}' not available on agent '{agent_name}'.")
-
-        response_data = await capability.invoke(data)
+        response_data = await call_agent_capability(
+            source_agent="orchestrate_agent",
+            target_agent=agent_name,
+            capability=action,
+            prompt=data
+        )
         return response_data
     except Exception as e:
         # It's good practice to return errors in a structured way

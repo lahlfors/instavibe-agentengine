@@ -2,6 +2,7 @@ import adk
 import asyncio
 import os
 from dotenv import load_dotenv
+from agents.app.utils.communication import call_agent_capability
 
 # Load environment variables from the root .env file.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -17,18 +18,13 @@ async def get_plans_via_proxy(data_to_share: dict):
     Finds the planner agent proxy and invokes its 'get_plans' capability.
     """
     try:
-        print(f"Attempting to find agent 'planner-agent-v1'...")
-        agent = adk.agents.find('planner-agent-v1')
-        if not agent:
-            raise ValueError("Agent 'planner-agent-v1' not found. Is the proxy running and registered?")
-
-        print("Agent found. Getting 'get_plans' capability...")
-        get_plans_capability = agent.a2a.get_capability('get_plans')
-        if not get_plans_capability:
-            raise ValueError("Capability 'get_plans' not available on the agent.")
-
         print("Invoking 'get_plans' via proxy...")
-        response_data = await get_plans_capability.invoke(data_to_share)
+        response_data = await call_agent_capability(
+            source_agent="planner_client",
+            target_agent="planner-agent-v1",
+            capability="get_plans",
+            prompt=data_to_share
+        )
         print("✓ Call via proxy successful! Response:", response_data)
         return response_data
     except Exception as e:

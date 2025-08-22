@@ -2,6 +2,7 @@ import adk
 import asyncio
 import os
 from dotenv import load_dotenv
+from agents.app.utils.communication import call_agent_capability
 
 # Load environment variables from the root .env file.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -22,18 +23,13 @@ async def share_via_proxy(data_to_share: dict):
     Finds the social agent proxy and invokes its 'share' capability.
     """
     try:
-        print(f"Attempting to find agent 'social-agent-v1'...")
-        agent = adk.agents.find('social-agent-v1')
-        if not agent:
-            raise ValueError("Agent 'social-agent-v1' not found. Is the proxy running and registered?")
-
-        print("Agent found. Getting 'share' capability...")
-        share_capability = agent.a2a.get_capability('share')
-        if not share_capability:
-            raise ValueError("Capability 'share' not available on the agent.")
-
         print("Invoking 'share' via proxy...")
-        response_data = await share_capability.invoke(data_to_share)
+        response_data = await call_agent_capability(
+            source_agent="instavibe_test_client",
+            target_agent="social-agent-v1",
+            capability="share",
+            prompt=data_to_share
+        )
         print("✓ Call via proxy successful! Response:", response_data)
         return response_data
     except Exception as e:
@@ -60,18 +56,13 @@ async def create_post_via_proxy(data_to_share: dict):
     Finds the platform mcp client proxy and invokes its 'create_post' capability.
     """
     try:
-        print(f"Attempting to find agent 'platform-mcp-client-v1'...")
-        agent = adk.agents.find('platform-mcp-client-v1')
-        if not agent:
-            raise ValueError("Agent 'platform-mcp-client-v1' not found. Is the proxy running and registered?")
-
-        print("Agent found. Getting 'create_post' capability...")
-        create_post_capability = agent.a2a.get_capability('create_post')
-        if not create_post_capability:
-            raise ValueError("Capability 'create_post' not available on the agent.")
-
         print("Invoking 'create_post' via proxy...")
-        response_data = await create_post_capability.invoke(data_to_share)
+        response_data = await call_agent_capability(
+            source_agent="instavibe_test_client",
+            target_agent="platform-mcp-client-v1",
+            capability="create_post",
+            prompt=data_to_share
+        )
         print("✓ Call via proxy successful! Response:", response_data)
         return response_data
     except Exception as e:

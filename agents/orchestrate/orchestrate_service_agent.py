@@ -1,12 +1,14 @@
 # In agents/orchestrate/orchestrate_service_agent.py
 import logging
 import os
-import requests
+import aiohttp
 import google.auth
 import google.auth.credentials  # Import for type hinting
 import google.auth.transport.requests
+import google.auth.transport.aiohttp
 from google.adk.agents import Agent
 from typing import Optional, List
+from agents.app.utils.communication import call_http_endpoint
 
 logging.basicConfig(level=logging.INFO)
 
@@ -65,11 +67,18 @@ class OrchestrateServiceAgent(Agent):
         logging.info(f"Memory Bank URL set to: {self.memory_bank_url}")
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
-    def _get_auth_headers(self):
+    async def _get_auth_headers(self):
+        """
+        Asynchronously gets fresh, valid authentication headers.
+        """
         try:
-            auth_req = google.auth.transport.requests.Request()
+            # Use the async-native transport
+            auth_req = google.auth.transport.aiohttp.Request()
+
             if not self.credentials or not self.credentials.valid:
-                self.credentials.refresh(auth_req)
+                # Await the non-blocking refresh call
+                await self.credentials.refresh(auth_req)
+
             return {
                 "Content-Type": "application/json; charset=utf-8",
                 "Authorization": f"Bearer {self.credentials.token}",
@@ -78,7 +87,7 @@ class OrchestrateServiceAgent(Agent):
             logging.error(f"Error getting auth headers: {e}")
             raise
 
-    def create_memory(self, description: str, user_id: str) -> str:
+    async def create_memory(self, description: str, user_id: str) -> str:
         """
         Creates a new memory in the Memory Bank.
 
@@ -90,20 +99,25 @@ class OrchestrateServiceAgent(Agent):
             The resource name of the newly created memory.
         """
         if not self.memory_bank_url: self.set_up() # Ensure set_up called if not already
-        headers = self._get_auth_headers()
+        headers = await self._get_auth_headers()
         payload = {"fact": description, "user_id": user_id}
         logging.info(f"Creating memory at {self.memory_bank_url} for user: {user_id}")
         try:
-            response = requests.post(url=self.memory_bank_url, headers=headers, json=payload)
-            response.raise_for_status()
-            memory = response.json()
+            memory = await call_http_endpoint(
+                source_agent="orchestrate_service_agent",
+                target_service="memory_bank",
+                http_method="POST",
+                url=self.memory_bank_url,
+                headers=headers,
+                json=payload
+            )
             logging.info(f"Successfully created memory: {memory.get('name')}")
             return memory.get('name', '')
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error creating memory: {e} - Response: {e.response.text if e.response else 'No response'}")
+        except aiohttp.ClientError as e:
+            logging.error(f"Error creating memory: {e}")
             raise
 
-    def search_memories(self, query: str, user_id: str) -> str:
+    async def search_memories(self, query: str, user_id: str) -> str:
         """
         Searches for relevant memories in the Memory Bank for a specific user.
 
@@ -115,19 +129,24 @@ class OrchestrateServiceAgent(Agent):
             A string containing the search results.
         """
         if not self.memory_bank_url: self.set_up()
-        headers = self._get_auth_headers()
+        headers = await self._get_auth_headers()
         search_url = f"{self.memory_bank_url}:search"
         payload = {"query": query, "user_id": user_id}
         logging.info(f"Searching memories at {search_url} for user: {user_id} with query: '{query}'")
         try:
-            response = requests.post(url=search_url, headers=headers, json=payload)
-            response.raise_for_status()
-            search_response = response.json()
+            search_response = await call_http_endpoint(
+                source_agent="orchestrate_service_agent",
+                target_service="memory_bank",
+                http_method="POST",
+                url=search_url,
+                headers=headers,
+                json=payload
+            )
             results = [sr.get('memory', {}).get('fact') for sr in search_response.get('searchResults', []) if sr.get('memory', {}).get('fact')]
             logging.info(f"Found {len(results)} memories.")
             return "\n".join(results) if results else "No relevant memories found."
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error searching memories: {e} - Response: {e.response.text if e.response else 'No response'}")
+        except aiohttp.ClientError as e:
+            logging.error(f"Error searching memories: {e}")
             raise
 
 OrchestrateServiceAgent.model_rebuild()

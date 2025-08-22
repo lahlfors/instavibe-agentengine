@@ -1,13 +1,14 @@
-import requests
 import json
 import os
 from dotenv import load_dotenv
+import aiohttp
+from agents.app.utils.communication import call_http_endpoint
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 BASE_URL = os.environ.get("TOOLS_INSTAVIBE_BASE_URL")
 
-def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL):
+async def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL):
     """
     Sends a POST request to the /posts endpoint to create a new post.
 
@@ -22,7 +23,7 @@ def create_post(author_name: str, text: str, sentiment: str, base_url: str = BAS
               Returns None if an error occurs.
 
     Raises:
-        requests.exceptions.RequestException: If there's an issue with the network request (e.g., connection error, timeout).
+        aiohttp.ClientError: If there's an issue with the network request (e.g., connection error, timeout).
     """
     url = f"{base_url}/posts"
     headers = {"Content-Type": "application/json"}
@@ -33,20 +34,26 @@ def create_post(author_name: str, text: str, sentiment: str, base_url: str = BAS
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        print(f"Successfully created post. Status Code: {response.status_code}")
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="POST",
+            url=url,
+            headers=headers,
+            json=payload
+        )
+        print(f"Successfully created post.")
+        return response
+    except aiohttp.ClientError as e:
         print(f"Error creating post: {e}")
         # Optionally re-raise the exception if the caller needs to handle it
         # raise e
         return None
     except json.JSONDecodeError:
-        print(f"Error decoding JSON response from {url}. Response text: {response.text}")
+        print(f"Error decoding JSON response from {url}.")
         return None
 
-def create_event(event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str], base_url: str = BASE_URL):
+async def create_event(event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str], base_url: str = BASE_URL):
     """
     Sends a POST request to the /events endpoint to create a new event registration.
 
@@ -66,7 +73,7 @@ def create_event(event_name: str, description: str, event_date: str, locations: 
               Returns None if an error occurs.
 
     Raises:
-        requests.exceptions.RequestException: If there's an issue with the network request (e.g., connection error, timeout).
+        aiohttp.ClientError: If there's an issue with the network request (e.g., connection error, timeout).
     """
     url = f"{base_url}/events"
     headers = {"Content-Type": "application/json"}
@@ -79,17 +86,23 @@ def create_event(event_name: str, description: str, event_date: str, locations: 
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        print(f"Successfully created event registration. Status Code: {response.status_code}")
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="POST",
+            url=url,
+            headers=headers,
+            json=payload
+        )
+        print(f"Successfully created event registration.")
+        return response
+    except aiohttp.ClientError as e:
         print(f"Error creating event registration: {e}")
         # Optionally re-raise the exception if the caller needs to handle it
         # raise e
         return None
     except json.JSONDecodeError:
-        print(f"Error decoding JSON response from {url}. Response text: {response.text}")
+        print(f"Error decoding JSON response from {url}.")
         return None
 
 

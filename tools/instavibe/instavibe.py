@@ -106,6 +106,83 @@ async def create_event(event_name: str, description: str, event_date: str, locat
         return None
 
 
+async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
+    """
+    Fetches a person's ID by their name by calling the API.
+    """
+    url = f"{base_url}/api/person/by_name/{name}"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+        )
+        # The API returns {"person_id": "..."} on success
+        return response.get('person_id') if response else None
+    except aiohttp.ClientError as e:
+        print(f"Error getting person ID by name: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
+async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
+    """
+    Fetches events attended by a person by calling the API.
+    """
+    url = f"{base_url}/api/person/{person_id}/attended_events"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+        )
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error getting attended events: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
-  
+async def get_person_posts(person_id: str, base_url: str = BASE_URL):
+    """
+    Fetches posts by a person by calling the API.
+    """
+    url = f"{base_url}/api/person/{person_id}/posts"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+        )
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error getting person posts: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
+
+async def get_person_friends(person_id: str, base_url: str = BASE_URL):
+    """
+    Fetches friends of a person by calling the API.
+    """
+    url = f"{base_url}/api/person/{person_id}/friends"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+        )
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error getting person friends: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None

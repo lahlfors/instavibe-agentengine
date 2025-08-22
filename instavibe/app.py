@@ -9,8 +9,8 @@ import humanize
 import uuid
 import traceback
 from dateutil import parser 
-from ally_routes import ally_bp
-from telemetry import setup_telemetry
+from .ally_routes import ally_bp
+from .telemetry import setup_telemetry
 
 
 app = Flask(__name__)
@@ -231,6 +231,28 @@ def get_friends_db(person_id):
     param_types_map = {"person_id": param_types.STRING}
     fields = ["person_id", "name"]
     return run_query(sql, params=params, param_types=param_types_map, expected_fields=fields)
+
+
+def get_person_attended_events_db(person_id):
+    """Fetches events attended by a specific person from Spanner."""
+    sql = """
+        SELECT e.event_id, e.name, e.event_date, a.attendance_time
+        FROM Event AS e
+        JOIN Attendance AS a ON e.event_id = a.event_id
+        WHERE a.person_id = @person_id
+        ORDER BY e.event_date DESC
+    """
+    params = {"person_id": person_id}
+    param_types_map = {"person_id": param_types.STRING}
+    fields = ["event_id", "name", "event_date", "attendance_time"]
+    results = run_query(sql, params=params, param_types=param_types_map, expected_fields=fields)
+    # Convert datetime objects to ISO format strings for JSON compatibility
+    for event in results:
+        if isinstance(event.get('event_date'), datetime):
+            event['event_date'] = event['event_date'].isoformat()
+        if isinstance(event.get('attendance_time'), datetime):
+            event['attendance_time'] = event['attendance_time'].isoformat()
+    return results
 
 
 def get_all_events_with_attendees_db():
@@ -800,6 +822,83 @@ def add_event_api():
     except Exception as e:
         # Catch other unexpected errors
         print(f"Unexpected error processing add event request: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+
+# --- API Read Endpoints ---
+
+@app.route('/api/person/by_name/<string:name>', methods=['GET'])
+def get_person_id_by_name_api(name):
+    """API endpoint to get a person's ID by their name."""
+    if not db:
+        return jsonify({"error": "Database connection not available"}), 503
+    try:
+        person_id = get_person_by_name_db(name)
+        if person_id:
+            return jsonify({"person_id": person_id}), 200
+        else:
+            return jsonify({"error": f"Person with name '{name}' not found"}), 404
+    except Exception as e:
+        print(f"Error in get_person_id_by_name_api: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+@app.route('/api/person/<string:person_id>/attended_events', methods=['GET'])
+def get_person_attended_events_api(person_id):
+    """API endpoint to get events attended by a person."""
+    if not db:
+        return jsonify({"error": "Database connection not available"}), 503
+    try:
+        # First, check if person exists to give a better error message
+        person = get_person_db(person_id)
+        if not person:
+            return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
+
+        events = get_person_attended_events_db(person_id)
+        return jsonify(events), 200
+    except Exception as e:
+        print(f"Error in get_person_attended_events_api: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+@app.route('/api/person/<string:person_id>/posts', methods=['GET'])
+def get_person_posts_api(person_id):
+    """API endpoint to get posts by a person."""
+    if not db:
+        return jsonify({"error": "Database connection not available"}), 503
+    try:
+        # First, check if person exists
+        person = get_person_db(person_id)
+        if not person:
+            return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
+
+        posts = get_posts_by_person_db(person_id)
+        # Dates in get_posts_by_person_db are already datetimes, need to convert for JSON
+        for post in posts:
+            if isinstance(post.get('post_timestamp'), datetime):
+                post['post_timestamp'] = post['post_timestamp'].isoformat()
+        return jsonify(posts), 200
+    except Exception as e:
+        print(f"Error in get_person_posts_api: {e}")
+        traceback.print_exc()
+        return jsonify({"error": "An internal server error occurred"}), 500
+
+@app.route('/api/person/<string:person_id>/friends', methods=['GET'])
+def get_person_friends_api(person_id):
+    """API endpoint to get friends of a person."""
+    if not db:
+        return jsonify({"error": "Database connection not available"}), 503
+    try:
+        # First, check if person exists
+        person = get_person_db(person_id)
+        if not person:
+            return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
+
+        friends = get_friends_db(person_id)
+        return jsonify(friends), 200
+    except Exception as e:
+        print(f"Error in get_person_friends_api: {e}")
         traceback.print_exc()
         return jsonify({"error": "An internal server error occurred"}), 500
 

@@ -1,7 +1,9 @@
 from google import adk
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.planners import BuiltInPlanner
 from google.adk.tools.tool_context import ToolContext
+from google.genai.types import ThinkingConfig
 from agents.app.utils.communication import call_agent_capability
 
 
@@ -20,8 +22,13 @@ class HostAgent:
   def create_agent(self) -> Agent:
     # project_id, location, and model_config_kwargs are removed as LlmAgent will use
     # values from vertexai.init() or environment variables.
+    thinking_config = ThinkingConfig(
+        include_thoughts=True,
+        thinking_budget=-1, # Use dynamic thinking
+    )
+    planner = BuiltInPlanner(thinking_config=thinking_config)
     return Agent(
-        model="gemini-2.0-flash-001", # Updated model name
+        model="gemini-2.5-flash-001", # Updated model name
         name="orchestrate_agent",
         instruction=self.root_instruction,
         description=(
@@ -30,7 +37,8 @@ class HostAgent:
         ),
         tools=[
             self.send_task,
-        ]
+        ],
+        planner=planner,
     )
 
   def root_instruction(self, context: ReadonlyContext) -> str:
@@ -47,7 +55,8 @@ class HostAgent:
     Core Workflow:
     1.  **Understand User Intent:** Analyze the user's request to determine the core task.
     2.  **Identify Action and Agent:** Determine the appropriate 'action' (capability) to call and the 'agent_name' that provides it.
-    3.  **Delegate Task:** Use the `send_task` tool to delegate the task. Your call MUST include:
+    3.  **Provide Reasoning:** After you have identified the agent and action, but before you call the tool, provide a brief summary of your reasoning for choosing a particular agent and action.
+    4.  **Delegate Task:** Use the `send_task` tool to delegate the task. Your call MUST include:
         *   `agent_name`: The name of the target agent (e.g., 'planner-agent').
         *   `action`: The name of the capability to invoke (e.g., 'plan', 'create_event').
         *   `data`: A dictionary containing the payload for the action.

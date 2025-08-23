@@ -35,6 +35,14 @@ async def call_agent_capability(source_agent: str, target_agent: str, capability
 
             response = await capability_obj.invoke(prompt)
 
+            if hasattr(response, 'candidates') and response.candidates:
+                thought_summaries = []
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'thought') and part.thought and hasattr(part, 'text') and part.text:
+                        thought_summaries.append(part.text)
+                if thought_summaries:
+                    span.set_attribute("reasoning.thoughts", "\n".join(thought_summaries))
+
             span.set_attribute("response.text", str(response))
             span.set_status(trace.StatusCode.OK)
             return response

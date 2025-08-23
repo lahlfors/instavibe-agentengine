@@ -9,7 +9,7 @@ import humanize
 import uuid
 import traceback
 from dateutil import parser 
-from .ally_routes import ally_bp
+from ally_routes import ally_bp
 from .telemetry import setup_telemetry
 
 

@@ -1,5 +1,15 @@
+import sys
+import os
+
+# Determine the project root directory
+# This assumes the entry point script is two levels down from the project root (e.g., agents/social/main.py)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Add the project root to the Python path if it's not already there
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import datetime
-import os # For path joining
 from dotenv import load_dotenv # To load .env
 from zoneinfo import ZoneInfo
 from google.adk.agents import LoopAgent, LlmAgent, BaseAgent

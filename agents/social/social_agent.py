@@ -49,7 +49,7 @@ class SocialAgent(AgentTaskManager):
 
   def _build_agent(self) -> LoopAgent:
     """Builds the LLM agent for the social profile analysis agent."""
-    return agent.root_agent
+    return agent.create_agent()
 
   def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         self.set_up()

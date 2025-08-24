@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 import json 
 import traceback 
 import logging # Added for logging
-from .introvertally import call_agent_for_plan, post_plan_event
+from introvertally import call_agent_for_plan, post_plan_event
 
 # Initialize logger
 logger = logging.getLogger(__name__)

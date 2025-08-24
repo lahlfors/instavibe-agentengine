@@ -188,6 +188,8 @@ def initialize_global_agent():
 
         try:
             root_agent = PlatformMCPClientServiceAgent(mcp_server_url=mcp_url)
+            # Eagerly initialize the components
+            asyncio.run(root_agent._ensure_components_initialized_async())
             log.info("PlatformMCPClientServiceAgent initialized successfully and assigned to agent.root_agent.")
         except Exception as e:
             log.critical(f"CRITICAL: Failed to initialize PlatformMCPClientServiceAgent: {e}", exc_info=True)
@@ -195,7 +197,7 @@ def initialize_global_agent():
     else:
         log.info("PlatformMCPClientServiceAgent (agent.root_agent) already initialized.")
 
-# try:
-#     initialize_global_agent()
-# except Exception as e:
-#     log.critical(f"CRITICAL: Module-level initialization of root_agent failed: {e}", exc_info=True)
+try:
+    initialize_global_agent()
+except Exception as e:
+    log.critical(f"CRITICAL: Module-level initialization of root_agent failed: {e}", exc_info=True)

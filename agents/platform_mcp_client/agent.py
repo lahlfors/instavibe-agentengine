@@ -21,10 +21,14 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+from typing import Optional, Any
+from mcp import client
+
 class PlatformMCPClientAgent(BaseAgent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
     api_key_secret: str
+    mcp_client: "Optional[Any]" = None
 
     def __init__(self, mcp_server_address: str, api_key_secret: str):
         """Initializes the agent with serializable configuration.
@@ -32,7 +36,6 @@ class PlatformMCPClientAgent(BaseAgent):
         No network operations or client instantiations here.
         """
         super().__init__(name="platform_mcp_client_agent", mcp_server_address=mcp_server_address, api_key_secret=api_key_secret)
-        self.mcp_client = None  # Initialize to None
         log.info("PlatformMCPClientAgent __init__ called. Config stored.")
 
     def _initialize_mcp_client(self):
@@ -52,7 +55,7 @@ class PlatformMCPClientAgent(BaseAgent):
         log.info(f"Fetching API key from secret: {secret_name}")
         return "DUMMY_API_KEY"
 
-    def set_up(self):
+    def set_up(self, mcp_client: "Any"):
         """
         Called by Vertex AI Agent Engine after deserialization.
         Initialize non-serializable resources like network clients here.
@@ -61,10 +64,7 @@ class PlatformMCPClientAgent(BaseAgent):
             log.info("Starting PlatformMCPClientAgent.set_up")
             main_span.add_event("Starting PlatformMCPClientAgent.set_up")
             try:
-                with tracer.start_as_current_span("initialize_mcp_client") as sub_span:
-                    self.mcp_client = self._initialize_mcp_client()
-                    sub_span.set_attribute("mcp_server_address", self.mcp_server_address)
-
+                self.mcp_client = mcp_client
                 log.info("MCPClient initialized successfully in set_up.")
                 main_span.set_status(trace.Status(trace.StatusCode.OK))
             except Exception as e:

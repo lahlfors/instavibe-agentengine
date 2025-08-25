@@ -16,3 +16,4 @@ requests>=2.0.0
 google-auth[aiohttp]>=2.0.0
 aiohttp>=3.9.5
 opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-requests

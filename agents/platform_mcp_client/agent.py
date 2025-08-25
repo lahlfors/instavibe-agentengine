@@ -38,10 +38,7 @@ class PlatformMCPClientAgent(BaseAgent):
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
-        with tracer.start_as_current_span("get_api_key") as span:
-            api_key = self._get_api_key(self.api_key_secret)
-            span.set_attribute("api_key_secret_name", self.api_key_secret)
-
+        self._get_api_key(self.api_key_secret)
         log.info(f"Initializing MCPClient for {self.mcp_server_address}")
         # REPLACE with actual client instantiation
         # Example: client = MCPClient(self.mcp_server_address, api_key)

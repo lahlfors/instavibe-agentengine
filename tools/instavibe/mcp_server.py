@@ -20,8 +20,12 @@ from dotenv import load_dotenv
 import inspect
 import logging
 from opentelemetry import trace
-from instavibe import create_event, create_post
 import instavibe
+from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
+from common.tracing import configure_tracer
+import sys
+sys.path.append('.')
 
 from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
@@ -30,14 +34,6 @@ from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 from opentelemetry.instrumentation.asgi import ASGIMiddleware
-import sys
-sys.path.append('.')
-from common.tracing import configure_tracer
-
-from google.adk.tools.function_tool import FunctionTool
-
-
-from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -113,33 +109,33 @@ async def call_tool(
             return [mcp_types.TextContent(type="text", text=error_text)]
 
 async def handle_sse(request):
-  """Runs the MCP server over standard input/output."""
-  async with sse.connect_sse(
-    request.scope, request.receive, request._send
-  ) as streams:
-    await app.run(
-        streams[0], streams[1], app.create_initialization_options()
-    )
+    """Runs the MCP server over standard input/output."""
+    async with sse.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
+        await app.run(
+            streams[0], streams[1], app.create_initialization_options()
+        )
 
 starlette_app = Starlette(
- debug=True,
+    debug=True,
     routes=[
         Route("/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
     ],
 )
 
- # Add the OTel middleware to the Starlette app
- starlette_app = ASGIMiddleware(starlette_app)
+# Add the OTel middleware to the Starlette app
+starlette_app = ASGIMiddleware(starlette_app)
 
 if __name__ == "__main__":
-  logging.info("Launching MCP Server exposing ADK tools...")
-  try:
-    uvicorn_port = APP_PORT if isinstance(APP_PORT, int) else int(str(APP_PORT))
-    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port))
-  except KeyboardInterrupt:
-    logging.info("\nMCP Server stopped by user.")
-  except Exception as e:
-    logging.error(f"MCP Server encountered an error: {e}", exc_info=True)
-  finally:
-    logging.info("MCP Server process exiting.")
+    logging.info("Launching MCP Server exposing ADK tools...")
+    try:
+        uvicorn_port = APP_PORT if isinstance(APP_PORT, int) else int(str(APP_PORT))
+        asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port))
+    except KeyboardInterrupt:
+        logging.info("\nMCP Server stopped by user.")
+    except Exception as e:
+        logging.error(f"MCP Server encountered an error: {e}", exc_info=True)
+    finally:
+        logging.info("MCP Server process exiting.")

@@ -25,7 +25,7 @@ async def call_agent_capability(source_agent: str, target_agent: str, capability
 
         try:
             # --- Your actual agent communication logic goes here ---
-            agent = adk.agents.find(target_agent)
+            agent = agents.find(target_agent)
             if not agent:
                 raise ValueError(f"Agent '{target_agent}' not found.")
 

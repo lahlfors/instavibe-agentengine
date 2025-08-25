@@ -97,8 +97,6 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_p
     try:
         # This tells the ADK to copy the 'agents' and 'tools' directories
         # from your project's root into the container.
-        shared_paths = ["agents", "tools"]
-
         remote_agent = agent_engines.create(
             adk_app, # Pass the AdkApp instance
             display_name=display_name,

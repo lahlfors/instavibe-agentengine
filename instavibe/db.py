@@ -2,7 +2,7 @@
 
 import os
 import traceback
-from datetime import datetime,
+from datetime import datetime
 import json # For example usage printing
 
 from google.cloud import spanner

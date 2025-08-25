@@ -1,5 +1,9 @@
 import os
 import logging
+import sys
+sys.path.append('.')
+from common.tracing import configure_tracer
+configure_tracer(service_name="orchestrate-agent")
 from google.adk.agents import Agent
 from opentelemetry import trace
 

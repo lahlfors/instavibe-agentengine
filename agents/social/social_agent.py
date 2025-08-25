@@ -20,6 +20,10 @@ from dotenv import load_dotenv # To load .env
 # adding it here ensures that if SocialAgent is used or tested in a context
 # where agent.py wasn't the first import, the environment is still correctly configured.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+import sys
+sys.path.append('.')
+from common.tracing import configure_tracer
+configure_tracer(service_name="social-agent")
 from opentelemetry import trace
 tracer = trace.get_tracer(__name__)
 

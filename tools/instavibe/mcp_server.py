@@ -29,7 +29,10 @@ from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-
+from opentelemetry.instrumentation.asgi import ASGIMiddleware
+import sys
+sys.path.append('.')
+from common.tracing import configure_tracer
 
 from google.adk.tools.function_tool import FunctionTool
 
@@ -42,6 +45,8 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # Configure basic logging at the top of your script
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Configure OpenTelemetry Tracer
+configure_tracer(service_name="mcp-server")
 tracer = trace.get_tracer(__name__)
 
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
@@ -123,6 +128,9 @@ starlette_app = Starlette(
         Mount("/messages/", app=sse.handle_post_message),
     ],
 )
+
+ # Add the OTel middleware to the Starlette app
+ starlette_app = ASGIMiddleware(starlette_app)
 
 if __name__ == "__main__":
   logging.info("Launching MCP Server exposing ADK tools...")

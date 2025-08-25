@@ -6,3 +6,9 @@ python-dateutil==2.9.0.post0
 deprecated==1.2.18
 gunicorn
 python-dotenv==1.0.1
+
+# OpenTelemetry for tracing and diagnostics
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-gcp-trace
+opentelemetry-instrumentation-asgi

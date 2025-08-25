@@ -9,6 +9,10 @@ from google.adk.agents import BaseAgent
 from typing import Any, Dict, List, Tuple, Optional
 from google.genai.types import Content, Part
 from opentelemetry import trace
+import sys
+sys.path.append('.')
+from common.tracing import configure_tracer
+configure_tracer(service_name="platform-mcp-client-agent")
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))

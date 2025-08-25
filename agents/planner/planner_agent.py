@@ -15,6 +15,10 @@ from . import agent as planner_agent_module
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from opentelemetry import trace
+import sys
+sys.path.append('.')
+from common.tracing import configure_tracer
+configure_tracer(service_name="planner-agent")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 nest_asyncio.apply()

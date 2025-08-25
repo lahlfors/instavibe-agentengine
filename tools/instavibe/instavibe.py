@@ -1,8 +1,17 @@
-import json
 import os
+import logging
+import json
 from dotenv import load_dotenv
 import aiohttp
 from agents.app.utils.communication import call_http_endpoint
+
+logging.basicConfig(level=logging.INFO)
+logging.info("--- instavibe.py module loading ---")
+logging.info(f"PROJECT_ID: {os.getenv('COMMON_GOOGLE_CLOUD_PROJECT')}")
+logging.info(f"SPANNER_INSTANCE: {os.getenv('COMMON_SPANNER_INSTANCE_ID')}")
+logging.info(f"SPANNER_DATABASE: {os.getenv('COMMON_SPANNER_DATABASE_ID')}")
+logging.info("------------------------------------")
+
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))

@@ -31,4 +31,4 @@ EXPOSE 8080
 # --- Run the application ---
 # Run a2a_server.py when the container launches
 # Use the module execution '-m' which works well with the PYTHONPATH setup
-CMD ["python", "-m", "planner.a2a_server"]
+CMD ["python", "-m", "agents.planner.a2a_server"]

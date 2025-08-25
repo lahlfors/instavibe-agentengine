@@ -9,7 +9,9 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
-COPY ./tools/instavibe/ /app/
+COPY ./tools /app/tools
+COPY ./agents /app/agents
+COPY ./common /app/common
 
 # --- Environment ---
 ENV PYTHONPATH=/app
@@ -19,4 +21,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["sh", "-c", "opentelemetry-instrument uvicorn mcp_server:starlette_app --host 0.0.0.0 --port $PORT"]
+CMD ["sh", "-c", "opentelemetry-instrument uvicorn tools.instavibe.mcp_server:starlette_app --host 0.0.0.0 --port $PORT"]

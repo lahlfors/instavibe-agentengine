@@ -95,6 +95,10 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_p
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
 
     try:
+        # This tells the ADK to copy the 'agents' and 'tools' directories
+        # from your project's root into the container.
+        shared_paths = ["agents", "tools"]
+
         remote_agent = agent_engines.create(
             adk_app, # Pass the AdkApp instance
             display_name=display_name,
@@ -102,6 +106,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_p
             requirements=requirements_list, # Pass the processed list, now including the wheel
             extra_packages=extra_packages or [],
             env_vars=env_vars_for_deployment, # Changed to env_vars
+            include=shared_paths,
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config
         )

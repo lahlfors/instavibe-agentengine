@@ -19,15 +19,15 @@ tracer = trace.get_tracer(__name__)
 
 class PlatformMCPClientAgent(BaseAgent):
     """An agent that interacts with the MCP server."""
+    mcp_server_address: str
+    api_key_secret: str
 
     def __init__(self, mcp_server_address: str, api_key_secret: str):
         """Initializes the agent with serializable configuration.
 
         No network operations or client instantiations here.
         """
-        super().__init__(name="platform_mcp_client_agent")
-        self.mcp_server_address = mcp_server_address
-        self.api_key_secret = api_key_secret
+        super().__init__(name="platform_mcp_client_agent", mcp_server_address=mcp_server_address, api_key_secret=api_key_secret)
         self.mcp_client = None  # Initialize to None
         log.info("PlatformMCPClientAgent __init__ called. Config stored.")
 

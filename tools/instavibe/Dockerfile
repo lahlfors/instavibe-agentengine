@@ -9,7 +9,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
-COPY . /app
+COPY ./tools/instavibe/ /app/
 
 # --- Environment ---
 ENV PYTHONPATH=/app

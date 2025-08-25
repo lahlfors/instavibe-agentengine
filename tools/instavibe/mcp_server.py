@@ -33,7 +33,6 @@ from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-from opentelemetry.instrumentation.asgi import ASGIMiddleware
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -124,9 +123,6 @@ starlette_app = Starlette(
         Mount("/messages/", app=sse.handle_post_message),
     ],
 )
-
-# Add the OTel middleware to the Starlette app
-starlette_app = ASGIMiddleware(starlette_app)
 
 if __name__ == "__main__":
     logging.info("Launching MCP Server exposing ADK tools...")

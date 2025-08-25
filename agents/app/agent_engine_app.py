@@ -31,7 +31,7 @@ from opentelemetry.sdk.trace import TracerProvider, export
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 from agents.app.utils.gcs import create_bucket_if_not_exists
-from common.telemetry import setup_telemetry
+from common.observability import setup_observability
 from agents.app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
@@ -45,7 +45,7 @@ class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Set up logging and tracing for the agent engine app."""
         super().set_up()
-        setup_telemetry(self, "agent-engine")
+        setup_observability("agent-engine")
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""

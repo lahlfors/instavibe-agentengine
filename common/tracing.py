@@ -7,6 +7,11 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 def configure_tracer(service_name: str):
     """Configures the OpenTelemetry SDK to send traces to Google Cloud."""
+    # Check if a TracerProvider is already configured.
+    # The default is a ProxyTracerProvider, so if it's anything else,
+    # it has been configured.
+    if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+        return
     # A "Resource" identifies your application. The "service.name" is crucial
     # as it's how you'll filter for your agent's traces in Cloud Trace.
     resource = Resource(attributes={"service.name": service_name})

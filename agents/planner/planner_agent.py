@@ -14,9 +14,11 @@ from google.genai.types import Content, Part
 from . import agent as planner_agent_module
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
+from opentelemetry import trace
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 nest_asyncio.apply()
+tracer = trace.get_tracer(__name__)
 
 class PlannerAgent(BaseAgent):
     """An agent that helps users plan a night out."""
@@ -30,19 +32,27 @@ class PlannerAgent(BaseAgent):
         """Initializes the agent and runner."""
         if self._runner:
             return
-        try:
-            self._agent = self._build_agent()
-            self._runner = Runner(
-                app_name=self._agent.name,
-                agent=self._agent,
-                artifact_service=InMemoryArtifactService(),
-                session_service=InMemorySessionService(),
-                memory_service=InMemoryMemoryService(),
-            )
-            logging.info(f"PlannerAgent '{self.name}' set up complete.")
-        except Exception as e:
-            logging.error(f"Error during PlannerAgent set_up: {e}", exc_info=True)
-            raise
+
+        with tracer.start_as_current_span("PlannerAgent.set_up") as main_span:
+            logging.info("Starting PlannerAgent.set_up")
+            main_span.add_event("Starting PlannerAgent.set_up")
+            try:
+                with tracer.start_as_current_span("build_agent_and_runner"):
+                    self._agent = self._build_agent()
+                    self._runner = Runner(
+                        app_name=self._agent.name,
+                        agent=self._agent,
+                        artifact_service=InMemoryArtifactService(),
+                        session_service=InMemorySessionService(),
+                        memory_service=InMemoryMemoryService(),
+                    )
+                logging.info(f"PlannerAgent '{self.name}' set up complete.")
+                main_span.set_status(trace.Status(trace.StatusCode.OK))
+            except Exception as e:
+                logging.error(f"Error during PlannerAgent set_up: {e}", exc_info=True)
+                main_span.record_exception(e)
+                main_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                raise
 
     def _build_agent(self) -> LlmAgent:
         """Builds the underlying LLM agent."""

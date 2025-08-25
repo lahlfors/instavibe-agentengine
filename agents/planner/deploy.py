@@ -49,9 +49,10 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # We remove direct staging_bucket_uri parsing and GCS client instantiation here.
 
     # local_agent_instance = PlannerAgent() # Old: Deployed the wrapper
-    local_agent_instance = planner_main_agent_module.root_agent # New: Deploy the LlmAgent
+    # local_agent_instance = planner_main_agent_module.root_agent # Old way, direct access
+    local_agent_instance = planner_main_agent_module.create_agent() # New way, use factory
     if local_agent_instance is None:
-        raise ValueError("Error: The root_agent in agents.planner.agent is None. Ensure it's initialized.")
+        raise ValueError("Error: create_agent() in agents.planner.agent returned None.")
 
 
 

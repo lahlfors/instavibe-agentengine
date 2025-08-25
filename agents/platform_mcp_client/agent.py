@@ -8,12 +8,14 @@ import nest_asyncio
 from google.adk.agents import BaseAgent
 from typing import Any, Dict, List, Tuple, Optional
 from google.genai.types import Content, Part
+from opentelemetry import trace
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 class PlatformMCPClientAgent(BaseAgent):
     """An agent that interacts with the MCP server."""
@@ -27,14 +29,15 @@ class PlatformMCPClientAgent(BaseAgent):
         self.mcp_server_address = mcp_server_address
         self.api_key_secret = api_key_secret
         self.mcp_client = None  # Initialize to None
-
-        print("PlatformMCPClientAgent __init__ called. Config stored.")
+        log.info("PlatformMCPClientAgent __init__ called. Config stored.")
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
-        # Potentially fetch API key from a secret manager if needed
-        api_key = self._get_api_key(self.api_key_secret)
-        print(f"Initializing MCPClient for {self.mcp_server_address}")
+        with tracer.start_as_current_span("get_api_key") as span:
+            api_key = self._get_api_key(self.api_key_secret)
+            span.set_attribute("api_key_secret_name", self.api_key_secret)
+
+        log.info(f"Initializing MCPClient for {self.mcp_server_address}")
         # REPLACE with actual client instantiation
         # Example: client = MCPClient(self.mcp_server_address, api_key)
         client = f"FakeMCPClient(server='{self.mcp_server_address}')"  # Placeholder
@@ -42,7 +45,7 @@ class PlatformMCPClientAgent(BaseAgent):
 
     def _get_api_key(self, secret_name):
         # Placeholder for fetching secret
-        print(f"Fetching API key from secret: {secret_name}")
+        log.info(f"Fetching API key from secret: {secret_name}")
         return "DUMMY_API_KEY"
 
     def set_up(self):
@@ -50,14 +53,21 @@ class PlatformMCPClientAgent(BaseAgent):
         Called by Vertex AI Agent Engine after deserialization.
         Initialize non-serializable resources like network clients here.
         """
-        print("PlatformMCPClientAgent set_up() called.")
-        try:
-            self.mcp_client = self._initialize_mcp_client()
-            print("MCPClient initialized successfully in set_up.")
-        except Exception as e:
-            print(f"Error during MCPClient initialization in set_up: {e}")
-            # Re-raise to signal failure to the agent engine
-            raise
+        with tracer.start_as_current_span("PlatformMCPClientAgent.set_up") as main_span:
+            log.info("Starting PlatformMCPClientAgent.set_up")
+            main_span.add_event("Starting PlatformMCPClientAgent.set_up")
+            try:
+                with tracer.start_as_current_span("initialize_mcp_client") as sub_span:
+                    self.mcp_client = self._initialize_mcp_client()
+                    sub_span.set_attribute("mcp_server_address", self.mcp_server_address)
+
+                log.info("MCPClient initialized successfully in set_up.")
+                main_span.set_status(trace.Status(trace.StatusCode.OK))
+            except Exception as e:
+                log.error(f"Error during MCPClient initialization in set_up: {e}", exc_info=True)
+                main_span.record_exception(e)
+                main_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                raise
 
     def query(self, user_query: str, **kwargs):
         """

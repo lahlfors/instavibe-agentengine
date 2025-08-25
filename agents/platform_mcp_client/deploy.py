@@ -16,8 +16,7 @@ from vertexai import agent_engines # For the new create method
 # from google.cloud import storage # Handled by ADK or not needed directly
 # import google.auth # For google.auth.exceptions
 
-# Import the agent module that contains the `root_agent`
-from agents.platform_mcp_client import agent as platform_mcp_client_agent_module
+from agents.platform_mcp_client.agent import PlatformMCPClientAgent
 from dotenv import load_dotenv # For loading .env file
 import logging # Added
 
@@ -42,15 +41,20 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     display_name = "Platform MCP Client Agent"
     description = "An agent that connects to an MCP Tool Server to provide tools for other agents or clients. It can interact with Instavibe services like creating posts and events."
 
-    # vertexai.init should be called externally, e.g. in deploy_all.py
-    # project, region, staging_bucket are picked up from that global config.
+    # Get required config from environment variables.
+    mcp_server_url = os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL")
+    if not mcp_server_url:
+        raise ValueError("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL environment variable not set.")
 
-    # Explicitly initialize the agent before using it.
-    platform_mcp_client_agent_module.initialize_global_agent()
+    # This secret name is a placeholder, adjust if a real secret is used.
+    api_key_secret_name = os.environ.get("MCP_API_KEY_SECRET", "default-mcp-api-key-secret")
 
-    local_agent_instance = platform_mcp_client_agent_module.root_agent
-    if local_agent_instance is None:
-        raise ValueError("Error: The root_agent in platform_mcp_client.agent is None. Ensure it's initialized.")
+    # Instantiate the agent directly, passing serializable config.
+    local_agent_instance = PlatformMCPClientAgent(
+        mcp_server_address=mcp_server_url,
+        api_key_secret=api_key_secret_name
+    )
+
     adk_app = AgentEngineApp(agent=local_agent_instance)
 
     # base_dir is the repository root.

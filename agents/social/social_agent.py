@@ -22,8 +22,6 @@ from dotenv import load_dotenv # To load .env
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 import sys
 sys.path.append('.')
-from common.tracing import configure_tracer
-configure_tracer(service_name="social-agent")
 from opentelemetry import trace
 tracer = trace.get_tracer(__name__)
 

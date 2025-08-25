@@ -23,7 +23,7 @@ from opentelemetry import trace
 import instavibe
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
-from common.tracing import configure_tracer
+from common.observability import setup_observability
 import sys
 sys.path.append('.')
 
@@ -42,7 +42,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configure OpenTelemetry Tracer
-configure_tracer(service_name="mcp-server")
+setup_observability(service_name="mcp-server")
 tracer = trace.get_tracer(__name__)
 
 APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")

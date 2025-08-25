@@ -12,7 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 # --- Application Code ---
-COPY . /app
+COPY ./instavibe /app/instavibe
+COPY ./agents /app/agents
+COPY ./common /app/common
 
 # --- Environment ---
 ENV PYTHONPATH=/app
@@ -23,4 +25,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread app:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread instavibe.app:app"]

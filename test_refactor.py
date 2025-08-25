@@ -1,20 +1,33 @@
 import pytest
 import pytest_asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
+import os
+os.environ["COMMON_SPANNER_INSTANCE_ID"] = "test-instance"
+os.environ["COMMON_SPANNER_DATABASE_ID"] = "test-database"
+os.environ["COMMON_GOOGLE_CLOUD_PROJECT"] = "test-project"
+
 
 # Patch the spanner client at the source, before it's imported by app.py
 # This prevents the client from trying to authenticate when the module is loaded.
 patcher = patch('google.cloud.spanner.Client', autospec=True)
 patcher_ts = patch('google.cloud.spanner.COMMIT_TIMESTAMP', 'COMMIT_TIMESTAMP')
+patcher_logging = patch('google.cloud.logging.Client', autospec=True)
 
+from unittest.mock import MagicMock
 # Start the patches
 mock_spanner_client = patcher.start()
 mock_spanner_ts = patcher_ts.start()
+mock_logging_client = patcher_logging.start()
+mock_logging_client.return_value._handlers = MagicMock()
+mock_logging_client.return_value._handlers.add = MagicMock()
+mock_logging_client.return_value.project = "test-project"
+
 
 # Make sure to stop the patcher after tests are done
 import atexit
 atexit.register(patcher.stop)
 atexit.register(patcher_ts.stop)
+atexit.register(patcher_logging.stop)
 
 
 # Must be imported before the modules that use them for patching to work
@@ -184,3 +197,23 @@ async def test_social_get_friends(mock_client):
     mock_client.get_person_friends = AsyncMock(return_value=[])
     await social_instavibe_data.get_person_friends("person-123")
     mock_client.get_person_friends.assert_awaited_with(person_id="person-123")
+
+# --- 4. Tests for common/observability.py ---
+
+from common.observability import setup_observability
+from opentelemetry import trace
+
+import os
+@patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
+@patch('common.observability.Traceloop')
+def test_setup_observability(mock_traceloop, mock_add_resource_labels):
+    """Test that setup_observability calls Traceloop.init and a tracer can be acquired."""
+    with patch.dict(os.environ, {}, clear=True):
+        setup_observability("test-service")
+        mock_traceloop.init.assert_called_with()
+        assert os.environ["TRACELOOP_SERVICE_NAME"] == "test-service"
+
+        # Verify that a tracer can be acquired
+        tracer = trace.get_tracer("my.tracer")
+        assert tracer is not None
+        assert isinstance(tracer, trace.Tracer)

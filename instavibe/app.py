@@ -8,10 +8,12 @@ from google.api_core import exceptions
 import humanize 
 import uuid
 import traceback
-from dateutil import parser 
-from ally_routes import ally_bp
+from dateutil import parser
+from .ally_routes import ally_bp
 from common.observability import setup_observability
+from opentelemetry import trace
 
+tracer = trace.get_tracer(__name__)
 
 app = Flask(__name__)
 setup_observability("instavibe-app")
@@ -619,70 +621,74 @@ def add_post_api():
     API endpoint to add a new post.
     Expects JSON body: {"author_name": "...", "text": "...", "sentiment": "..." (optional)}
     """
-    if not db:
-        return jsonify({"error": "Database connection not available"}), 503 # Service Unavailable
+    with tracer.start_as_current_span("add_post_api") as span:
+        if not db:
+            return jsonify({"error": "Database connection not available"}), 503 # Service Unavailable
 
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Invalid JSON payload"}), 400
-    if 'author_name' not in data or 'text' not in data:
-        return jsonify({"error": "Missing 'author_name' or 'text' in request body"}), 400
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON payload"}), 400
+        if 'author_name' not in data or 'text' not in data:
+            return jsonify({"error": "Missing 'author_name' or 'text' in request body"}), 400
 
-    author_name = data['author_name']
-    text = data['text']
-    sentiment = data.get('sentiment') # Optional, defaults to None if not provided
+        author_name = data['author_name']
+        text = data['text']
+        sentiment = data.get('sentiment') # Optional, defaults to None if not provided
 
-    # Basic input validation
-    if not isinstance(author_name, str) or not author_name.strip():
-         return jsonify({"error": "'author_name' must be a non-empty string"}), 400
-    if not isinstance(text, str) or not text.strip():
-         return jsonify({"error": "'text' must be a non-empty string"}), 400
-    if sentiment is not None and not isinstance(sentiment, str):
-         return jsonify({"error": "'sentiment' must be a string if provided"}), 400
+        span.set_attribute("app.post.author", author_name)
+        span.set_attribute("app.post.sentiment", sentiment)
 
-    try:
-        # 1. Find the author_id using the provided name
-        author_id = get_person_by_name_db(author_name)
-        if not author_id:
-            return jsonify({"error": f"Author '{author_name}' not found"}), 404 # Not Found
+        # Basic input validation
+        if not isinstance(author_name, str) or not author_name.strip():
+             return jsonify({"error": "'author_name' must be a non-empty string"}), 400
+        if not isinstance(text, str) or not text.strip():
+             return jsonify({"error": "'text' must be a non-empty string"}), 400
+        if sentiment is not None and not isinstance(sentiment, str):
+             return jsonify({"error": "'sentiment' must be a string if provided"}), 400
 
-        # 2. Generate a unique ID for the new post
-        new_post_id = str(uuid.uuid4())
+        try:
+            # 1. Find the author_id using the provided name
+            author_id = get_person_by_name_db(author_name)
+            if not author_id:
+                return jsonify({"error": f"Author '{author_name}' not found"}), 404 # Not Found
 
-        # 3. Insert the post into the database
-        success = add_post_db(
-            post_id=new_post_id,
-            author_id=author_id,
-            text=text,
-            sentiment=sentiment
-        )
+            # 2. Generate a unique ID for the new post
+            new_post_id = str(uuid.uuid4())
 
-        if success:
-            # 4. Return a success response
-            post_data = {
-                "message": "Post added successfully",
-                "post_id": new_post_id,
-                "author_id": author_id,
-                "author_name": author_name, # Include for convenience
-                "text": text,
-                "sentiment": sentiment,
-                # Provide an approximate timestamp (actual is set by DB)
-                "post_timestamp": datetime.now(timezone.utc).isoformat()
-            }
-            return jsonify(post_data), 201 # 201 Created status code
-        else:
-            # Insertion failed for some reason (logged in add_post_db)
-            return jsonify({"error": "Failed to save post to the database"}), 500 # Internal Server Error
+            # 3. Insert the post into the database
+            success = add_post_db(
+                post_id=new_post_id,
+                author_id=author_id,
+                text=text,
+                sentiment=sentiment
+            )
 
-    except ConnectionError as e:
-         # Handle case where db connection failed specifically in this request path
-         print(f"ConnectionError during post add: {e}")
-         return jsonify({"error": "Database connection error during operation"}), 503
-    except Exception as e:
-        # Catch any other unexpected errors (e.g., from get_person_by_name_db)
-        print(f"Unexpected error processing add post request: {e}")
-        traceback.print_exc() # Log detailed error for server admin
-        return jsonify({"error": "An internal server error occurred"}), 500
+            if success:
+                # 4. Return a success response
+                post_data = {
+                    "message": "Post added successfully",
+                    "post_id": new_post_id,
+                    "author_id": author_id,
+                    "author_name": author_name, # Include for convenience
+                    "text": text,
+                    "sentiment": sentiment,
+                    # Provide an approximate timestamp (actual is set by DB)
+                    "post_timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                return jsonify(post_data), 201 # 201 Created status code
+            else:
+                # Insertion failed for some reason (logged in add_post_db)
+                return jsonify({"error": "Failed to save post to the database"}), 500 # Internal Server Error
+
+        except ConnectionError as e:
+             # Handle case where db connection failed specifically in this request path
+             print(f"ConnectionError during post add: {e}")
+             return jsonify({"error": "Database connection error during operation"}), 503
+        except Exception as e:
+            # Catch any other unexpected errors (e.g., from get_person_by_name_db)
+            print(f"Unexpected error processing add post request: {e}")
+            traceback.print_exc() # Log detailed error for server admin
+            return jsonify({"error": "An internal server error occurred"}), 500
 
 
 
@@ -700,130 +706,135 @@ def add_event_api():
         "attendee_names": ["...", "..."] // List of attendee names
     }
     """
-    if not db:
-        return jsonify({"error": "Database connection not available"}), 503
+    with tracer.start_as_current_span("add_event_api") as span:
+        if not db:
+            return jsonify({"error": "Database connection not available"}), 503
 
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Invalid JSON payload"}), 400
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON payload"}), 400
 
-    # --- Input Validation (Simplified) ---
-    required_fields = ["event_name", "description", "event_date", "locations", "attendee_names"]
-    missing_fields = [field for field in required_fields if field not in data]
-    if missing_fields:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+        # --- Input Validation (Simplified) ---
+        required_fields = ["event_name", "description", "event_date", "locations", "attendee_names"]
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
 
-    event_name = data['event_name'] 
-    description = data['description']
-    event_date_str = data['event_date']
-    locations_data = data['locations']
-    attendee_names = data['attendee_names']
+        event_name = data['event_name']
+        description = data['description']
+        event_date_str = data['event_date']
+        locations_data = data['locations']
+        attendee_names = data['attendee_names']
 
-    # Basic type checks
-    if not isinstance(event_name, str) or not event_name.strip(): 
-         return jsonify({"error": "'event_name' must be a non-empty string"}), 400 
-    if not isinstance(description, str):
-         return jsonify({"error": "'description' must be a string"}), 400
-    if not isinstance(event_date_str, str) or not event_date_str.strip():
-         return jsonify({"error": "'event_date' must be a non-empty string"}), 400
-    if not isinstance(attendee_names, list) or not attendee_names: # Ensure it's a non-empty list
-         return jsonify({"error": "'attendee_names' must be a non-empty list of strings"}), 400
-    for name in attendee_names:
-        if not isinstance(name, str) or not name.strip():
-            return jsonify({"error": "Each name in 'attendee_names' must be a non-empty string"}), 400
-    if not isinstance(locations_data, list):
-        return jsonify({"error": "'locations' must be a list"}), 400
-    if not locations_data: 
-        return jsonify({"error": "'locations' list cannot be empty"}), 400
+        span.set_attribute("app.event.name", event_name)
+        span.set_attribute("app.event.attendees", ",".join(attendee_names))
 
-    for i, loc in enumerate(locations_data):
-        if not isinstance(loc, dict):
-            return jsonify({"error": f"Each item in 'locations' must be an object (error at index {i})"}), 400
-        loc_req_fields = ["name", "latitude", "longitude"]
-        missing_loc_fields = [f for f in loc_req_fields if f not in loc or not str(loc[f]).strip()] # Check for presence and non-empty string for name
-        if missing_loc_fields:
-            return jsonify({"error": f"Location at index {i} missing required fields or has empty values: {', '.join(missing_loc_fields)}"}), 400
+
+        # Basic type checks
+        if not isinstance(event_name, str) or not event_name.strip():
+             return jsonify({"error": "'event_name' must be a non-empty string"}), 400
+        if not isinstance(description, str):
+             return jsonify({"error": "'description' must be a string"}), 400
+        if not isinstance(event_date_str, str) or not event_date_str.strip():
+             return jsonify({"error": "'event_date' must be a non-empty string"}), 400
+        if not isinstance(attendee_names, list) or not attendee_names: # Ensure it's a non-empty list
+             return jsonify({"error": "'attendee_names' must be a non-empty list of strings"}), 400
+        for name in attendee_names:
+            if not isinstance(name, str) or not name.strip():
+                return jsonify({"error": "Each name in 'attendee_names' must be a non-empty string"}), 400
+        if not isinstance(locations_data, list):
+            return jsonify({"error": "'locations' must be a list"}), 400
+        if not locations_data:
+            return jsonify({"error": "'locations' list cannot be empty"}), 400
+
+        for i, loc in enumerate(locations_data):
+            if not isinstance(loc, dict):
+                return jsonify({"error": f"Each item in 'locations' must be an object (error at index {i})"}), 400
+            loc_req_fields = ["name", "latitude", "longitude"]
+            missing_loc_fields = [f for f in loc_req_fields if f not in loc or not str(loc[f]).strip()] # Check for presence and non-empty string for name
+            if missing_loc_fields:
+                return jsonify({"error": f"Location at index {i} missing required fields or has empty values: {', '.join(missing_loc_fields)}"}), 400
+            try:
+                float(loc["latitude"])
+                float(loc["longitude"])
+            except (ValueError, TypeError):
+                return jsonify({"error": f"Location at index {i} has invalid latitude/longitude. Must be numbers."}), 400
+            # Optional fields like description and address can be checked if needed
+            if "description" in loc and not isinstance(loc["description"], str):
+                return jsonify({"error": f"Location at index {i} 'description' must be a string if provided."}), 400
+            if "address" in loc and not isinstance(loc["address"], str):
+                return jsonify({"error": f"Location at index {i} 'address' must be a string if provided."}), 400
+
+        # --- Process Inputs (Simplified) ---
         try:
-            float(loc["latitude"])
-            float(loc["longitude"])
-        except (ValueError, TypeError):
-            return jsonify({"error": f"Location at index {i} has invalid latitude/longitude. Must be numbers."}), 400
-        # Optional fields like description and address can be checked if needed
-        if "description" in loc and not isinstance(loc["description"], str):
-            return jsonify({"error": f"Location at index {i} 'description' must be a string if provided."}), 400
-        if "address" in loc and not isinstance(loc["address"], str):
-            return jsonify({"error": f"Location at index {i} 'address' must be a string if provided."}), 400
+            # Parse timestamp (ISO 8601 format expected)
+            event_date = datetime.fromisoformat(event_date_str.replace('Z', '+00:00'))
 
-    # --- Process Inputs (Simplified) ---
-    try:
-        # Parse timestamp (ISO 8601 format expected)
-        event_date = datetime.fromisoformat(event_date_str.replace('Z', '+00:00'))
-
-        # Spanner prefers timezone-aware datetimes.
-        # Ensure it's aware (fromisoformat usually handles this if tz is present)
-        if event_date.tzinfo is None or event_date.tzinfo.utcoffset(event_date) is None:
-             # If input was naive, assume UTC as a sensible default
-             print(f"Warning: Received naive datetime string '{event_date_str}'. Assuming UTC.")
-             event_date = event_date.replace(tzinfo=timezone.utc)
-        else:
-             # Convert to UTC if it had a different offset
-             event_date = event_date.astimezone(timezone.utc)
+            # Spanner prefers timezone-aware datetimes.
+            # Ensure it's aware (fromisoformat usually handles this if tz is present)
+            if event_date.tzinfo is None or event_date.tzinfo.utcoffset(event_date) is None:
+                 # If input was naive, assume UTC as a sensible default
+                 print(f"Warning: Received naive datetime string '{event_date_str}'. Assuming UTC.")
+                 event_date = event_date.replace(tzinfo=timezone.utc)
+            else:
+                 # Convert to UTC if it had a different offset
+                 event_date = event_date.astimezone(timezone.utc)
 
 
-    except ValueError as e:
-        return jsonify({"error": f"Invalid timestamp format for 'event_date'. Use ISO 8601 (e.g., YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+HH:MM). Details: {e}"}), 400
+        except ValueError as e:
+            return jsonify({"error": f"Invalid timestamp format for 'event_date'. Use ISO 8601 (e.g., YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+HH:MM). Details: {e}"}), 400
 
-    try:
-        # 1. Find person_ids for all attendee names
-        attendee_ids_to_add = []
-        processed_attendees_info = []
-        for attendee_name_str in attendee_names:
-            attendee_id = get_person_by_name_db(attendee_name_str)
-            if not attendee_id:
-                return jsonify({"error": f"Attendee '{attendee_name_str}' not found"}), 404 # Not Found
-            attendee_ids_to_add.append(attendee_id)
-            processed_attendees_info.append({"id": attendee_id, "name": attendee_name_str})
+        try:
+            # 1. Find person_ids for all attendee names
+            attendee_ids_to_add = []
+            processed_attendees_info = []
+            for attendee_name_str in attendee_names:
+                attendee_id = get_person_by_name_db(attendee_name_str)
+                if not attendee_id:
+                    return jsonify({"error": f"Attendee '{attendee_name_str}' not found"}), 404 # Not Found
+                attendee_ids_to_add.append(attendee_id)
+                processed_attendees_info.append({"id": attendee_id, "name": attendee_name_str})
 
-        if not attendee_ids_to_add: # Should be caught by earlier validation, but good check
-            return jsonify({"error": "No valid attendees found or provided."}), 400
+            if not attendee_ids_to_add: # Should be caught by earlier validation, but good check
+                return jsonify({"error": "No valid attendees found or provided."}), 400
 
-        # 2. Generate a unique ID for the new event
-        new_event_id = str(uuid.uuid4())
+            # 2. Generate a unique ID for the new event
+            new_event_id = str(uuid.uuid4())
 
-        # 3. Insert the event and all attendees atomically
-        success = add_full_event_with_details_db(
-            event_id=new_event_id,
-            event_name=event_name,
-            description=description,
-            event_date=event_date,
-            locations_data=locations_data,
-            attendee_ids=attendee_ids_to_add,
-        )
+            # 3. Insert the event and all attendees atomically
+            success = add_full_event_with_details_db(
+                event_id=new_event_id,
+                event_name=event_name,
+                description=description,
+                event_date=event_date,
+                locations_data=locations_data,
+                attendee_ids=attendee_ids_to_add,
+            )
 
-        if success:
-            # 4. Return a success response
-            event_data = {
-                "message": "Event and attendees added successfully",
-                "event_id": new_event_id,
-                "event_name": event_name,
-                "description": description,
-                "event_date": event_date.isoformat(), # Return in ISO format
-                "locations": locations_data, # Echo back the locations provided
-                "attendees": processed_attendees_info # List of {id, name}
-            }
-            return jsonify(event_data), 201 # 201 Created status code
-        else:
-            # Insertion failed (error logged in helper function)
-            return jsonify({"error": "Failed to save event and attendee to the database"}), 500 # Internal Server Error
+            if success:
+                # 4. Return a success response
+                event_data = {
+                    "message": "Event and attendees added successfully",
+                    "event_id": new_event_id,
+                    "event_name": event_name,
+                    "description": description,
+                    "event_date": event_date.isoformat(), # Return in ISO format
+                    "locations": locations_data, # Echo back the locations provided
+                    "attendees": processed_attendees_info # List of {id, name}
+                }
+                return jsonify(event_data), 201 # 201 Created status code
+            else:
+                # Insertion failed (error logged in helper function)
+                return jsonify({"error": "Failed to save event and attendee to the database"}), 500 # Internal Server Error
 
-    except ConnectionError as e:
-         print(f"ConnectionError during event add: {e}")
-         return jsonify({"error": "Database connection error during operation"}), 503
-    except Exception as e:
-        # Catch other unexpected errors
-        print(f"Unexpected error processing add event request: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "An internal server error occurred"}), 500
+        except ConnectionError as e:
+             print(f"ConnectionError during event add: {e}")
+             return jsonify({"error": "Database connection error during operation"}), 503
+        except Exception as e:
+            # Catch other unexpected errors
+            print(f"Unexpected error processing add event request: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "An internal server error occurred"}), 500
 
 
 # --- API Read Endpoints ---
@@ -831,76 +842,84 @@ def add_event_api():
 @app.route('/api/person/by_name/<string:name>', methods=['GET'])
 def get_person_id_by_name_api(name):
     """API endpoint to get a person's ID by their name."""
-    if not db:
-        return jsonify({"error": "Database connection not available"}), 503
-    try:
-        person_id = get_person_by_name_db(name)
-        if person_id:
-            return jsonify({"person_id": person_id}), 200
-        else:
-            return jsonify({"error": f"Person with name '{name}' not found"}), 404
-    except Exception as e:
-        print(f"Error in get_person_id_by_name_api: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "An internal server error occurred"}), 500
+    with tracer.start_as_current_span("get_person_id_by_name_api") as span:
+        span.set_attribute("app.person.name", name)
+        if not db:
+            return jsonify({"error": "Database connection not available"}), 503
+        try:
+            person_id = get_person_by_name_db(name)
+            if person_id:
+                return jsonify({"person_id": person_id}), 200
+            else:
+                return jsonify({"error": f"Person with name '{name}' not found"}), 404
+        except Exception as e:
+            print(f"Error in get_person_id_by_name_api: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "An internal server error occurred"}), 500
 
 @app.route('/api/person/<string:person_id>/attended_events', methods=['GET'])
 def get_person_attended_events_api(person_id):
     """API endpoint to get events attended by a person."""
-    if not db:
-        return jsonify({"error": "Database connection not available"}), 503
-    try:
-        # First, check if person exists to give a better error message
-        person = get_person_db(person_id)
-        if not person:
-            return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
+    with tracer.start_as_current_span("get_person_attended_events_api") as span:
+        span.set_attribute("app.person.id", person_id)
+        if not db:
+            return jsonify({"error": "Database connection not available"}), 503
+        try:
+            # First, check if person exists to give a better error message
+            person = get_person_db(person_id)
+            if not person:
+                return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
 
-        events = get_person_attended_events_db(person_id)
-        return jsonify(events), 200
-    except Exception as e:
-        print(f"Error in get_person_attended_events_api: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "An internal server error occurred"}), 500
+            events = get_person_attended_events_db(person_id)
+            return jsonify(events), 200
+        except Exception as e:
+            print(f"Error in get_person_attended_events_api: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "An internal server error occurred"}), 500
 
 @app.route('/api/person/<string:person_id>/posts', methods=['GET'])
 def get_person_posts_api(person_id):
     """API endpoint to get posts by a person."""
-    if not db:
-        return jsonify({"error": "Database connection not available"}), 503
-    try:
-        # First, check if person exists
-        person = get_person_db(person_id)
-        if not person:
-            return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
+    with tracer.start_as_current_span("get_person_posts_api") as span:
+        span.set_attribute("app.person.id", person_id)
+        if not db:
+            return jsonify({"error": "Database connection not available"}), 503
+        try:
+            # First, check if person exists
+            person = get_person_db(person_id)
+            if not person:
+                return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
 
-        posts = get_posts_by_person_db(person_id)
-        # Dates in get_posts_by_person_db are already datetimes, need to convert for JSON
-        for post in posts:
-            if isinstance(post.get('post_timestamp'), datetime):
-                post['post_timestamp'] = post['post_timestamp'].isoformat()
-        return jsonify(posts), 200
-    except Exception as e:
-        print(f"Error in get_person_posts_api: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "An internal server error occurred"}), 500
+            posts = get_posts_by_person_db(person_id)
+            # Dates in get_posts_by_person_db are already datetimes, need to convert for JSON
+            for post in posts:
+                if isinstance(post.get('post_timestamp'), datetime):
+                    post['post_timestamp'] = post['post_timestamp'].isoformat()
+            return jsonify(posts), 200
+        except Exception as e:
+            print(f"Error in get_person_posts_api: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "An internal server error occurred"}), 500
 
 @app.route('/api/person/<string:person_id>/friends', methods=['GET'])
 def get_person_friends_api(person_id):
     """API endpoint to get friends of a person."""
-    if not db:
-        return jsonify({"error": "Database connection not available"}), 503
-    try:
-        # First, check if person exists
-        person = get_person_db(person_id)
-        if not person:
-            return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
+    with tracer.start_as_current_span("get_person_friends_api") as span:
+        span.set_attribute("app.person.id", person_id)
+        if not db:
+            return jsonify({"error": "Database connection not available"}), 503
+        try:
+            # First, check if person exists
+            person = get_person_db(person_id)
+            if not person:
+                return jsonify({"error": f"Person with id '{person_id}' not found"}), 404
 
-        friends = get_friends_db(person_id)
-        return jsonify(friends), 200
-    except Exception as e:
-        print(f"Error in get_person_friends_api: {e}")
-        traceback.print_exc()
-        return jsonify({"error": "An internal server error occurred"}), 500
+            friends = get_friends_db(person_id)
+            return jsonify(friends), 200
+        except Exception as e:
+            print(f"Error in get_person_friends_api: {e}")
+            traceback.print_exc()
+            return jsonify({"error": "An internal server error occurred"}), 500
 
 
 # --- Error Handlers ---

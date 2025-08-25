@@ -94,11 +94,13 @@ class OrchestrateAgent(Agent):
                 raise
 
     def query(self, input_text: str) -> str:
-        if not self.host_agent:
-            logging.error("HostAgent not initialized. set_up() was not called.")
-            raise RuntimeError("Agent not properly initialized.")
-        # Delegate the query to the HostAgent instance
-        return self.host_agent.handle_query(input_text)
+        with tracer.start_as_current_span("OrchestrateAgent.query") as span:
+            span.set_attribute("app.user.query", input_text)
+            if not self.host_agent:
+                logging.error("HostAgent not initialized. set_up() was not called.")
+                raise RuntimeError("Agent not properly initialized.")
+            # Delegate the query to the HostAgent instance
+            return self.host_agent.handle_query(input_text)
 
 # 4. Define the root_agent for the ADK to find and deploy.
 root_agent = OrchestrateAgent()

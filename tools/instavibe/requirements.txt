@@ -10,5 +10,7 @@ python-dotenv==1.0.1
 # OpenTelemetry for tracing and diagnostics
 opentelemetry-api
 opentelemetry-sdk
-opentelemetry-exporter-gcp-trace
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-asgi
+google-auth

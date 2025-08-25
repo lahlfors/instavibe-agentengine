@@ -10,11 +10,11 @@ import uuid
 import traceback
 from dateutil import parser 
 from ally_routes import ally_bp
-from .telemetry import setup_telemetry
+from common.telemetry import setup_telemetry
 
 
 app = Flask(__name__)
-setup_telemetry(app)
+setup_telemetry(app, "instavibe-app")
 # Load environment variables from root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 

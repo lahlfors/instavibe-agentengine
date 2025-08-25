@@ -103,7 +103,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
-            extra_packages=(extra_packages or []) + ["agents/app", "agents/a2a_common-0.1.0-py3-none-any.whl"],
+            extra_packages=(extra_packages or []) + ["agents/app", "./common", "agents/a2a_common-0.1.0-py3-none-any.whl"],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

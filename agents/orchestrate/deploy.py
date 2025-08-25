@@ -60,7 +60,7 @@ def deploy_orchestrate_main_func(project_id: str, region: str, base_dir: str, ex
             display_name=display_name,
             description=description,
             requirements=requirements_list,
-            extra_packages=(extra_packages or []) + ["agents/app", "agents/a2a_common-0.1.0-py3-none-any.whl"],
+            extra_packages=(extra_packages or []) + ["agents/app", "./common", "agents/a2a_common-0.1.0-py3-none-any.whl"],
             env_vars=env_vars_for_deployment,
         )
     except Exception as e:

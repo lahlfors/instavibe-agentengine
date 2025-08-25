@@ -5,13 +5,14 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # --- Dependency Installation ---
-COPY requirements.txt /app/requirements.txt 
+COPY tools/instavibe/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Application Code ---
 COPY ./tools /app/tools
 COPY ./agents /app/agents
 COPY ./common /app/common
+COPY ./instavibe /app/instavibe
 
 # --- Environment ---
 ENV PYTHONPATH=/app

@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir /app/agents/app
 COPY ./social /app/agents/social
 
 # --- Environment ---
-ENV PYTHONPATH=/app/agents 
+ENV PYTHONPATH=/app
 
 
 # Make port 8080 available to the world outside this container

@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir /app/agents/app
 COPY ./platform_mcp_client /app/agents/platform_mcp_client
 
 # --- Environment ---
-ENV PYTHONPATH=/app/agents 
+ENV PYTHONPATH=/app
 
 
 # Make port 8080 available to the world outside this container

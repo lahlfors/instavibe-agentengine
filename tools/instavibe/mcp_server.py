@@ -20,10 +20,11 @@ from dotenv import load_dotenv
 import inspect
 import logging
 from opentelemetry import trace
-import instavibe
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 from common.observability import setup_observability
+import instavibe
+print("--- mcp_server.py: Successfully executed 'import instavibe' ---")
 import sys
 sys.path.append('.')
 

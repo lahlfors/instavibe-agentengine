@@ -4,7 +4,6 @@ import json
 from dotenv import load_dotenv
 import aiohttp
 from agents.app.utils.communication import call_http_endpoint
-from mcp import Tool as tool
 
 logging.basicConfig(level=logging.INFO)
 logging.info("--- instavibe.py module loading ---")
@@ -18,7 +17,6 @@ logging.info("------------------------------------")
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 BASE_URL = os.environ.get("TOOLS_INSTAVIBE_BASE_URL")
 
-@tool()
 async def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL):
     """
     Sends a POST request to the /posts endpoint to create a new post.
@@ -64,7 +62,6 @@ async def create_post(author_name: str, text: str, sentiment: str, base_url: str
         print(f"Error decoding JSON response from {url}.")
         return None
 
-@tool()
 async def create_event(event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str], base_url: str = BASE_URL):
     """
     Sends a POST request to the /events endpoint to create a new event registration.
@@ -118,7 +115,6 @@ async def create_event(event_name: str, description: str, event_date: str, locat
         return None
 
 
-@tool()
 async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
     """
     Fetches a person's ID by their name by calling the API.
@@ -142,7 +138,6 @@ async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
         print(f"Error decoding JSON response from {url}.")
         return None
 
-@tool()
 async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
     """
     Fetches events attended by a person by calling the API.
@@ -165,7 +160,6 @@ async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
         print(f"Error decoding JSON response from {url}.")
         return None
 
-@tool()
 async def get_person_posts(person_id: str, base_url: str = BASE_URL):
     """
     Fetches posts by a person by calling the API.
@@ -188,7 +182,6 @@ async def get_person_posts(person_id: str, base_url: str = BASE_URL):
         print(f"Error decoding JSON response from {url}.")
         return None
 
-@tool()
 async def get_person_friends(person_id: str, base_url: str = BASE_URL):
     """
     Fetches friends of a person by calling the API.

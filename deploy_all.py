@@ -265,6 +265,7 @@ def build_and_deploy_cloud_run_service(
         "--config", "cloudbuild.yaml",
         f"--substitutions={substitutions_string}",
         "--project", project_id,
+        "--no-cache",
     ]
 
     try:

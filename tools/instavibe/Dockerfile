@@ -2,31 +2,20 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy requirements file
-COPY ./requirements.txt .
+# Copy the specific requirements file for this service
+COPY tools/instavibe/requirements.txt .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --- START DEBUGGING COMMANDS ---
-RUN echo "--- PIP SHOW MCP ---"
-RUN pip show mcp || echo "mcp not found by pip"
+# Copy the shared agents directory
+COPY agents ./agents
 
-RUN echo "--- CHECKING FOR starlette_app_factory.py ---"
-RUN FILE_PATH=/usr/local/lib/python3.12/site-packages/mcp/server/fastmcp/starlette_app_factory.py && \
-    if [ -f "$FILE_PATH" ]; then \
-        echo "SUCCESS: $FILE_PATH EXISTS"; \
-    else \
-        echo "FAILURE: $FILE_PATH DOES NOT EXIST"; \
-    fi
-
-RUN echo "--- LISTING mcp/server/fastmcp ---"
-RUN ls -lR /usr/local/lib/python3.12/site-packages/mcp/server/fastmcp/ || echo "Failed to list mcp/server/fastmcp"
-# --- END DEBUGGING COMMANDS ---
-
-# Copy the rest of your application code
-COPY . .
+# Copy the server script itself
+COPY tools/instavibe/mcp_server.py .
 
 ENV PYTHONPATH="/app"
 EXPOSE 8080
+
+# Run the server from the root of the WORKDIR
 CMD ["python", "mcp_server.py"]

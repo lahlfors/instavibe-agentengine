@@ -26,7 +26,8 @@ import uvicorn
 # import inspect # No longer needed for tool discovery
 from opentelemetry import trace
 # from google.adk.tools.function_tool import FunctionTool # No longer needed
-from mcp import starlette_app_factory, types as mcp_types
+from mcp.server import starlette_app_factory
+from mcp import types as mcp_types
 
 logger.info("--- mcp_server.py: Attempting to import instavibe... ---")
 try:

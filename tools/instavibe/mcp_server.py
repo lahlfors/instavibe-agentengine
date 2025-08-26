@@ -1,16 +1,4 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# In tools/instavibe/mcp_server.py
 
 import logging
 import os
@@ -22,67 +10,49 @@ from dotenv import load_dotenv
 sys.path.append('.')
 
 # 2. Load environment variables first
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+load_dotenv(dotenv_path=dotenv_path)
 
-# 3. NOW, configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# 3. Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+logger = logging.getLogger(__name__)
 # ===============================================================
 
-# --- Now, the rest of your imports and code will be able to log correctly ---
+logger.info("--- mcp_server.py: Logging configured ---")
+
 import asyncio
 import json
 import uvicorn
-import inspect
+# import inspect # No longer needed for tool discovery
 from opentelemetry import trace
-from google.adk.tools.function_tool import FunctionTool
-from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
-from common.observability import setup_observability
+# from google.adk.tools.function_tool import FunctionTool # No longer needed
+from mcp import starlette_app_factory, types as mcp_types
 
-# This block will now correctly log any errors
-logging.info("--- mcp_server.py: Attempting to import instavibe... ---")
+logger.info("--- mcp_server.py: Attempting to import instavibe... ---")
 try:
     import instavibe
-    logging.info("--- mcp_server.py: Successfully IMPORTED instavibe ---")
+    logger.info("--- mcp_server.py: Successfully IMPORTED instavibe ---")
 except Exception as e:
-    logging.error(f"--- mcp_server.py: FAILED to import instavibe. Error: {e} ---", exc_info=True)
+    logger.error(f"--- mcp_server.py: FAILED to import instavibe ---", exc_info=True)
+    sys.exit(1) # Exit if tools cannot be loaded
 
-
-from mcp import types as mcp_types
-from mcp.server.lowlevel import Server
-
-from mcp.server.sse import SseServerTransport
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
-
-# Configure OpenTelemetry Tracer
-setup_observability(service_name="mcp-server")
+# Setup Observability (Assuming tracer is configured elsewhere or to be added)
 tracer = trace.get_tracer(__name__)
 
-APP_HOST = os.environ.get("APP_HOST", "0.0.0.0")
-APP_PORT = int(os.environ.get("APP_PORT", 8080))
-
-
-# --- Dynamic Tool Discovery ---
-available_tools = {
-    name: FunctionTool(func)
-    for name, func in inspect.getmembers(instavibe, inspect.iscoroutinefunction)
-}
-logging.info(f"MCP Server: Discovered tools: {list(available_tools.keys())}")
-
-# Create a named MCP Server instance
-app = Server("adk-tool-mcp-server")
-sse = SseServerTransport("/messages/")
+# Create the MCP application instance using the factory
+# Pass the instavibe module to the factory for tool discovery
+app = starlette_app_factory.create_app(tools=[instavibe])
+logger.info(f"MCP Server: App created. Found tools: {list(app.tools.keys())}")
 
 
 @app.list_tools()
 async def list_tools() -> list[mcp_types.Tool]:
     """MCP handler to list available tools."""
     with tracer.start_as_current_span("list_tools") as span:
-        mcp_tool_schemas = [
-            adk_to_mcp_tool_type(tool) for tool in available_tools.values()
-        ]
+        # Get tools directly from the app's registry
+        mcp_tool_schemas = list(app.tools.values())
         span.set_attribute("tool.count", len(mcp_tool_schemas))
-        logging.info(f"MCP Server: Advertising {len(mcp_tool_schemas)} tools.")
+        logger.info(f"MCP Server: Advertising {len(mcp_tool_schemas)} tools: {list(app.tools.keys())}")
         return mcp_tool_schemas
 
 @app.call_tool()
@@ -93,59 +63,33 @@ async def call_tool(
     with tracer.start_as_current_span("call_tool") as span:
         span.set_attribute("tool.name", name)
         span.set_attribute("tool.arguments", str(arguments))
-        logging.info(f"MCP Server: Received call_tool request for '{name}' with args: {arguments}")
+        logger.info(f"MCP Server: Received call_tool request for '{name}' with args: {arguments}")
 
-        tool_to_call = available_tools.get(name)
+        # Get the tool from the framework's registry
+        tool_to_call = app.tools.get(name)
         if tool_to_call:
             try:
-                adk_response = await tool_to_call.run_async(
-                    args=arguments,
-                    tool_context=None,
-                )
-                logging.info(f"MCP Server: ADK tool '{name}' executed successfully.")
-                span.set_attribute("tool.response", str(adk_response))
+                logger.info(f"MCP Server: Calling tool '{name}' function")
+                # The app.tools entry contains the schema and the function
+                # We call the .func attribute which is the decorated async function
+                result = await tool_to_call.func(**arguments)
+                response_text = json.dumps(result, indent=2)
+
+                logger.info(f"MCP Server: Tool '{name}' executed successfully.")
                 span.set_status(trace.StatusCode.OK)
-
-                response_text = json.dumps(adk_response, indent=2)
                 return [mcp_types.TextContent(type="text", text=response_text)]
-
             except Exception as e:
-                logging.error(f"MCP Server: Error executing ADK tool '{name}': {e}", exc_info=True)
+                logger.error(f"MCP Server: Error executing tool '{name}': {e}", exc_info=True)
                 span.record_exception(e)
                 span.set_status(trace.StatusCode.ERROR, str(e))
                 error_text = json.dumps({"error": f"Failed to execute tool '{name}': {str(e)}"})
                 return [mcp_types.TextContent(type="text", text=error_text)]
         else:
-            logging.warning(f"MCP Server: Tool '{name}' not found.")
-            span.set_status(trace.StatusCode.ERROR, f"Tool '{name}' not found.")
-            error_text = json.dumps({"error": f"Tool '{name}' not implemented."})
+            logger.warning(f"MCP Server: Tool '{name}' not found in app.tools.")
+            span.set_status(trace.StatusCode.ERROR, f"Tool not found: {name}")
+            error_text = json.dumps({"error": f"Tool '{name}' not found."})
             return [mcp_types.TextContent(type="text", text=error_text)]
 
-async def handle_sse(request):
-    """Runs the MCP server over standard input/output."""
-    async with sse.connect_sse(
-        request.scope, request.receive, request._send
-    ) as streams:
-        await app.run(
-            streams[0], streams[1], app.create_initialization_options()
-        )
-
-starlette_app = Starlette(
-    debug=True,
-    routes=[
-        Route("/sse", endpoint=handle_sse),
-        Mount("/messages/", app=sse.handle_post_message),
-    ],
-)
-
 if __name__ == "__main__":
-    logging.info("Launching MCP Server exposing ADK tools...")
-    try:
-        uvicorn_port = APP_PORT if isinstance(APP_PORT, int) else int(str(APP_PORT))
-        asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port))
-    except KeyboardInterrupt:
-        logging.info("\nMCP Server stopped by user.")
-    except Exception as e:
-        logging.error(f"MCP Server encountered an error: {e}", exc_info=True)
-    finally:
-        logging.info("MCP Server process exiting.")
+    logger.info(f"Starting MCP Server on port {os.environ.get('PORT', 8080)}")
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

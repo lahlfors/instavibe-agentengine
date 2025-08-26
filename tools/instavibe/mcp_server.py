@@ -12,21 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+import os
+import sys
+from dotenv import load_dotenv
+
+# ======================= CORRECTED ORDER =======================
+# 1. Add project root to path
+sys.path.append('.')
+
+# 2. Load environment variables first
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+# 3. NOW, configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ===============================================================
+
+# --- Now, the rest of your imports and code will be able to log correctly ---
 import asyncio
 import json
 import uvicorn
-import os
-from dotenv import load_dotenv
 import inspect
-import logging
 from opentelemetry import trace
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 from common.observability import setup_observability
-import instavibe
-print("--- mcp_server.py: Successfully executed 'import instavibe' ---")
-import sys
-sys.path.append('.')
+
+# This block will now correctly log any errors
+logging.info("--- mcp_server.py: Attempting to import instavibe... ---")
+try:
+    import instavibe
+    logging.info("--- mcp_server.py: Successfully IMPORTED instavibe ---")
+except Exception as e:
+    logging.error(f"--- mcp_server.py: FAILED to import instavibe. Error: {e} ---", exc_info=True)
+
 
 from mcp import types as mcp_types
 from mcp.server.lowlevel import Server
@@ -34,12 +53,6 @@ from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-
-# Load environment variables from the root .env file
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
-# Configure basic logging at the top of your script
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configure OpenTelemetry Tracer
 setup_observability(service_name="mcp-server")

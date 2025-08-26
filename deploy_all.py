@@ -354,6 +354,11 @@ def main():
             agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
         elif not args.skip_agents:
             agent_defs = {
+                "mcp_client": {
+                    "name": "Platform MCP Client Agent",
+                    "func": deploy_platform_mcp_client_main_func,
+                    "args": {"base_dir": PROJECT_ROOT}
+                },
                 "planner": {
                     "name": "Planner Agent",
                     "func": deploy_planner_main_func,
@@ -362,11 +367,6 @@ def main():
                 "social": {
                     "name": "Social Agent",
                     "func": deploy_social_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}
-                },
-                "mcp_client": {
-                    "name": "Platform MCP Client Agent",
-                    "func": deploy_platform_mcp_client_main_func,
                     "args": {"base_dir": PROJECT_ROOT}
                 },
             }
@@ -387,6 +387,18 @@ def main():
                     if agent["name"] in ["Social Agent", "Platform MCP Client Agent"]:
                         deploy_args["extra_packages"] = ['agents']
                         logging.info(f"Including shared code for '{agent['name']}' from relative path: agents")
+
+                    # Pass the mcp_client URI to the social agent
+                    if key == "social":
+                        mcp_client_uri = None
+                        if agent_resource_names.get("mcp_client"):
+                            mcp_client_uri = f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('mcp_client')}:predict"
+
+                        if mcp_client_uri:
+                            deploy_args["env_vars"] = {
+                                "ADK_A2A_AGENT_URIS": mcp_client_uri
+                            }
+
                     agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
 
                 # Deploy the orchestrator agent

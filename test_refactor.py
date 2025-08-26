@@ -166,37 +166,57 @@ async def test_client_get_person_friends(mock_call_http):
 # --- 3. Tests for agents/social/instavibe.py (Refactored Data Access Layer) ---
 
 @pytest.mark.asyncio
-@patch('agents.social.instavibe.instavibe_client', new_callable=MagicMock)
-async def test_social_get_person_id_by_name(mock_client):
+@patch('agents.social.instavibe.call_agent_capability', new_callable=AsyncMock)
+async def test_social_get_person_id_by_name(mock_call_agent_capability):
     """Test the refactored social agent data access function."""
-    mock_client.get_person_id_by_name = AsyncMock(return_value="person-123")
+    mock_call_agent_capability.return_value = {"person_id": "person-123"}
     result = await social_instavibe_data.get_person_id_by_name("Alice")
-    mock_client.get_person_id_by_name.assert_awaited_with(name="Alice")
+    mock_call_agent_capability.assert_awaited_with(
+        source_agent="social_agent",
+        target_agent="Platform MCP Client Agent",
+        capability="call_mcp_tool",
+        prompt={"tool_name": "get_person_id_by_name", "arguments": {"name": "Alice"}}
+    )
     assert result == "person-123"
 
 @pytest.mark.asyncio
-@patch('agents.social.instavibe.instavibe_client', new_callable=MagicMock)
-async def test_social_get_attended_events(mock_client):
+@patch('agents.social.instavibe.call_agent_capability', new_callable=AsyncMock)
+async def test_social_get_attended_events(mock_call_agent_capability):
     """Test the refactored social agent data access function."""
-    mock_client.get_person_attended_events = AsyncMock(return_value=[])
+    mock_call_agent_capability.return_value = [{"event_id": "event-1"}]
     await social_instavibe_data.get_person_attended_events("person-123")
-    mock_client.get_person_attended_events.assert_awaited_with(person_id="person-123")
+    mock_call_agent_capability.assert_awaited_with(
+        source_agent="social_agent",
+        target_agent="Platform MCP Client Agent",
+        capability="call_mcp_tool",
+        prompt={"tool_name": "get_person_attended_events", "arguments": {"person_id": "person-123"}}
+    )
 
 @pytest.mark.asyncio
-@patch('agents.social.instavibe.instavibe_client', new_callable=MagicMock)
-async def test_social_get_posts(mock_client):
+@patch('agents.social.instavibe.call_agent_capability', new_callable=AsyncMock)
+async def test_social_get_posts(mock_call_agent_capability):
     """Test the refactored social agent data access function."""
-    mock_client.get_person_posts = AsyncMock(return_value=[])
+    mock_call_agent_capability.return_value = [{"post_id": "post-1"}]
     await social_instavibe_data.get_person_posts("person-123")
-    mock_client.get_person_posts.assert_awaited_with(person_id="person-123")
+    mock_call_agent_capability.assert_awaited_with(
+        source_agent="social_agent",
+        target_agent="Platform MCP Client Agent",
+        capability="call_mcp_tool",
+        prompt={"tool_name": "get_person_posts", "arguments": {"person_id": "person-123"}}
+    )
 
 @pytest.mark.asyncio
-@patch('agents.social.instavibe.instavibe_client', new_callable=MagicMock)
-async def test_social_get_friends(mock_client):
+@patch('agents.social.instavibe.call_agent_capability', new_callable=AsyncMock)
+async def test_social_get_friends(mock_call_agent_capability):
     """Test the refactored social agent data access function."""
-    mock_client.get_person_friends = AsyncMock(return_value=[])
+    mock_call_agent_capability.return_value = [{"person_id": "person-456"}]
     await social_instavibe_data.get_person_friends("person-123")
-    mock_client.get_person_friends.assert_awaited_with(person_id="person-123")
+    mock_call_agent_capability.assert_awaited_with(
+        source_agent="social_agent",
+        target_agent="Platform MCP Client Agent",
+        capability="call_mcp_tool",
+        prompt={"tool_name": "get_person_friends", "arguments": {"person_id": "person-123"}}
+    )
 
 # --- 4. Tests for common/observability.py ---
 

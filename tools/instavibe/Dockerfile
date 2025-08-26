@@ -7,6 +7,7 @@ WORKDIR /app
 # --- Dependency Installation ---
 COPY tools/instavibe/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN ls -lR /usr/local/lib/python3.12/site-packages/mcp
 
 # --- Application Code ---
 COPY ./tools /app/tools

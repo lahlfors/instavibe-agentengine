@@ -29,4 +29,4 @@ COPY . .
 
 ENV PYTHONPATH="/app"
 EXPOSE 8080
-CMD ["python", "tools/instavibe/mcp_server.py"]
+CMD ["python", "mcp_server.py"]

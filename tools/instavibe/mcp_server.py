@@ -1,6 +1,5 @@
 import os
-import uvicorn
-from mcp.server.fastmcp.server import Server
+from fastmcp import FastMCP
 import json
 import logging
 from dotenv import load_dotenv
@@ -12,7 +11,7 @@ port = int(os.environ.get("PORT", 8080))
 host = "0.0.0.0"
 
 # Initialize MCP Server
-mcp_server = Server(
+mcp_server = FastMCP(
     name="mcp-tool-server"
     # Other Server constructor arguments if needed
 )
@@ -179,10 +178,7 @@ async def get_person_friends(person_id: str, base_url: str = BASE_URL):
         print(f"Error decoding JSON response from {url}.")
         return None
 
-# Get the Starlette app instance from the MCP Server instance
-app = mcp_server.app
-
-# --- Start the server using Uvicorn ---
+# --- Start the server using FastMCP's runner ---
 if __name__ == "__main__":
-    print(f"--- MCP Server '{mcp_server.name}' starting Uvicorn on {host}:{port} ---")
-    uvicorn.run(app, host=host, port=port)
+    print(f"--- MCP Server '{mcp_server.name}' starting on {host}:{port} ---")
+    mcp_server.run(transport="http", host=host, port=port)

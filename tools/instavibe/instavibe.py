@@ -4,7 +4,7 @@ import json
 from dotenv import load_dotenv
 import aiohttp
 from agents.app.utils.communication import call_http_endpoint
-from mcp import tool
+from mcp import Tool as tool
 
 logging.basicConfig(level=logging.INFO)
 logging.info("--- instavibe.py module loading ---")

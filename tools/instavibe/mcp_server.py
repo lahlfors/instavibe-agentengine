@@ -26,7 +26,7 @@ import uvicorn
 # import inspect # No longer needed for tool discovery
 from opentelemetry import trace
 # from google.adk.tools.function_tool import FunctionTool # No longer needed
-from mcp.server.fastmcp import starlette_app_factory
+from mcp.server.fastmcp.starlette_app_factory import create_app
 from mcp import types as mcp_types
 
 logger.info("--- mcp_server.py: Attempting to import instavibe... ---")
@@ -42,7 +42,7 @@ tracer = trace.get_tracer(__name__)
 
 # Create the MCP application instance using the factory
 # Pass the instavibe module to the factory for tool discovery
-app = starlette_app_factory.create_app(tools=[instavibe])
+app = create_app(tools=[instavibe])
 logger.info(f"MCP Server: App created. Found tools: {list(app.tools.keys())}")
 
 

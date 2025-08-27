@@ -1,19 +1,18 @@
 # In agents/orchestrate/orchestrate_service_agent.py
 import logging
 import os
-import aiohttp
 import asyncio
 import google.auth
 import google.auth.credentials
-import google.auth.transport.requests
-import google.auth.aio.transport.aiohttp
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools.tool_context import ToolContext
 from google.genai.types import ThinkingConfig
 from typing import Optional
-from agents.app.utils.communication import call_http_endpoint, call_agent_capability
+from agents.app.utils.communication import call_agent_capability
+from google.adk.memory import VertexAiMemoryBankService
+from google.adk.tools import PreloadMemoryTool
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,17 +22,14 @@ class OrchestrateServiceAgent(Agent):
     """
     project: Optional[str] = None
     location: Optional[str] = None
-    api_endpoint: Optional[str] = None
-    base_url: Optional[str] = None
-    memory_bank_url: Optional[str] = None
-    credentials: Optional[google.auth.credentials.Credentials] = None
     reasoning_engine_id: Optional[str] = None
     orchestrator_agent: Optional[Agent] = None
+    memory_service: Optional[VertexAiMemoryBankService] = None
 
     def __init__(self, name: str, instruction: Optional[str] = None, description: Optional[str] = None):
         super().__init__(
             name=name,
-            model="gemini-2.5-flash-001",
+            model="gemini-2.5-flash",
             instruction=instruction or "I am an orchestrator agent with memory and task delegation capabilities.",
             description=description or "An agent that can create/search memories and delegate tasks.",
         )
@@ -56,27 +52,22 @@ class OrchestrateServiceAgent(Agent):
             logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
             raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
 
-        self.api_endpoint = f"{self.location}-aiplatform.googleapis.com"
-        self.base_url = f"https://{self.api_endpoint}/v1beta1/projects/{self.project}/locations/{self.location}/reasoningEngines/{self.reasoning_engine_id}"
-        self.memory_bank_url = f"{self.base_url}/memories"
-
-        try:
-            self.credentials, _ = await asyncio.to_thread(google.auth.default, scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        except google.auth.exceptions.DefaultCredentialsError as e:
-            logging.error(f"Failed to get default credentials: {e}")
-            raise RuntimeError("Failed to get default credentials. Ensure the environment is authenticated.") from e
-
-        logging.info(f"Memory Bank URL set to: {self.memory_bank_url}")
+        self.memory_service = VertexAiMemoryBankService(
+            project=self.project,
+            location=self.location,
+            agent_engine_id=self.reasoning_engine_id,
+        )
+        logging.info("VertexAiMemoryBankService initialized.")
 
         thinking_config = ThinkingConfig(
             include_thoughts=True,
             thinking_budget=-1,  # Use dynamic thinking
         )
         planner = BuiltInPlanner(thinking_config=thinking_config)
-        all_tools = [self.send_task, self.create_memory, self.search_memories]
+        all_tools = [self.send_task, PreloadMemoryTool(memory=self.memory_service)]
 
         self.orchestrator_agent = Agent(
-            model="gemini-2.5-flash-001",
+            model="gemini-2.5-flash",
             name="orchestrate_agent",
             instruction=self.root_instruction,
             description=(
@@ -85,6 +76,7 @@ class OrchestrateServiceAgent(Agent):
             ),
             tools=all_tools,
             planner=planner,
+            memory=self.memory_service,
         )
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
@@ -140,70 +132,6 @@ class OrchestrateServiceAgent(Agent):
             return response_data
         except Exception as e:
             return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
-
-    async def _get_auth_headers(self):
-        """
-        Asynchronously gets fresh, valid authentication headers.
-        """
-        try:
-            auth_req = google.auth.aio.transport.aiohttp.Request()
-            if not self.credentials or not self.credentials.valid:
-                await self.credentials.refresh(auth_req)
-            return {
-                "Content-Type": "application/json; charset=utf-8",
-                "Authorization": f"Bearer {self.credentials.token}",
-            }
-        except Exception as e:
-            logging.error(f"Error getting auth headers: {e}")
-            raise
-
-    async def create_memory(self, description: str, user_id: str) -> str:
-        """
-        Creates a new memory in the Memory Bank.
-        """
-        if not self.memory_bank_url: await self.set_up()
-        headers = await self._get_auth_headers()
-        payload = {"fact": description, "user_id": user_id}
-        logging.info(f"Creating memory at {self.memory_bank_url} for user: {user_id}")
-        try:
-            memory = await call_http_endpoint(
-                source_agent="orchestrate_service_agent",
-                target_service="memory_bank",
-                http_method="POST",
-                url=self.memory_bank_url,
-                headers=headers,
-                json=payload
-            )
-            logging.info(f"Successfully created memory: {memory.get('name')}")
-            return memory.get('name', '')
-        except aiohttp.ClientError as e:
-            logging.error(f"Error creating memory: {e}")
-            raise
-
-    async def search_memories(self, query: str, user_id: str) -> str:
-        """
-        Searches for relevant memories in the Memory Bank for a specific user.
-        """
-        if not self.memory_bank_url: await self.set_up()
-        headers = await self._get_auth_headers()
-        search_url = f"{self.memory_bank_url}:search"
-        payload = {"query": query, "user_id": user_id}
-        logging.info(f"Searching memories at {search_url} for user: {user_id} with query: '{query}'")
-        try:
-            search_response = await call_http_endpoint(
-                source_agent="orchestrate_service_agent",
-                target_service="memory_bank",
-                http_method="POST",
-                url=search_url,
-                headers=headers,
-                json=payload
-            )
-            results = [sr.get('memory', {}).get('fact') for sr in search_response.get('searchResults', []) if sr.get('memory', {}).get('fact')]
-            logging.info(f"Found {len(results)} memories.")
-            return "\n".join(results) if results else "No relevant memories found."
-        except aiohttp.ClientError as e:
-            logging.error(f"Error searching memories: {e}")
-            raise
 
     def query(self, input_text: str) -> str:
         if not self.orchestrator_agent:

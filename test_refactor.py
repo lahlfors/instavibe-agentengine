@@ -33,7 +33,7 @@ atexit.register(patcher_logging.stop)
 # Must be imported before the modules that use them for patching to work
 from flask import Flask, jsonify
 import instavibe.app as instavibe_app
-from tools.instavibe import instavibe as instavibe_tool_client
+from tools.instavibe import mcp_server as instavibe_tool_client
 from agents.social import instavibe as social_instavibe_data
 
 # --- 1. Tests for instavibe/app.py (Flask App API Endpoints) ---
@@ -106,11 +106,12 @@ def test_get_person_friends_api(mock_get_friends_db, mock_get_person_db, client)
 # --- 2. Tests for tools/instavibe/instavibe.py (API Client) ---
 
 @pytest.mark.asyncio
-@patch('tools.instavibe.instavibe.call_http_endpoint', new_callable=AsyncMock)
+@patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_id_by_name(mock_call_http):
     """Test the API client function for getting person ID by name."""
     mock_call_http.return_value = {"person_id": "person-123"}
-    person_id = await instavibe_tool_client.get_person_id_by_name("Alice")
+    tool_result = await instavibe_tool_client.get_person_id_by_name.run({"name": "Alice"})
+    person_id = tool_result.content[0].text
     assert person_id == "person-123"
     mock_call_http.assert_awaited_with(
         source_agent="instavibe_tool",
@@ -122,10 +123,11 @@ async def test_client_get_person_id_by_name(mock_call_http):
     )
 
 @pytest.mark.asyncio
-@patch('tools.instavibe.instavibe.call_http_endpoint', new_callable=AsyncMock)
+@patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_attended_events(mock_call_http):
     """Test the API client function for getting attended events."""
-    await instavibe_tool_client.get_person_attended_events("person-123")
+    tool_result = await instavibe_tool_client.get_person_attended_events.run({"person_id": "person-123"})
+    assert tool_result.content[0].text is not None
     mock_call_http.assert_awaited_with(
         source_agent="instavibe_tool",
         target_service="instavibe_app",
@@ -136,10 +138,11 @@ async def test_client_get_person_attended_events(mock_call_http):
     )
 
 @pytest.mark.asyncio
-@patch('tools.instavibe.instavibe.call_http_endpoint', new_callable=AsyncMock)
+@patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_posts(mock_call_http):
     """Test the API client function for getting person posts."""
-    await instavibe_tool_client.get_person_posts("person-123")
+    tool_result = await instavibe_tool_client.get_person_posts.run({"person_id": "person-123"})
+    assert tool_result.content[0].text is not None
     mock_call_http.assert_awaited_with(
         source_agent="instavibe_tool",
         target_service="instavibe_app",
@@ -150,10 +153,11 @@ async def test_client_get_person_posts(mock_call_http):
     )
 
 @pytest.mark.asyncio
-@patch('tools.instavibe.instavibe.call_http_endpoint', new_callable=AsyncMock)
+@patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_friends(mock_call_http):
     """Test the API client function for getting person friends."""
-    await instavibe_tool_client.get_person_friends("person-123")
+    tool_result = await instavibe_tool_client.get_person_friends.run({"person_id": "person-123"})
+    assert tool_result.content[0].text is not None
     mock_call_http.assert_awaited_with(
         source_agent="instavibe_tool",
         target_service="instavibe_app",

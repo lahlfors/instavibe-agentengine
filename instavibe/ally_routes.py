@@ -14,50 +14,44 @@ def get_all_people_for_ally_page():
     """
     Fetches all people from the Person table to be listed as friends.
     This function will be called from within a route, ensuring 'app' is loaded.
+    It relies on the run_query function to handle exceptions.
     """
-    try:
-        # Import here to avoid circular dependencies at module load time
-        # and ensure app.py's db and run_query are initialized.
-        from app import db as main_app_db, run_query as main_app_run_query
-        # param_types might be needed if run_query is called with params
-        # from google.cloud.spanner_v1 import param_types as main_app_param_types
+    # Import here to avoid circular dependencies at module load time
+    # and ensure app.py's db and run_query are initialized.
+    from instavibe.app import db as main_app_db, run_query as main_app_run_query
 
-        if not main_app_db:
-            print("Error in ally_routes.get_all_people_for_ally_page: main_app_db is not available from app.py.")
-            return [] # Return empty list if db connection failed
-
-        sql = """
-            SELECT person_id, name
-            FROM Person
-            ORDER BY name
-        """
-        fields = ["person_id", "name"]
-        # The run_query function in your app.py uses the global 'db' from app.py
-        people = main_app_run_query(sql, expected_fields=fields)
-
-        # Ensure uniqueness based on person_id
-        unique_people_list = []
-        seen_person_ids = set()
-        if people: # Ensure people is not None and is iterable
-            for person_dict in people:
-                if isinstance(person_dict, dict) and 'person_id' in person_dict:
-                    person_id = person_dict['person_id']
-                    if person_id not in seen_person_ids:
-                        seen_person_ids.add(person_id)
-                        unique_people_list.append(person_dict)
-                else:
-                    # Log or handle unexpected item structure if necessary
-                    print(f"Warning: Skipping unexpected item in people list: {person_dict}")
-
-        return unique_people_list
-    except ImportError:
-        print("ERROR in ally_routes.get_all_people_for_ally_page: Could not import db or run_query from app.py. Check app.py structure and execution.")
-        return [] # Fallback to empty list
-    except Exception as e:
-        print(f"Error fetching people in ally_routes.get_all_people_for_ally_page: {e}")
-        import traceback
-        traceback.print_exc()
+    if not main_app_db:
+        print("Error in ally_routes.get_all_people_for_ally_page: main_app_db is not available from app.py.")
+        # This case is for when the DB connection itself failed on startup.
+        # Flashing a message here might be useful if run_query can't be reached.
+        flash("Database connection is not available.", "danger")
         return []
+
+    sql = """
+        SELECT person_id, name
+        FROM Person
+        ORDER BY name
+    """
+    fields = ["person_id", "name"]
+    # The run_query function will handle exceptions, log them, flash a message,
+    # and return an empty list on error.
+    people = main_app_run_query(sql, expected_fields=fields)
+
+    # Ensure uniqueness based on person_id
+    unique_people_list = []
+    seen_person_ids = set()
+    if people: # Ensure people is not None and is iterable
+        for person_dict in people:
+            if isinstance(person_dict, dict) and 'person_id' in person_dict:
+                person_id = person_dict['person_id']
+                if person_id not in seen_person_ids:
+                    seen_person_ids.add(person_id)
+                    unique_people_list.append(person_dict)
+            else:
+                # Log or handle unexpected item structure if necessary
+                print(f"Warning: Skipping unexpected item in people list: {person_dict}")
+
+    return unique_people_list
 
 @ally_bp.route('/introvert-ally', methods=['GET'])
 def introvert_ally_page():

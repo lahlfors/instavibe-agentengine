@@ -157,16 +157,15 @@ def run_query(sql, params=None, param_types=None, expected_fields=None): # Add e
             print(f"Query successful, fetched {len(results_list)} rows.")
 
     except (exceptions.NotFound, exceptions.PermissionDenied, exceptions.InvalidArgument) as spanner_err:
-        print(f"Spanner Error ({type(spanner_err).__name__}): {spanner_err}")
+        app.logger.error(f"Spanner Error ({type(spanner_err).__name__}): {spanner_err}", exc_info=True)
         flash(f"Database error: {spanner_err}", "danger")
         return []
     except ValueError as e: # Catch the ValueError we might raise above
-         print(f"Query Processing Error: {e}")
+         app.logger.error(f"Query Processing Error: {e}", exc_info=True)
          flash("Internal error processing query results.", "danger")
          return []
     except Exception as e:
-        print(f"An unexpected error occurred during query execution or processing: {e}")
-        traceback.print_exc()
+        app.logger.error(f"An unexpected error occurred during query execution or processing: {e}", exc_info=True)
         flash(f"An unexpected server error occurred while fetching data.", "danger")
         raise e
 

@@ -1,96 +1,184 @@
-# In tools/instavibe/mcp_server.py
-
-import logging
 import os
-import sys
-from dotenv import load_dotenv
-
-# ======================= CORRECTED ORDER =======================
-# 1. Add project root to path
-sys.path.append('.')
-
-# 2. Load environment variables first
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-load_dotenv(dotenv_path=dotenv_path)
-
-# 3. Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-logger = logging.getLogger(__name__)
-# ===============================================================
-
-logger.info("--- mcp_server.py: Logging configured ---")
-
-import asyncio
+from fastmcp import FastMCP
 import json
-import uvicorn
-# import inspect # No longer needed for tool discovery
-from opentelemetry import trace
-# from google.adk.tools.function_tool import FunctionTool # No longer needed
-from mcp.server.fastmcp.starlette_app_factory import create_app
-from mcp import types as mcp_types
+import logging
+from dotenv import load_dotenv
+import aiohttp
+from agents.app.utils.communication import call_http_endpoint
 
-logger.info("--- mcp_server.py: Attempting to import instavibe... ---")
-try:
-    import instavibe
-    logger.info("--- mcp_server.py: Successfully IMPORTED instavibe ---")
-except Exception as e:
-    logger.error(f"--- mcp_server.py: FAILED to import instavibe ---", exc_info=True)
-    sys.exit(1) # Exit if tools cannot be loaded
+# Get port from environment variable, default to 8080 for Cloud Run
+port = int(os.environ.get("PORT", 8080))
+host = "0.0.0.0"
 
-# Setup Observability (Assuming tracer is configured elsewhere or to be added)
-tracer = trace.get_tracer(__name__)
+# Initialize MCP Server
+mcp_server = FastMCP(
+    name="mcp-tool-server"
+    # Other Server constructor arguments if needed
+)
 
-# Create the MCP application instance using the factory
-# Pass the instavibe module to the factory for tool discovery
-app = create_app(tools=[instavibe])
-logger.info(f"MCP Server: App created. Found tools: {list(app.tools.keys())}")
+# --- Register your MCP tools and resources here ---
+# Load environment variables from the root .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+BASE_URL = os.environ.get("TOOLS_INSTAVIBE_BASE_URL")
+
+@mcp_server.tool()
+async def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL):
+    """
+    Sends a POST request to the /posts endpoint to create a new post.
+    """
+    url = f"{base_url}/posts"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "author_name": author_name,
+        "text": text,
+        "sentiment": sentiment
+    }
+
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="POST",
+            url=url,
+            headers=headers,
+            json=payload
+        )
+        print(f"Successfully created post.")
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error creating post: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
+
+@mcp_server.tool()
+async def create_event(event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str], base_url: str = BASE_URL):
+    """
+    Sends a POST request to the /events endpoint to create a new event registration.
+    """
+    url = f"{base_url}/events"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "event_name": event_name,
+        "description": description,
+        "event_date": event_date,
+        "locations": locations,
+        "attendee_names": attendee_names,
+    }
+
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="POST",
+            url=url,
+            headers=headers,
+            json=payload
+        )
+        print(f"Successfully created event registration.")
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error creating event registration: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
 
-@app.list_tools()
-async def list_tools() -> list[mcp_types.Tool]:
-    """MCP handler to list available tools."""
-    with tracer.start_as_current_span("list_tools") as span:
-        # Get tools directly from the app's registry
-        mcp_tool_schemas = list(app.tools.values())
-        span.set_attribute("tool.count", len(mcp_tool_schemas))
-        logger.info(f"MCP Server: Advertising {len(mcp_tool_schemas)} tools: {list(app.tools.keys())}")
-        return mcp_tool_schemas
+@mcp_server.tool()
+async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
+    """
+    Fetches a person's ID by their name by calling the API.
+    """
+    url = f"{base_url}/api/person/by_name/{name}"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+            headers={},
+            json={}
+        )
+        return response.get('person_id') if response else None
+    except aiohttp.ClientError as e:
+        print(f"Error getting person ID by name: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
-@app.call_tool()
-async def call_tool(
-    name: str, arguments: dict
-) -> list[mcp_types.TextContent | mcp_types.ImageContent | mcp_types.EmbeddedResource]:
-    """MCP handler to execute a tool call."""
-    with tracer.start_as_current_span("call_tool") as span:
-        span.set_attribute("tool.name", name)
-        span.set_attribute("tool.arguments", str(arguments))
-        logger.info(f"MCP Server: Received call_tool request for '{name}' with args: {arguments}")
+@mcp_server.tool()
+async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
+    """
+    Fetches events attended by a person by calling the API.
+    """
+    url = f"{base_url}/api/person/{person_id}/attended_events"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+            headers={},
+            json={}
+        )
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error getting attended events: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
-        # Get the tool from the framework's registry
-        tool_to_call = app.tools.get(name)
-        if tool_to_call:
-            try:
-                logger.info(f"MCP Server: Calling tool '{name}' function")
-                # The app.tools entry contains the schema and the function
-                # We call the .func attribute which is the decorated async function
-                result = await tool_to_call.func(**arguments)
-                response_text = json.dumps(result, indent=2)
+@mcp_server.tool()
+async def get_person_posts(person_id: str, base_url: str = BASE_URL):
+    """
+    Fetches posts by a person by calling the API.
+    """
+    url = f"{base_url}/api/person/{person_id}/posts"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+            headers={},
+            json={}
+        )
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error getting person posts: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
-                logger.info(f"MCP Server: Tool '{name}' executed successfully.")
-                span.set_status(trace.StatusCode.OK)
-                return [mcp_types.TextContent(type="text", text=response_text)]
-            except Exception as e:
-                logger.error(f"MCP Server: Error executing tool '{name}': {e}", exc_info=True)
-                span.record_exception(e)
-                span.set_status(trace.StatusCode.ERROR, str(e))
-                error_text = json.dumps({"error": f"Failed to execute tool '{name}': {str(e)}"})
-                return [mcp_types.TextContent(type="text", text=error_text)]
-        else:
-            logger.warning(f"MCP Server: Tool '{name}' not found in app.tools.")
-            span.set_status(trace.StatusCode.ERROR, f"Tool not found: {name}")
-            error_text = json.dumps({"error": f"Tool '{name}' not found."})
-            return [mcp_types.TextContent(type="text", text=error_text)]
+@mcp_server.tool()
+async def get_person_friends(person_id: str, base_url: str = BASE_URL):
+    """
+    Fetches friends of a person by calling the API.
+    """
+    url = f"{base_url}/api/person/{person_id}/friends"
+    try:
+        response = await call_http_endpoint(
+            source_agent="instavibe_tool",
+            target_service="instavibe_app",
+            http_method="GET",
+            url=url,
+            headers={},
+            json={}
+        )
+        return response
+    except aiohttp.ClientError as e:
+        print(f"Error getting person friends: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from {url}.")
+        return None
 
+# --- Start the server using FastMCP's runner ---
 if __name__ == "__main__":
-    logger.info(f"Starting MCP Server on port {os.environ.get('PORT', 8080)}")
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    print(f"--- MCP Server '{mcp_server.name}' starting on {host}:{port} ---")
+    mcp_server.run(transport="http", host=host, port=port)

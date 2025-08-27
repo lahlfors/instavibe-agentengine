@@ -6,6 +6,7 @@ steps:
     id: 'Build'
     args:
       - 'build'
+      - '--no-cache'
       - '--tag'
       - '${_IMAGE_PATH}'
       - '--file'

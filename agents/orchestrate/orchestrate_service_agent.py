@@ -2,6 +2,7 @@
 import logging
 import os
 import aiohttp
+import asyncio
 import google.auth
 import google.auth.credentials  # Import for type hinting
 import google.auth.transport.requests
@@ -38,7 +39,7 @@ class OrchestrateServiceAgent(Agent):
         )
         # Do NOT initialize self.project, self.location, etc. here
 
-    def set_up(self):
+    async def set_up(self):
         """
         Called by the Agent Engine framework after deployment.
         """
@@ -61,7 +62,7 @@ class OrchestrateServiceAgent(Agent):
         self.memory_bank_url = f"{self.base_url}/memories"
 
         try:
-            self.credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            self.credentials, _ = await asyncio.to_thread(google.auth.default, scopes=["https://www.googleapis.com/auth/cloud-platform"])
         except google.auth.exceptions.DefaultCredentialsError as e:
             logging.error(f"Failed to get default credentials: {e}")
             raise RuntimeError("Failed to get default credentials. Ensure the environment is authenticated.") from e
@@ -103,7 +104,7 @@ class OrchestrateServiceAgent(Agent):
         Returns:
             The resource name of the newly created memory.
         """
-        if not self.memory_bank_url: self.set_up() # Ensure set_up called if not already
+        if not self.memory_bank_url: await self.set_up() # Ensure set_up called if not already
         headers = await self._get_auth_headers()
         payload = {"fact": description, "user_id": user_id}
         logging.info(f"Creating memory at {self.memory_bank_url} for user: {user_id}")
@@ -133,7 +134,7 @@ class OrchestrateServiceAgent(Agent):
         Returns:
             A string containing the search results.
         """
-        if not self.memory_bank_url: self.set_up()
+        if not self.memory_bank_url: await self.set_up()
         headers = await self._get_auth_headers()
         search_url = f"{self.memory_bank_url}:search"
         payload = {"query": query, "user_id": user_id}

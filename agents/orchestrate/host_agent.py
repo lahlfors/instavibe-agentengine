@@ -14,10 +14,10 @@ class HostAgent:
   tasks to and coordinate their work.
   """
 
-  def __init__(self, **kwargs):
+  def __init__(self, tools, **kwargs):
     # The new implementation does not need remote_agent_addresses or task_callback
     # at initialization. Agent discovery is handled by the ADK.
-    pass
+    self.tools = tools
 
   def create_agent(self) -> Agent:
     # project_id, location, and model_config_kwargs are removed as LlmAgent will use
@@ -27,6 +27,7 @@ class HostAgent:
         thinking_budget=-1, # Use dynamic thinking
     )
     planner = BuiltInPlanner(thinking_config=thinking_config)
+    all_tools = [self.send_task] + self.tools
     return Agent(
         model="gemini-2.5-flash-001", # Updated model name
         name="orchestrate_agent",
@@ -35,9 +36,7 @@ class HostAgent:
             "This agent orchestrates the decomposition of the user request into"
             " tasks that can be performed by the child agents."
         ),
-        tools=[
-            self.send_task,
-        ],
+        tools=all_tools,
         planner=planner,
     )
 

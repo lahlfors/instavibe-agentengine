@@ -9,6 +9,7 @@ import google.auth.aio.transport.aiohttp
 from google.adk.agents import Agent
 from typing import Optional, List
 from agents.app.utils.communication import call_http_endpoint
+from .host_agent import HostAgent
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,6 +25,8 @@ class OrchestrateServiceAgent(Agent):
     memory_bank_url: Optional[str] = None
     credentials: Optional[google.auth.credentials.Credentials] = None
     reasoning_engine_id: Optional[str] = None
+    host_agent: Optional[HostAgent] = None
+    orchestrator_agent: Optional[Agent] = None
 
     def __init__(self, name: str, model: str, instruction: Optional[str] = None, description: Optional[str] = None):
         # Pass required fields like name and model to the base class
@@ -32,7 +35,6 @@ class OrchestrateServiceAgent(Agent):
             model=model,
             instruction=instruction or "I am an orchestrator agent with memory capabilities.",
             description=description or "An agent that can create and search memories.",
-            tools=[self.create_memory, self.search_memories]
         )
         # Do NOT initialize self.project, self.location, etc. here
 
@@ -65,6 +67,9 @@ class OrchestrateServiceAgent(Agent):
             raise RuntimeError("Failed to get default credentials. Ensure the environment is authenticated.") from e
 
         logging.info(f"Memory Bank URL set to: {self.memory_bank_url}")
+
+        self.host_agent = HostAgent(tools=[self.create_memory, self.search_memories])
+        self.orchestrator_agent = self.host_agent.create_agent()
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
     async def _get_auth_headers(self):
@@ -148,6 +153,13 @@ class OrchestrateServiceAgent(Agent):
         except aiohttp.ClientError as e:
             logging.error(f"Error searching memories: {e}")
             raise
+
+    def query(self, input_text: str) -> str:
+        if not self.orchestrator_agent:
+            logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+            raise RuntimeError("Agent not properly initialized.")
+        # Delegate the query to the OrchestratorAgent instance
+        return self.orchestrator_agent.query(input_text)
 
 OrchestrateServiceAgent.model_rebuild()
 

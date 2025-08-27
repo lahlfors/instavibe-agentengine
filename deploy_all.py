@@ -211,14 +211,13 @@ def deploy_agent(project_id: str, region: str, agent_name: str, deploy_func: Cal
             logging.info(f"Successfully deployed '{agent_name}'. Resource Name: {resource.name}")
             return resource.name
         else:
-            logging.error(f"Deployment of '{agent_name}' did not return a valid resource object.")
-            return None
+            raise DeploymentError(f"Deployment of '{agent_name}' did not return a valid resource object.")
     except ApiDisabledError as e:
         logging.error(f"Halting deployment of '{agent_name}': {e}")
-        return None
+        raise
     except Exception as e:
         logging.error(f"Failed to deploy agent '{agent_name}': {e}", exc_info=True)
-        return None
+        raise
 
 # --- Cloud Run Service Deployment (REFACTORED) ---
 def build_and_deploy_cloud_run_service(

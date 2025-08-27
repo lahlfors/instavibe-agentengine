@@ -12,7 +12,7 @@ from google.genai.types import ThinkingConfig
 from typing import Optional
 from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
-from google.adk.tools import PreloadMemoryTool
+from google.adk.tools import preload_memory_tool
 
 logging.basicConfig(level=logging.INFO)
 
@@ -64,7 +64,7 @@ class OrchestrateServiceAgent(Agent):
             thinking_budget=-1,  # Use dynamic thinking
         )
         planner = BuiltInPlanner(thinking_config=thinking_config)
-        all_tools = [self.send_task, PreloadMemoryTool(memory=self.memory_service)]
+        all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
 
         self.orchestrator_agent = Agent(
             model="gemini-2.5-flash",

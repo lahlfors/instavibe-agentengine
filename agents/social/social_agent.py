@@ -147,6 +147,17 @@ class SocialAgent(AgentTaskManager):
               return {"error": f"Agent execution error: {e_run}"}
 
           if response_event_data:
+              if hasattr(response_event_data, "usage_metadata") and response_event_data.usage_metadata:
+                  prompt_tokens = response_event_data.usage_metadata.prompt_token_count
+                  completion_tokens = response_event_data.usage_metadata.candidates_token_count
+                  total_tokens = response_event_data.usage_metadata.total_token_count
+                  input_cost = float(os.getenv("GEMINI_2_0_FLASH_INPUT_COST", "0.10"))
+                  output_cost = float(os.getenv("GEMINI_2_0_FLASH_OUTPUT_COST", "0.30"))
+                  cost = (prompt_tokens * input_cost / 1000000) + (completion_tokens * output_cost / 1000000)
+                  span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
+                  span.set_attribute("gen_ai.usage.completion_tokens", completion_tokens)
+                  span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
+                  span.set_attribute("gen_ai.usage.cost", cost)
               if isinstance(response_event_data, dict): # Ideal case if event itself is the dict
                   output = response_event_data.get("output", "")
                   if output:

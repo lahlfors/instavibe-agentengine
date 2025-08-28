@@ -164,6 +164,17 @@ class OrchestrateServiceAgent(Agent):
                                 with tracer.start_as_current_span(f"agent.thought_{thought_counter}") as thought_span:
                                     thought_span.set_attribute("gen_ai.prompt.content", part.thought.prompt)
                                     thought_span.set_attribute("gen_ai.response.content", part.thought.response)
+                                    if event.usage_metadata:
+                                        prompt_tokens = event.usage_metadata.prompt_token_count
+                                        completion_tokens = event.usage_metadata.candidates_token_count
+                                        total_tokens = event.usage_metadata.total_token_count
+                                        input_cost = float(os.getenv("GEMINI_2_5_FLASH_INPUT_COST", "0.10"))
+                                        output_cost = float(os.getenv("GEMINI_2_5_FLASH_OUTPUT_COST", "0.40"))
+                                        cost = (prompt_tokens * input_cost / 1000000) + (completion_tokens * output_cost / 1000000)
+                                        thought_span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
+                                        thought_span.set_attribute("gen_ai.usage.completion_tokens", completion_tokens)
+                                        thought_span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
+                                        thought_span.set_attribute("gen_ai.usage.cost", cost)
                                 thought_counter += 1
                             if hasattr(part, "function_call") and part.function_call:
                                 with tracer.start_as_current_span(f"agent.action_{action_counter}") as action_span:

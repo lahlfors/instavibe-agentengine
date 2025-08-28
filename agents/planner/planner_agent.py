@@ -96,6 +96,17 @@ class PlannerAgent(BaseAgent):
                 if response_event and response_event.content and response_event.content.parts:
                     final_output = response_event.content.parts[0].text
                     span.set_attribute("gen_ai.assistant.message", final_output)
+                    if response_event.usage_metadata:
+                        prompt_tokens = response_event.usage_metadata.prompt_token_count
+                        completion_tokens = response_event.usage_metadata.candidates_token_count
+                        total_tokens = response_event.usage_metadata.total_token_count
+                        input_cost = float(os.getenv("GEMINI_2_0_FLASH_INPUT_COST", "0.10"))
+                        output_cost = float(os.getenv("GEMINI_2_0_FLASH_OUTPUT_COST", "0.30"))
+                        cost = (prompt_tokens * input_cost / 1000000) + (completion_tokens * output_cost / 1000000)
+                        span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
+                        span.set_attribute("gen_ai.usage.completion_tokens", completion_tokens)
+                        span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
+                        span.set_attribute("gen_ai.usage.cost", cost)
                     logging.info(f"PlannerAgent '{self.name}' got final response: {final_output}")
                     yield Event(author=self.name, actions=EventActions(finish=True, output=final_output))
                 else:

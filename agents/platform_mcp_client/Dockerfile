@@ -29,6 +29,6 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-# Run a2a_server.py when the container launches
-# Use the module execution '-m' which works well with the PYTHONPATH setup
-CMD ["python", "-m", "agents.platform_mcp_client.a2a_server"]
+# The CMD is intentionally omitted.
+# The mcp[cli] dependency provides the necessary server components, and Vertex
+# AI Agent Builder will manage the agent's lifecycle and startup process.

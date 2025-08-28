@@ -430,30 +430,38 @@ def add_post_db(post_id, author_id, text, sentiment=None):
         print("Error: Database connection is not available for insert.")
         raise ConnectionError("Spanner database connection not initialized.")
 
-    def _insert_post(transaction):
-        transaction.insert(
-            table="Post",
-            columns=[
-                "post_id", "author_id", "text", "sentiment",
-                "post_timestamp", "create_time"
-            ],
-            values=[(
-                post_id, author_id, text, sentiment,
-                datetime.now(timezone.utc), # Use current UTC time for post_timestamp
-                spanner.COMMIT_TIMESTAMP   # Use commit time for create_time
-            )]
-        )
-        print(f"Transaction attempting to insert post_id: {post_id}")
+    with tracer.start_as_current_span("db.spanner.insert.post") as span:
+        span.set_attribute("db.system", "Spanner")
+        span.set_attribute("db.operation", "insert")
+        span.set_attribute("db.statement", "posts")
+        span.set_attribute("db.entity.id", post_id)
 
-    try:
-        db.run_in_transaction(_insert_post)
-        print(f"Successfully inserted post_id: {post_id}")
-        return True
-    except Exception as e:
-        print(f"Error inserting post (id: {post_id}): {e}")
-        # Log the full traceback for detailed debugging if needed
-        # traceback.print_exc()
-        return False # Indicate failure
+        def _insert_post(transaction):
+            transaction.insert(
+                table="Post",
+                columns=[
+                    "post_id", "author_id", "text", "sentiment",
+                    "post_timestamp", "create_time"
+                ],
+                values=[(
+                    post_id, author_id, text, sentiment,
+                    datetime.now(timezone.utc), # Use current UTC time for post_timestamp
+                    spanner.COMMIT_TIMESTAMP   # Use commit time for create_time
+                )]
+            )
+            print(f"Transaction attempting to insert post_id: {post_id}")
+
+        try:
+            db.run_in_transaction(_insert_post)
+            print(f"Successfully inserted post_id: {post_id}")
+            return True
+        except Exception as e:
+            print(f"Error inserting post (id: {post_id}): {e}")
+            # Log the full traceback for detailed debugging if needed
+            # traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Error inserting post: {e}")
+            return False # Indicate failure
 
 def add_full_event_with_details_db(event_id, event_name, description, event_date, locations_data, attendee_ids):
     """
@@ -476,58 +484,66 @@ def add_full_event_with_details_db(event_id, event_name, description, event_date
         print("Error: Database connection is not available for full event insert.")
         raise ConnectionError("Spanner database connection not initialized.")
 
-    def _insert_event_and_attendee(transaction):
-        # Insert into Event table (Simplified Schema)
-        transaction.insert(
-            table="Event",
-            columns=[
-                "event_id", "name", "description", "event_date", "create_time"
-            ],
-            values=[(
-                event_id, event_name, description, event_date,
-                spanner.COMMIT_TIMESTAMP
-            )]
-        )
-        print(f"Transaction attempting to insert event_id: {event_id}")
+    with tracer.start_as_current_span("db.spanner.insert.event") as span:
+        span.set_attribute("db.system", "Spanner")
+        span.set_attribute("db.operation", "insert")
+        span.set_attribute("db.statement", "events")
+        span.set_attribute("db.entity.id", event_id)
 
-        # Insert Locations and EventLocation links
-        for loc_data in locations_data:
-            location_id = str(uuid.uuid4())
+        def _insert_event_and_attendee(transaction):
+            # Insert into Event table (Simplified Schema)
             transaction.insert(
-                table="Location",
-                columns=["location_id", "name", "description", "latitude", "longitude", "address", "create_time"],
+                table="Event",
+                columns=[
+                    "event_id", "name", "description", "event_date", "create_time"
+                ],
                 values=[(
-                    location_id, loc_data.get("name"), loc_data.get("description"),
-                    float(loc_data.get("latitude", 0.0)), float(loc_data.get("longitude", 0.0)), # Ensure float
-                    loc_data.get("address"), spanner.COMMIT_TIMESTAMP
+                    event_id, event_name, description, event_date,
+                    spanner.COMMIT_TIMESTAMP
                 )]
             )
-            print(f"Transaction attempting to insert location_id: {location_id} for event {event_id}")
-            transaction.insert(
-                table="EventLocation",
-                columns=["event_id", "location_id", "create_time"],
-                values=[(event_id, location_id, spanner.COMMIT_TIMESTAMP)]
-            )
-            print(f"Transaction attempting to link event {event_id} with location {location_id}")
+            print(f"Transaction attempting to insert event_id: {event_id}")
 
-        # Insert each attendee into Attendance table
-        if attendee_ids:
-            for attendee_id_to_add in attendee_ids:
+            # Insert Locations and EventLocation links
+            for loc_data in locations_data:
+                location_id = str(uuid.uuid4())
                 transaction.insert(
-                    table="Attendance",
-                    columns=["event_id", "person_id", "attendance_time"],
-                    values=[(event_id, attendee_id_to_add, spanner.COMMIT_TIMESTAMP)]
+                    table="Location",
+                    columns=["location_id", "name", "description", "latitude", "longitude", "address", "create_time"],
+                    values=[(
+                        location_id, loc_data.get("name"), loc_data.get("description"),
+                        float(loc_data.get("latitude", 0.0)), float(loc_data.get("longitude", 0.0)), # Ensure float
+                        loc_data.get("address"), spanner.COMMIT_TIMESTAMP
+                    )]
                 )
-                print(f"Transaction attempting to insert attendee {attendee_id_to_add} for event {event_id} into Attendance")
+                print(f"Transaction attempting to insert location_id: {location_id} for event {event_id}")
+                transaction.insert(
+                    table="EventLocation",
+                    columns=["event_id", "location_id", "create_time"],
+                    values=[(event_id, location_id, spanner.COMMIT_TIMESTAMP)]
+                )
+                print(f"Transaction attempting to link event {event_id} with location {location_id}")
 
-    try:
-        db.run_in_transaction(_insert_event_and_attendee)
-        print(f"Successfully inserted event {event_id} with details and attendees {attendee_ids}")
-        return True
-    except Exception as e:
-        print(f"Error inserting full event (event_id: {event_id}, attendee_ids: {attendee_ids}): {e}")
-        traceback.print_exc() # Log detailed error
-        return False # Indicate failure
+            # Insert each attendee into Attendance table
+            if attendee_ids:
+                for attendee_id_to_add in attendee_ids:
+                    transaction.insert(
+                        table="Attendance",
+                        columns=["event_id", "person_id", "attendance_time"],
+                        values=[(event_id, attendee_id_to_add, spanner.COMMIT_TIMESTAMP)]
+                    )
+                    print(f"Transaction attempting to insert attendee {attendee_id_to_add} for event {event_id} into Attendance")
+
+        try:
+            db.run_in_transaction(_insert_event_and_attendee)
+            print(f"Successfully inserted event {event_id} with details and attendees {attendee_ids}")
+            return True
+        except Exception as e:
+            print(f"Error inserting full event (event_id: {event_id}, attendee_ids: {attendee_ids}): {e}")
+            traceback.print_exc() # Log detailed error
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Error inserting event: {e}")
+            return False # Indicate failure
 
 # --- Routes ---
 @app.route('/')

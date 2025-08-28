@@ -11,7 +11,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # For this example, we'll register it manually.
 # The URL should be the one for the Cloud Run proxy service.
 PROXY_URL = os.environ.get("PLANNER_AGENT_URL", "http://localhost:8081")
-adk.agents.register(name='planner-agent-v1', agent_card_url=f'{PROXY_URL}/.well-known/agent.json')
+adk.agents.register(name='planner_agent-v1', agent_card_url=f'{PROXY_URL}/.well-known/agent.json')
 
 async def get_plans_via_proxy(data_to_share: dict):
     """
@@ -21,7 +21,7 @@ async def get_plans_via_proxy(data_to_share: dict):
         print("Invoking 'get_plans' via proxy...")
         response_data = await call_agent_capability(
             source_agent="planner_client",
-            target_agent="planner-agent-v1",
+            target_agent="planner_agent-v1",
             capability="get_plans",
             prompt=data_to_share
         )

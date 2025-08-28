@@ -11,7 +11,7 @@ from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
 from common.observability import setup_observability
-setup_observability(service_name="planner-agent")
+setup_observability(service_name="planner_agent")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
@@ -19,7 +19,7 @@ tracer = trace.get_tracer(__name__)
 class PlannerAgent(LlmAgent):
     """An agent that helps users plan a night out."""
 
-    def __init__(self, name: str = "planner-agent") -> None:
+    def __init__(self, name: str = "planner_agent") -> None:
         super().__init__(
             name=name,
             model="gemini-2.0-flash-001",

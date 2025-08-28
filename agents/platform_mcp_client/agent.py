@@ -3,8 +3,7 @@ from dotenv import load_dotenv
 from common.observability import setup_observability
 setup_observability(service_name="platform-mcp-client-agent")
 from google.adk.agents import Agent
-from google.adk.tools import Tool
-from pydantic import BaseModel
+from google.adk.tools.function_tool import FunctionTool
 import logging
 import os
 from typing import Any, Dict, List, Tuple, Optional
@@ -20,13 +19,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-class CreateEventArgs(BaseModel):
-    event_details: Dict[str, Any]
-    user_id: str
-
-class GetPersonPostsArgs(BaseModel):
-    person_id: str
-
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
@@ -39,17 +31,15 @@ class PlatformMCPClientAgent(Agent):
         self.mcp_server_address = mcp_server_address
         self.api_key_secret = api_key_secret
         self.tools = [
-            Tool(
+            FunctionTool(
+                func=self._create_event_impl,
                 name="create_event",
-                function=self._create_event_impl,
                 description="Creates an event on the Instavibe platform.",
-                args_schema=CreateEventArgs,
             ),
-            Tool(
+            FunctionTool(
+                func=self._get_person_posts_impl,
                 name="get_person_posts",
-                function=self._get_person_posts_impl,
                 description="Gets posts for a person from the Instavibe platform.",
-                args_schema=GetPersonPostsArgs,
             ),
         ]
         log.info("PlatformMCPClientAgent __init__ called. Config stored.")

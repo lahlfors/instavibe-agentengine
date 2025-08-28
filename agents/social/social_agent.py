@@ -3,9 +3,8 @@ import logging
 import asyncio
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, AsyncGenerator
-from pydantic import BaseModel
 from google.adk.agents import LoopAgent, LlmAgent, BaseAgent
-from google.adk.tools import Tool
+from google.adk.tools.function_tool import FunctionTool
 from .instavibe import get_person_posts,get_person_friends,get_person_id_by_name,get_person_attended_events
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
@@ -20,18 +19,6 @@ setup_observability(service_name="social-agent")
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 log = logging.getLogger(__name__)
-
-class GetPersonPostsArgs(BaseModel):
-    person_id: str
-
-class GetPersonFriendsArgs(BaseModel):
-    person_id: str
-
-class GetPersonIdByNameArgs(BaseModel):
-    name: str
-
-class GetPersonAttendedEventsArgs(BaseModel):
-    person_id: str
 
 class SocialAgent(LoopAgent):
     """An agent that handles social profile analysis."""
@@ -56,29 +43,25 @@ class SocialAgent(LoopAgent):
                 "You are a helpful agent who can answer user questions about this person's social profile."
             ),
             tools=[
-                Tool(
+                FunctionTool(
+                    func=get_person_posts,
                     name="get_person_posts",
-                    function=get_person_posts,
                     description="Get posts by a person.",
-                    args_schema=GetPersonPostsArgs,
                 ),
-                Tool(
+                FunctionTool(
+                    func=get_person_friends,
                     name="get_person_friends",
-                    function=get_person_friends,
                     description="Get friends of a person.",
-                    args_schema=GetPersonFriendsArgs,
                 ),
-                Tool(
+                FunctionTool(
+                    func=get_person_id_by_name,
                     name="get_person_id_by_name",
-                    function=get_person_id_by_name,
                     description="Get person ID by name.",
-                    args_schema=GetPersonIdByNameArgs,
                 ),
-                Tool(
+                FunctionTool(
+                    func=get_person_attended_events,
                     name="get_person_attended_events",
-                    function=get_person_attended_events,
                     description="Get events attended by a person.",
-                    args_schema=GetPersonAttendedEventsArgs,
                 ),
             ]
         )
@@ -155,15 +138,15 @@ class SocialAgent(LoopAgent):
         invocation_id = callback_context.invocation_id
         current_state = callback_context.state.to_dict()
         current_user_content = callback_context.user_content
-        print(f"[Callback] Exiting agent: {agent_name} (Inv: {invocation_id})")
-        print(f"[Callback] Current summary_status: {current_state.get('summary_status')}")
-        print(f"[Callback] Current Content: {current_user_content}")
+        log.info(f"[Callback] Exiting agent: {agent_name} (Inv: {invocation_id})")
+        log.info(f"[Callback] Current summary_status: {current_state.get('summary_status')}")
+        log.info(f"[Callback] Current Content: {current_user_content}")
 
         status = current_state.get("summary_status").strip()
         is_done = (status == "completed")
 
         final_summary = current_state.get("summary")
-        print(f"[Callback] final_summary: {final_summary}")
+        log.info(f"[Callback] final_summary: {final_summary}")
         if final_summary and is_done and isinstance(final_summary, str):
             log.info(f"[Callback] Found final summary, constructing output Content.")
             return types.Content(role="model", parts=[types.Part(text=final_summary.strip())])

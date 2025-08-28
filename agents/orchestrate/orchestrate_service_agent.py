@@ -6,7 +6,6 @@ import logging
 import os
 import asyncio
 from typing import Optional, Dict, Any
-from pydantic import BaseModel
 
 # OpenTelemetry imports
 from opentelemetry import trace
@@ -18,7 +17,7 @@ import google.auth.credentials
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
-from google.adk.tools import Tool
+from google.adk.tools.function_tool import FunctionTool
 from google.genai.types import ThinkingConfig
 
 from agents.app.utils.communication import call_agent_capability
@@ -29,11 +28,6 @@ logging.basicConfig(level=logging.INFO)
 
 # Get a tracer
 tracer = trace.get_tracer(__name__)
-
-class SendTaskArgs(BaseModel):
-    agent_name: str
-    action: str
-    data: Dict[str, Any]
 
 class OrchestrateServiceAgent(Agent):
     """
@@ -90,11 +84,10 @@ class OrchestrateServiceAgent(Agent):
                 )
                 self.planner = BuiltInPlanner(thinking_config=thinking_config)
 
-                send_task_tool = Tool(
+                send_task_tool = FunctionTool(
+                    func=self._send_task_impl,
                     name="send_task",
-                    function=self._send_task_impl,
-                    description="Delegates a task to a specified remote agent by invoking one of its capabilities.",
-                    args_schema=SendTaskArgs
+                    description="Delegates a task to a specified remote agent by invoking one of its capabilities."
                 )
                 preload_tool = preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)
                 self.tools = [send_task_tool, preload_tool]

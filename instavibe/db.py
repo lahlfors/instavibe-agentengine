@@ -46,6 +46,7 @@ except Exception as e:
 # --- Utility Function (Graph Query Specific) ---
 
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 tracer = trace.get_tracer(__name__)
 

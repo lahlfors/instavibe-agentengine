@@ -1,14 +1,15 @@
 import asyncio
 from dotenv import load_dotenv
-from google.adk.agents.llm_agent import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, SseConnectionParams
+from common.observability import setup_observability
+setup_observability(service_name="platform-mcp-client-agent")
+from google.adk.agents import Agent
+from google.adk.tools import Tool
+from pydantic import BaseModel
 import logging
 import os
-import nest_asyncio
-from google.adk.agents import BaseAgent
 from typing import Any, Dict, List, Tuple, Optional
-from google.genai.types import Content, Part
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
 
@@ -19,38 +20,53 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-from typing import Optional, Any
-from mcp import client
+class CreateEventArgs(BaseModel):
+    event_details: Dict[str, Any]
+    user_id: str
 
-class PlatformMCPClientAgent(BaseAgent):
+class GetPersonPostsArgs(BaseModel):
+    person_id: str
+
+class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
     api_key_secret: str
     mcp_client: "Optional[Any]" = None
 
-    def __init__(self, mcp_server_address: str, api_key_secret: str):
-        """Initializes the agent with serializable configuration.
-
-        No network operations or client instantiations here.
-        """
-        super().__init__(name="platform_mcp_client_agent", mcp_server_address=mcp_server_address, api_key_secret=api_key_secret)
+    def __init__(self, mcp_server_address: str, api_key_secret: str, **kwargs):
+        """Initializes the agent with serializable configuration."""
+        super().__init__(name="platform_mcp_client_agent", **kwargs)
+        self.mcp_server_address = mcp_server_address
+        self.api_key_secret = api_key_secret
+        self.tools = [
+            Tool(
+                name="create_event",
+                function=self._create_event_impl,
+                description="Creates an event on the Instavibe platform.",
+                args_schema=CreateEventArgs,
+            ),
+            Tool(
+                name="get_person_posts",
+                function=self._get_person_posts_impl,
+                description="Gets posts for a person from the Instavibe platform.",
+                args_schema=GetPersonPostsArgs,
+            ),
+        ]
         log.info("PlatformMCPClientAgent __init__ called. Config stored.")
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
-        self._get_api_key(self.api_key_secret)
+        api_key = self._get_api_key(self.api_key_secret)
         log.info(f"Initializing MCPClient for {self.mcp_server_address}")
-        # REPLACE with actual client instantiation
-        # Example: client = MCPClient(self.mcp_server_address, api_key)
-        client = f"FakeMCPClient(server='{self.mcp_server_address}')"  # Placeholder
-        return client
+        # return mcp.client(self.mcp_server_address, api_key)
+        return f"FakeMCPClient(server='{self.mcp_server_address}')"  # Placeholder
 
     def _get_api_key(self, secret_name):
         # Placeholder for fetching secret
         log.info(f"Fetching API key from secret: {secret_name}")
         return "DUMMY_API_KEY"
 
-    def set_up(self, mcp_client: "Any"):
+    def set_up(self):
         """
         Called by Vertex AI Agent Engine after deserialization.
         Initialize non-serializable resources like network clients here.
@@ -59,40 +75,62 @@ class PlatformMCPClientAgent(BaseAgent):
             log.info("Starting PlatformMCPClientAgent.set_up")
             main_span.add_event("Starting PlatformMCPClientAgent.set_up")
             try:
-                self.mcp_client = mcp_client
+                self.mcp_client = self._initialize_mcp_client()
                 log.info("MCPClient initialized successfully in set_up.")
-                main_span.set_status(trace.Status(trace.StatusCode.OK))
+                main_span.set_status(Status(StatusCode.OK))
             except Exception as e:
                 log.error(f"Error during MCPClient initialization in set_up: {e}", exc_info=True)
                 main_span.record_exception(e)
-                main_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                main_span.set_status(Status(StatusCode.ERROR, str(e)))
                 raise
 
-    def query(self, user_query: str, **kwargs):
-        """
-        Example method to handle user queries.
-        """
-        if not self.mcp_client:
-            raise RuntimeError(
-                "MCP Client is not initialized. "
-                "The set_up() method was likely not called or failed."
-            )
+    async def _create_event_impl(self, event_details: Dict[str, Any], user_id: str):
+        with tracer.start_as_current_span("PlatformMCPClientAgent.create_event") as span:
+            if not self.mcp_client:
+                error_msg = "MCP Client is not initialized. The set_up() method was likely not called or failed."
+                log.error(error_msg)
+                span.set_status(Status(StatusCode.ERROR, error_msg))
+                raise RuntimeError(error_msg)
 
-        print(f"Querying MCP server with: '{user_query}'")
-        # Example interaction with the client
-        # response = self.mcp_client.send_query(user_query)
-        response = f"MCP response to '{user_query}'"  # Placeholder
-        return response
+            span.set_attributes({
+                "user_id": user_id,
+                "event.title": event_details.get("title", "Unknown")
+            })
+            log.info(f"Creating event for user {user_id}")
+            try:
+                # response = await self.mcp_client.call_tool("create_event", {**event_details, "user_id": user_id})
+                response = {"status": "success", "event_id": "fake123"} # Placeholder
+                if response.get("error"):
+                    span.set_status(Status(StatusCode.ERROR, response["error"]))
+                else:
+                    span.set_status(Status(StatusCode.OK))
+                return response
+            except Exception as e:
+                log.error(f"Error creating event: {e}", exc_info=True)
+                span.record_exception(e)
+                span.set_status(Status(StatusCode.ERROR, str(e)))
+                return {"error": str(e)}
 
-nest_asyncio.apply()
+    async def _get_person_posts_impl(self, person_id: str):
+        with tracer.start_as_current_span("PlatformMCPClientAgent.get_person_posts") as span:
+            if not self.mcp_client:
+                error_msg = "MCP Client is not initialized. The set_up() method was likely not called or failed."
+                log.error(error_msg)
+                span.set_status(Status(StatusCode.ERROR, error_msg))
+                raise RuntimeError(error_msg)
 
-# Example of how the ADK would use this agent:
-#
-# mcp_url = os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL", "http://0.0.0.0:8080/sse")
-# api_key_secret = os.environ.get("MCP_API_KEY_SECRET", "default-secret")
-#
-# 1. agent = PlatformMCPClientAgent(mcp_server_address=mcp_url, api_key_secret=api_key_secret)
-# 2. engine serializes 'agent' (only config data)
-# 3. engine deserializes 'agent' in the container
-# 4. engine calls agent.set_up() <-- Client initialization happens here
-# 5. engine calls agent.query(...) for incoming requests
+            span.set_attributes({"person_id": person_id})
+            log.info(f"Getting posts for person {person_id}")
+            try:
+                # response = await self.mcp_client.call_tool("get_person_posts", {"person_id": person_id})
+                response = [{"post_id": "post1", "text": "Hello world!"}] # Placeholder
+                if isinstance(response, dict) and response.get("error"):
+                    span.set_status(Status(StatusCode.ERROR, response["error"]))
+                else:
+                    span.set_status(Status(StatusCode.OK))
+                return response
+            except Exception as e:
+                log.error(f"Error getting posts: {e}", exc_info=True)
+                span.record_exception(e)
+                span.set_status(Status(StatusCode.ERROR, str(e)))
+                return {"error": str(e)}

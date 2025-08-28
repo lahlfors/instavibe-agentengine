@@ -1,175 +1,172 @@
-from typing import Any, Dict, Optional # Removed AsyncIterable as it's not used in the new query
-import logging # Added
-# import asyncio # Removed
-from google.adk.agents import LoopAgent
-from google.adk.tools.tool_context import ToolContext
-# from google.adk.sessions import SessionNotFoundError # Removed
-# from google.adk.sessions import Session # Removed
-from google.adk.artifacts import InMemoryArtifactService
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content, Part # Modified import
-from agents.app.common.task_manager import AgentTaskManager # Corrected to agents.app.common
-from . import agent
-import os # For path joining
-from dotenv import load_dotenv # To load .env
-
-# Load environment variables from the root .env file.
-# While agent.py (imported as .agent) also does this,
-# adding it here ensures that if SocialAgent is used or tested in a context
-# where agent.py wasn't the first import, the environment is still correctly configured.
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+import os
+import logging
+import asyncio
+from dotenv import load_dotenv
+from typing import Any, Dict, Optional, AsyncGenerator
+from pydantic import BaseModel
+from google.adk.agents import LoopAgent, LlmAgent, BaseAgent
+from google.adk.tools import Tool
+from .instavibe import get_person_posts,get_person_friends,get_person_id_by_name,get_person_attended_events
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event, EventActions
+from google.genai import types
+from google.adk.agents.callback_context import CallbackContext
+from opentelemetry import trace
 import sys
 sys.path.append('.')
 from common.observability import setup_observability
 setup_observability(service_name="social-agent")
-from opentelemetry import trace
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
+log = logging.getLogger(__name__)
 
-class SocialAgent(AgentTaskManager):
-  """An agent that handles social profile analysis."""
+class GetPersonPostsArgs(BaseModel):
+    person_id: str
 
-  SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
+class GetPersonFriendsArgs(BaseModel):
+    person_id: str
 
-  def __init__(self):
-    self._agent = None
-    self._user_id = None
-    self._runner = None
+class GetPersonIdByNameArgs(BaseModel):
+    name: str
 
-  def set_up(self):
-    if self._runner:
-        return
+class GetPersonAttendedEventsArgs(BaseModel):
+    person_id: str
 
-    with tracer.start_as_current_span("SocialAgent.set_up") as main_span:
-        logging.info("Starting SocialAgent.set_up")
-        main_span.add_event("Starting SocialAgent.set_up")
-        try:
-            with tracer.start_as_current_span("build_agent_and_runner"):
-                self._agent = self._build_agent()
-                self._user_id = "remote_agent"
-                self._runner = Runner(
-                    app_name=self._agent.name,
-                    agent=self._agent,
-                    artifact_service=InMemoryArtifactService(),
-                    session_service=InMemorySessionService(),
-                    memory_service=InMemoryMemoryService(),
-                )
-            logging.info("SocialAgent set up complete.")
-            main_span.set_status(trace.Status(trace.StatusCode.OK))
-        except Exception as e:
-            logging.error(f"Error during SocialAgent set_up: {e}", exc_info=True)
-            main_span.record_exception(e)
-            main_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-            raise
+class SocialAgent(LoopAgent):
+    """An agent that handles social profile analysis."""
 
-  def get_processing_message(self) -> str:
-      return "Processing the social profile analysis request..."
+    def __init__(self, name: str = "social-agent") -> None:
+        super().__init__(
+            name=name,
+            description="Find everyone's social profile on events, post and friends",
+            max_iterations=10,
+            after_agent_callback=self.modify_output_after_agent
+        )
+        self.sub_agents = self._create_sub_agents()
 
-  def _build_agent(self) -> LoopAgent:
-    """Builds the LLM agent for the social profile analysis agent."""
-    return agent.create_agent()
+    def _create_sub_agents(self) -> list:
+        profile_agent = LlmAgent(
+            name="profile_agent",
+            model="gemini-2.0-flash-001",
+            description=(
+                "Agent to answer questions about the this person's social profile. User will ask person's profile using their name, make sure to fetch the id before getting other data."
+            ),
+            instruction=(
+                "You are a helpful agent who can answer user questions about this person's social profile."
+            ),
+            tools=[
+                Tool(
+                    name="get_person_posts",
+                    function=get_person_posts,
+                    description="Get posts by a person.",
+                    args_schema=GetPersonPostsArgs,
+                ),
+                Tool(
+                    name="get_person_friends",
+                    function=get_person_friends,
+                    description="Get friends of a person.",
+                    args_schema=GetPersonFriendsArgs,
+                ),
+                Tool(
+                    name="get_person_id_by_name",
+                    function=get_person_id_by_name,
+                    description="Get person ID by name.",
+                    args_schema=GetPersonIdByNameArgs,
+                ),
+                Tool(
+                    name="get_person_attended_events",
+                    function=get_person_attended_events,
+                    description="Get events attended by a person.",
+                    args_schema=GetPersonAttendedEventsArgs,
+                ),
+            ]
+        )
 
-  def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
-      self.set_up()
-      logger = logging.getLogger(__name__)
-      app_name = self._agent.name
+        summary_agent = LlmAgent(
+            name="summary_agent",
+            model="gemini-2.0-flash-001",
+            description=(
+                "Generate a comprehensive social summary as a single, cohesive paragraph. This summary should cover the activities, posts, friend networks, and event participation of one or more individuals. If multiple profiles are analyzed, the paragraph must also identify and integrate any common ground found between them."
+            ),
+            instruction=(
+                """
+                Your primary task is to synthesize social profile information into a single, comprehensive paragraph.
 
-      action = input.get("action")
-      data = input.get("data")
+                    **Input Scope & Default Behavior:**
+                    *   If specific individuals are named by the user, focus your analysis on them.
+                    *   **If no individuals are specified, or if the request is general, assume the user wants an analysis of *all relevant profiles available in the current dataset/context*.**
 
-      if not action:
-          return {"error": "No action specified in the input."}
+                    **For each profile (whether specified or determined by default), you must analyze:**
 
-      # Construct a natural language query from the action and data.
-      # This is a simple implementation. A more robust solution might
-      # involve more sophisticated prompt engineering.
-      query = f"Action: {action}, Data: {data}"
-      if action == "share":
-          if isinstance(data, dict) and "message" in data:
-              query = f"Share this message: {data['message']}"
-          else:
-              query = f"Share this content: {data}"
-      elif action == "get_profile":
-          if isinstance(data, dict) and "name" in data:
-              query = f"Get the profile for user {data['name']}"
-          else:
-              query = f"Get the profile for {data}"
+                    1.  **Post Analysis:**
+                        *   Systematically review their posts (e.g., content, topics, frequency, engagement).
+                        *   Identify recurring themes, primary interests, and expressed sentiments.
 
-      with tracer.start_as_current_span("SocialAgent.query") as span:
-          span.set_attribute("gen_ai.system", "Traceloop")
-          span.set_attribute("gen_ai.request.model", "gemini-2.0-flash-001")
-          span.set_attribute("gen_ai.user.message", query)
+                    2.  **Friendship Relationship Analysis:**
+                        *   Examine their connections/friends list.
+                        *   Identify key relationships, mutual friends (especially if comparing multiple profiles), and the general structure of their social network.
 
-          interaction_user_id = str(kwargs.get("session_id", self._user_id))
-          desired_session_id_for_service = interaction_user_id
+                    3.  **Event Participation Analysis:**
+                        *   Investigate their past (and if available, upcoming) event participation.
+                        *   Note the types of events, frequency of attendance, and any notable roles (e.g., organizer, speaker).
 
-          current_session_obj: Optional[Any] = None # Use Any if Session import is problematic/removed
-          try:
-              logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-              current_session_obj = self._runner.session_service.get_session( # Synchronous
-                  app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
-              )
-              if current_session_obj:
-                  logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
-              else:
-                  logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found (get_session returned None). Will create.")
-          except Exception as e_get:
-              logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Will assume session needs creation.")
-              current_session_obj = None
+                    **Output Generation (Single Paragraph):**
 
-          if current_session_obj is None:
-              try:
-                  logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-                  current_session_obj = self._runner.session_service.create_session( # Synchronous
-                      app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
-                  )
-                  logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
-              except Exception as e_create:
-                  logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
-                  return {"error": f"Session management failure during create: {e_create}"}
+                    *   **Your entire output must be a single, cohesive summary paragraph.**
+                        *   **If analyzing a single profile:** This paragraph will detail their activities, interests, and social connections based on the post, friend, and event analysis.
+                        *   **If analyzing multiple profiles:** This paragraph will synthesize the key findings regarding posts, friends, and events for each individual. Crucially, it must then seamlessly integrate or conclude with an identification and description of the common ground found between them (e.g., shared interests from posts, overlapping event attendance, mutual friends). The aim is a unified narrative within this single paragraph.
 
-          if not current_session_obj:
-              logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
-              return {"error": "Failed to get or create a session."}
+                    **Key Considerations:**
+                    *   Base your summary strictly on the available data.
+                    *   If data for a specific category (posts, friends, events) is missing or sparse for a profile, you may briefly acknowledge this within the narrative if relevant.
+                        """
+                ),
+            output_key="summary"
+        )
 
-          response_event_data = None
-          try:
-              for event in self._runner.run( # Synchronous runner call
-                  user_id=interaction_user_id,
-                  session_id=current_session_obj.id,
-                  new_message=Content(parts=[Part(text=query)], role="user")
-              ):
-                  response_event_data = event
-                  break
-          except Exception as e_run:
-              logger.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
-              return {"error": f"Agent execution error: {e_run}"}
+        check_agent = LlmAgent(
+            name="check_agent",
+            model="gemini-2.0-flash-001",
+            description=(
+                "Check if everyone's social profile are summarized and has been generated. Output 'completed' or 'pending'."
+            ),
+            output_key="summary_status"
+        )
 
-          if response_event_data:
-              if hasattr(response_event_data, "usage_metadata") and response_event_data.usage_metadata:
-                  prompt_tokens = response_event_data.usage_metadata.prompt_token_count
-                  completion_tokens = response_event_data.usage_metadata.candidates_token_count
-                  total_tokens = response_event_data.usage_metadata.total_token_count
-                  input_cost = float(os.getenv("GEMINI_2_0_FLASH_INPUT_COST", "0.10"))
-                  output_cost = float(os.getenv("GEMINI_2_0_FLASH_OUTPUT_COST", "0.30"))
-                  cost = (prompt_tokens * input_cost / 1000000) + (completion_tokens * output_cost / 1000000)
-                  span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
-                  span.set_attribute("gen_ai.usage.completion_tokens", completion_tokens)
-                  span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
-                  span.set_attribute("gen_ai.usage.cost", cost)
-              if isinstance(response_event_data, dict): # Ideal case if event itself is the dict
-                  output = response_event_data.get("output", "")
-                  if output:
-                      span.set_attribute("gen_ai.assistant.message", output)
-                  return response_event_data
-              elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
-                  if response_event_data.content and response_event_data.content.parts and response_event_data.content.parts[0].text:
-                      output = response_event_data.content.parts[0].text
-                      span.set_attribute("gen_ai.assistant.message", output)
-                      return {"output": output} # Example structure
-              logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
-              return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
-          else:
-              logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
-              return {"error": "No response event received from agent execution"}
+        class CheckCondition(BaseAgent):
+            async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+                log.info(f"Summary: {ctx.session.state.get('summary')}")
+
+                status = ctx.session.state.get("summary_status", "fail").strip()
+                is_done = (status == "completed")
+
+                yield Event(author=self.name, actions=EventActions(escalate=is_done))
+
+        return [
+            profile_agent,
+            summary_agent,
+            check_agent,
+            CheckCondition(name="Checker")
+        ]
+
+    def modify_output_after_agent(self, callback_context: CallbackContext) -> Optional[types.Content]:
+        agent_name = callback_context.agent_name
+        invocation_id = callback_context.invocation_id
+        current_state = callback_context.state.to_dict()
+        current_user_content = callback_context.user_content
+        print(f"[Callback] Exiting agent: {agent_name} (Inv: {invocation_id})")
+        print(f"[Callback] Current summary_status: {current_state.get('summary_status')}")
+        print(f"[Callback] Current Content: {current_user_content}")
+
+        status = current_state.get("summary_status").strip()
+        is_done = (status == "completed")
+
+        final_summary = current_state.get("summary")
+        print(f"[Callback] final_summary: {final_summary}")
+        if final_summary and is_done and isinstance(final_summary, str):
+            log.info(f"[Callback] Found final summary, constructing output Content.")
+            return types.Content(role="model", parts=[types.Part(text=final_summary.strip())])
+        else:
+            log.warning("[Callback] No final summary found in state or it's not a string.")
+            return None

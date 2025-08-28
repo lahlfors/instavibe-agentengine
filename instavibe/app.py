@@ -105,71 +105,89 @@ def run_query(sql, params=None, param_types=None, expected_fields=None): # Add e
                                                 they appear in the SELECT statement.
                                                 Required if results.fields fails.
     """
-    if not db:
-        print("Error: Database connection is not available.")
-        raise ConnectionError("Spanner database connection not initialized.")
+    with tracer.start_as_current_span("db.spanner.query", kind=trace.SpanKind.CLIENT) as span:
+        span.set_attribute("db.system", "spanner")
+        span.set_attribute("db.statement", sql)
+        if params:
+            span.set_attribute("db.statement.parameters", str(params))
 
-    results_list = []
-    print(f"--- Executing SQL ---")
-    print(f"SQL: {sql}")
-    if params:
-        print(f"Params: {params}")
-    print("----------------------")
+        if not db:
+            if span.is_recording():
+                span.set_status(trace.Status(trace.StatusCode.ERROR, "DB connection not available"))
+            raise ConnectionError("Spanner database connection not initialized.")
 
-    try:
-        with db.snapshot() as snapshot:
-            results = snapshot.execute_sql(
-                sql,
-                params=params,
-                param_types=param_types
-            )
+        results_list = []
+        print(f"--- Executing SQL ---")
+        print(f"SQL: {sql}")
+        if params:
+            print(f"Params: {params}")
+        print("----------------------")
 
-            # --- MODIFICATION START ---
-            # Define field names based on the expected_fields argument
-            # This avoids accessing results.fields which caused the error
-            field_names = expected_fields
-            if not field_names:
-                 # Fallback or raise error if expected_fields were not provided
-                 # For now, let's try the potentially failing way if not provided
-                 print("Warning: expected_fields not provided to run_query. Attempting dynamic lookup.")
-                 try:
-                     field_names = [field.name for field in results.fields]
-                 except AttributeError as e:
-                     print(f"Error accessing results.fields even as fallback: {e}")
-                     print("Cannot process results without field names.")
-                     # Decide: raise error or return empty list?
-                     raise ValueError("Could not determine field names for query results.") from e
+        try:
+            with db.snapshot() as snapshot:
+                results = snapshot.execute_sql(
+                    sql,
+                    params=params,
+                    param_types=param_types
+                )
+
+                # --- MODIFICATION START ---
+                # Define field names based on the expected_fields argument
+                # This avoids accessing results.fields which caused the error
+                field_names = expected_fields
+                if not field_names:
+                     # Fallback or raise error if expected_fields were not provided
+                     # For now, let's try the potentially failing way if not provided
+                     print("Warning: expected_fields not provided to run_query. Attempting dynamic lookup.")
+                     try:
+                         field_names = [field.name for field in results.fields]
+                     except AttributeError as e:
+                         print(f"Error accessing results.fields even as fallback: {e}")
+                         print("Cannot process results without field names.")
+                         # Decide: raise error or return empty list?
+                         raise ValueError("Could not determine field names for query results.") from e
 
 
-            print(f"Using field names: {field_names}")
-            # --- MODIFICATION END ---
+                print(f"Using field names: {field_names}")
+                # --- MODIFICATION END ---
 
-            for row in results:
-                # Now zip the known field names with the row values (which are lists)
-                if len(field_names) != len(row):
-                     print(f"Warning: Mismatch between number of field names ({len(field_names)}) and row values ({len(row)})")
-                     print(f"Fields: {field_names}")
-                     print(f"Row: {row}")
-                     # Skip this row or handle error appropriately
-                     continue # Skip malformed row for now
-                results_list.append(dict(zip(field_names, row)))
+                for row in results:
+                    # Now zip the known field names with the row values (which are lists)
+                    if len(field_names) != len(row):
+                         print(f"Warning: Mismatch between number of field names ({len(field_names)}) and row values ({len(row)})")
+                         print(f"Fields: {field_names}")
+                         print(f"Row: {row}")
+                         # Skip this row or handle error appropriately
+                         continue # Skip malformed row for now
+                    results_list.append(dict(zip(field_names, row)))
 
-            print(f"Query successful, fetched {len(results_list)} rows.")
+                if span.is_recording():
+                    span.set_status(trace.Status(trace.StatusCode.OK))
+                print(f"Query successful, fetched {len(results_list)} rows.")
 
-    except (exceptions.NotFound, exceptions.PermissionDenied, exceptions.InvalidArgument) as spanner_err:
-        app.logger.error(f"Spanner Error ({type(spanner_err).__name__}): {spanner_err}", exc_info=True)
-        flash(f"Database error: {spanner_err}", "danger")
-        return []
-    except ValueError as e: # Catch the ValueError we might raise above
-         app.logger.error(f"Query Processing Error: {e}", exc_info=True)
-         flash("Internal error processing query results.", "danger")
-         return []
-    except Exception as e:
-        app.logger.error(f"An unexpected error occurred during query execution or processing: {e}", exc_info=True)
-        flash(f"An unexpected server error occurred while fetching data.", "danger")
-        raise e
+        except (exceptions.NotFound, exceptions.PermissionDenied, exceptions.InvalidArgument) as spanner_err:
+            app.logger.error(f"Spanner Error ({type(spanner_err).__name__}): {spanner_err}", exc_info=True)
+            flash(f"Database error: {spanner_err}", "danger")
+            if span.is_recording():
+                span.set_status(trace.Status(trace.StatusCode.ERROR, str(spanner_err)))
+                span.record_exception(spanner_err)
+            return []
+        except ValueError as e: # Catch the ValueError we might raise above
+             app.logger.error(f"Query Processing Error: {e}", exc_info=True)
+             flash("Internal error processing query results.", "danger")
+             if span.is_recording():
+                 span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                 span.record_exception(e)
+             return []
+        except Exception as e:
+            app.logger.error(f"An unexpected error occurred during query execution or processing: {e}", exc_info=True)
+            flash(f"An unexpected server error occurred while fetching data.", "danger")
+            if span.is_recording():
+                span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                span.record_exception(e)
+            raise e
 
-    return results_list
+        return results_list
 
 # --- HOW TO CALL IT ---
 
@@ -547,6 +565,7 @@ def add_full_event_with_details_db(event_id, event_name, description, event_date
 
 # --- Routes ---
 @app.route('/')
+@tracer.start_as_current_span("http.get /")
 def home():
     """Home page: Shows all posts and the events panel."""
     all_posts = []
@@ -575,6 +594,7 @@ def home():
 
 
 @app.route('/person/<string:person_id>')
+@tracer.start_as_current_span("http.get /person/<person_id>")
 def person_profile(person_id):
     """Person profile page, fetching data from Spanner."""
     if not db:
@@ -605,6 +625,7 @@ def person_profile(person_id):
     )
 
 @app.route('/event/<string:event_id>')
+@tracer.start_as_current_span("http.get /event/<event_id>")
 def event_detail_page(event_id):
     """Event detail page showing description, locations on a map, and attendees."""
     if not db:
@@ -636,7 +657,7 @@ def add_post_api():
     API endpoint to add a new post.
     Expects JSON body: {"author_name": "...", "text": "...", "sentiment": "..." (optional)}
     """
-    with tracer.start_as_current_span("add_post_api") as span:
+    with tracer.start_as_current_span("http.post /api/posts") as span:
         if not db:
             return jsonify({"error": "Database connection not available"}), 503 # Service Unavailable
 
@@ -698,11 +719,15 @@ def add_post_api():
         except ConnectionError as e:
              # Handle case where db connection failed specifically in this request path
              print(f"ConnectionError during post add: {e}")
+             span.record_exception(e)
+             span.set_status(trace.StatusCode.ERROR, f"ConnectionError: {e}")
              return jsonify({"error": "Database connection error during operation"}), 503
         except Exception as e:
             # Catch any other unexpected errors (e.g., from get_person_by_name_db)
             print(f"Unexpected error processing add post request: {e}")
             traceback.print_exc() # Log detailed error for server admin
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
             return jsonify({"error": "An internal server error occurred"}), 500
 
 
@@ -721,7 +746,7 @@ def add_event_api():
         "attendee_names": ["...", "..."] // List of attendee names
     }
     """
-    with tracer.start_as_current_span("add_event_api") as span:
+    with tracer.start_as_current_span("http.post /api/events") as span:
         if not db:
             return jsonify({"error": "Database connection not available"}), 503
 
@@ -844,11 +869,15 @@ def add_event_api():
 
         except ConnectionError as e:
              print(f"ConnectionError during event add: {e}")
+             span.record_exception(e)
+             span.set_status(trace.StatusCode.ERROR, f"ConnectionError: {e}")
              return jsonify({"error": "Database connection error during operation"}), 503
         except Exception as e:
             # Catch other unexpected errors
             print(f"Unexpected error processing add event request: {e}")
             traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
             return jsonify({"error": "An internal server error occurred"}), 500
 
 
@@ -857,7 +886,7 @@ def add_event_api():
 @app.route('/api/person/by_name/<string:name>', methods=['GET'])
 def get_person_id_by_name_api(name):
     """API endpoint to get a person's ID by their name."""
-    with tracer.start_as_current_span("get_person_id_by_name_api") as span:
+    with tracer.start_as_current_span("http.get /api/person/by_name/<name>") as span:
         span.set_attribute("app.person.name", name)
         if not db:
             return jsonify({"error": "Database connection not available"}), 503
@@ -870,12 +899,14 @@ def get_person_id_by_name_api(name):
         except Exception as e:
             print(f"Error in get_person_id_by_name_api: {e}")
             traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
             return jsonify({"error": "An internal server error occurred"}), 500
 
 @app.route('/api/person/<string:person_id>/attended_events', methods=['GET'])
 def get_person_attended_events_api(person_id):
     """API endpoint to get events attended by a person."""
-    with tracer.start_as_current_span("get_person_attended_events_api") as span:
+    with tracer.start_as_current_span("http.get /api/person/<person_id>/attended_events") as span:
         span.set_attribute("app.person.id", person_id)
         if not db:
             return jsonify({"error": "Database connection not available"}), 503
@@ -890,12 +921,14 @@ def get_person_attended_events_api(person_id):
         except Exception as e:
             print(f"Error in get_person_attended_events_api: {e}")
             traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
             return jsonify({"error": "An internal server error occurred"}), 500
 
 @app.route('/api/person/<string:person_id>/posts', methods=['GET'])
 def get_person_posts_api(person_id):
     """API endpoint to get posts by a person."""
-    with tracer.start_as_current_span("get_person_posts_api") as span:
+    with tracer.start_as_current_span("http.get /api/person/<person_id>/posts") as span:
         span.set_attribute("app.person.id", person_id)
         if not db:
             return jsonify({"error": "Database connection not available"}), 503
@@ -914,12 +947,14 @@ def get_person_posts_api(person_id):
         except Exception as e:
             print(f"Error in get_person_posts_api: {e}")
             traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
             return jsonify({"error": "An internal server error occurred"}), 500
 
 @app.route('/api/person/<string:person_id>/friends', methods=['GET'])
 def get_person_friends_api(person_id):
     """API endpoint to get friends of a person."""
-    with tracer.start_as_current_span("get_person_friends_api") as span:
+    with tracer.start_as_current_span("http.get /api/person/<person_id>/friends") as span:
         span.set_attribute("app.person.id", person_id)
         if not db:
             return jsonify({"error": "Database connection not available"}), 503
@@ -934,6 +969,8 @@ def get_person_friends_api(person_id):
         except Exception as e:
             print(f"Error in get_person_friends_api: {e}")
             traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
             return jsonify({"error": "An internal server error occurred"}), 500
 
 

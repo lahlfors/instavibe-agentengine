@@ -134,10 +134,49 @@ class OrchestrateServiceAgent(Agent):
             return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
     def query(self, input_text: str) -> str:
+        from google.adk.agents.invocation_context import InvocationContext
+        from google.adk.sessions import Session
+        from google.genai.types import Content, Part
+        from opentelemetry import trace
+
+        tracer = trace.get_tracer(__name__)
+
         if not self.orchestrator_agent:
             logging.error("OrchestratorAgent not initialized. set_up() was not called.")
             raise RuntimeError("Agent not properly initialized.")
-        return self.orchestrator_agent.query(input_text)
+
+        with tracer.start_as_current_span("Orchestrator.reasoning") as parent_span:
+            parent_span.set_attribute("input_query", input_text)
+
+            session = Session(app_name=self.orchestrator_agent.name, user_id="user", id="session")
+            parent_context = InvocationContext(session=session, last_message=Content(parts=[Part(text=input_text)]))
+
+            final_response = ""
+            thought_counter = 1
+            action_counter = 1
+
+            async def run_agent():
+                nonlocal final_response, thought_counter, action_counter
+                async for event in self.orchestrator_agent.run_async(parent_context=parent_context):
+                    if event.content:
+                        for part in event.content.parts:
+                            if hasattr(part, "thought") and part.thought:
+                                with tracer.start_as_current_span(f"agent.thought_{thought_counter}") as thought_span:
+                                    thought_span.set_attribute("gen_ai.prompt.content", part.thought.prompt)
+                                    thought_span.set_attribute("gen_ai.response.content", part.thought.response)
+                                thought_counter += 1
+                            if hasattr(part, "function_call") and part.function_call:
+                                with tracer.start_as_current_span(f"agent.action_{action_counter}") as action_span:
+                                    action_span.set_attribute("tool.name", part.function_call.name)
+                                    action_span.set_attribute("tool.parameters", str(part.function_call.args))
+                                action_counter += 1
+                    if event.is_final_response():
+                        if event.content and event.content.parts:
+                            final_response = event.content.parts[0].text
+
+            asyncio.run(run_agent())
+            parent_span.set_attribute("final_answer", final_response)
+            return final_response
 
 OrchestrateServiceAgent.model_rebuild()
 

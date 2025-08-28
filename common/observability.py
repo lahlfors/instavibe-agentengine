@@ -8,9 +8,14 @@ def setup_observability(service_name: str):
     Sets up OpenTelemetry for a service, including Cloud Trace and structured
     logging.
     """
-    # Initialize OpenLLMetry for auto-instrumentation
-    os.environ["TRACELOOP_SERVICE_NAME"] = service_name
-    Traceloop.init()
+    if os.getenv("TRACELOOP_ENABLED", "false").lower() == "true":
+        # Initialize OpenLLMetry for auto-instrumentation
+        os.environ["TRACELOOP_SERVICE_NAME"] = service_name
+        Traceloop.init()
+        logging.info(f"Traceloop enabled and initialized for service: {service_name}")
+    else:
+        logging.info("Traceloop is disabled. Skipping initialization.")
+
 
     logging.info(f"OpenTelemetry Tracer configured for service: {service_name}")
 

@@ -21,7 +21,7 @@ async def call_agent_capability(source_agent: str, target_agent: str, capability
         span.set_attribute("agent.capability", capability)
 
         # --- Add Rich Attributes for Prompt and Payload ---
-        span.set_attribute("prompt.text", str(prompt))
+        span.set_attribute("gen_ai.prompt.content", str(prompt))
 
         try:
             # --- Your actual agent communication logic goes here ---
@@ -34,6 +34,7 @@ async def call_agent_capability(source_agent: str, target_agent: str, capability
                 raise ValueError(f"Capability '{capability}' not available on agent '{target_agent}'.")
 
             response = await capability_obj.invoke(prompt)
+            span.set_attribute("gen_ai.response.content", str(response))
 
             if hasattr(response, 'candidates') and response.candidates:
                 thought_summaries = []

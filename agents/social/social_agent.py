@@ -22,6 +22,8 @@ from dotenv import load_dotenv # To load .env
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 import sys
 sys.path.append('.')
+from common.observability import setup_observability
+setup_observability(service_name="social-agent")
 from opentelemetry import trace
 tracer = trace.get_tracer(__name__)
 
@@ -69,84 +71,94 @@ class SocialAgent(AgentTaskManager):
     return agent.create_agent()
 
   def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
-        self.set_up()
-        logger = logging.getLogger(__name__)
-        app_name = self._agent.name
+      self.set_up()
+      logger = logging.getLogger(__name__)
+      app_name = self._agent.name
 
-        action = input.get("action")
-        data = input.get("data")
+      action = input.get("action")
+      data = input.get("data")
 
-        if not action:
-            return {"error": "No action specified in the input."}
+      if not action:
+          return {"error": "No action specified in the input."}
 
-        # Construct a natural language query from the action and data.
-        # This is a simple implementation. A more robust solution might
-        # involve more sophisticated prompt engineering.
-        query = f"Action: {action}, Data: {data}"
-        if action == "share":
-            if isinstance(data, dict) and "message" in data:
-                query = f"Share this message: {data['message']}"
-            else:
-                query = f"Share this content: {data}"
-        elif action == "get_profile":
-            if isinstance(data, dict) and "name" in data:
-                query = f"Get the profile for user {data['name']}"
-            else:
-                query = f"Get the profile for {data}"
+      # Construct a natural language query from the action and data.
+      # This is a simple implementation. A more robust solution might
+      # involve more sophisticated prompt engineering.
+      query = f"Action: {action}, Data: {data}"
+      if action == "share":
+          if isinstance(data, dict) and "message" in data:
+              query = f"Share this message: {data['message']}"
+          else:
+              query = f"Share this content: {data}"
+      elif action == "get_profile":
+          if isinstance(data, dict) and "name" in data:
+              query = f"Get the profile for user {data['name']}"
+          else:
+              query = f"Get the profile for {data}"
 
-        interaction_user_id = str(kwargs.get("session_id", self._user_id))
-        desired_session_id_for_service = interaction_user_id
+      with tracer.start_as_current_span("SocialAgent.query") as span:
+          span.set_attribute("gen_ai.system", "Traceloop")
+          span.set_attribute("gen_ai.request.model", "gemini-2.0-flash-001")
+          span.set_attribute("gen_ai.user.message", query)
 
-        current_session_obj: Optional[Any] = None # Use Any if Session import is problematic/removed
-        try:
-            logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-            current_session_obj = self._runner.session_service.get_session( # Synchronous
-                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
-            )
-            if current_session_obj:
-                logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
-            else:
-                logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found (get_session returned None). Will create.")
-        except Exception as e_get:
-            logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Will assume session needs creation.")
-            current_session_obj = None
+          interaction_user_id = str(kwargs.get("session_id", self._user_id))
+          desired_session_id_for_service = interaction_user_id
 
-        if current_session_obj is None:
-            try:
-                logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
-                current_session_obj = self._runner.session_service.create_session( # Synchronous
-                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
-                )
-                logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
-            except Exception as e_create:
-                logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
-                return {"error": f"Session management failure during create: {e_create}"}
+          current_session_obj: Optional[Any] = None # Use Any if Session import is problematic/removed
+          try:
+              logger.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
+              current_session_obj = self._runner.session_service.get_session( # Synchronous
+                  app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+              )
+              if current_session_obj:
+                  logger.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
+              else:
+                  logger.info(f"Session {desired_session_id_for_service} for user {interaction_user_id} not found (get_session returned None). Will create.")
+          except Exception as e_get:
+              logger.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id_for_service}': {e_get}. Will assume session needs creation.")
+              current_session_obj = None
 
-        if not current_session_obj:
-            logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
-            return {"error": "Failed to get or create a session."}
+          if current_session_obj is None:
+              try:
+                  logger.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id_for_service}'")
+                  current_session_obj = self._runner.session_service.create_session( # Synchronous
+                      app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id_for_service
+                  )
+                  logger.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
+              except Exception as e_create:
+                  logger.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id_for_service}: {e_create}", exc_info=True)
+                  return {"error": f"Session management failure during create: {e_create}"}
 
-        response_event_data = None
-        try:
-            for event in self._runner.run( # Synchronous runner call
-                user_id=interaction_user_id,
-                session_id=current_session_obj.id,
-                new_message=Content(parts=[Part(text=query)], role="user")
-            ):
-                response_event_data = event
-                break
-        except Exception as e_run:
-            logger.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
-            return {"error": f"Agent execution error: {e_run}"}
+          if not current_session_obj:
+              logger.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id_for_service}.")
+              return {"error": "Failed to get or create a session."}
 
-        if response_event_data:
-            if isinstance(response_event_data, dict): # Ideal case if event itself is the dict
-                return response_event_data
-            elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
-                if response_event_data.content and response_event_data.content.parts and response_event_data.content.parts[0].text:
-                    return {"output": response_event_data.content.parts[0].text} # Example structure
-            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
-            return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
-        else:
-            logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
-            return {"error": "No response event received from agent execution"}
+          response_event_data = None
+          try:
+              for event in self._runner.run( # Synchronous runner call
+                  user_id=interaction_user_id,
+                  session_id=current_session_obj.id,
+                  new_message=Content(parts=[Part(text=query)], role="user")
+              ):
+                  response_event_data = event
+                  break
+          except Exception as e_run:
+              logger.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
+              return {"error": f"Agent execution error: {e_run}"}
+
+          if response_event_data:
+              if isinstance(response_event_data, dict): # Ideal case if event itself is the dict
+                  output = response_event_data.get("output", "")
+                  if output:
+                      span.set_attribute("gen_ai.assistant.message", output)
+                  return response_event_data
+              elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
+                  if response_event_data.content and response_event_data.content.parts and response_event_data.content.parts[0].text:
+                      output = response_event_data.content.parts[0].text
+                      span.set_attribute("gen_ai.assistant.message", output)
+                      return {"output": output} # Example structure
+              logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
+              return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
+          else:
+              logger.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
+              return {"error": "No response event received from agent execution"}

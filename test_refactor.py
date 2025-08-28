@@ -210,14 +210,25 @@ from opentelemetry import trace
 import os
 @patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
 @patch('common.observability.Traceloop')
-def test_setup_observability(mock_traceloop, mock_add_resource_labels):
-    """Test that setup_observability calls Traceloop.init and a tracer can be acquired."""
-    with patch.dict(os.environ, {}, clear=True):
-        setup_observability("test-service")
-        mock_traceloop.init.assert_called_with()
-        assert os.environ["TRACELOOP_SERVICE_NAME"] == "test-service"
+def test_setup_observability_enabled(mock_traceloop, mock_add_resource_labels):
+    """Test that setup_observability calls Traceloop.init when TRACELOOP_ENABLED is true."""
+    with patch.dict(os.environ, {"TRACELOOP_ENABLED": "true"}, clear=True):
+        setup_observability("test-service-enabled")
+        mock_traceloop.init.assert_called_once()
+        assert os.environ["TRACELOOP_SERVICE_NAME"] == "test-service-enabled"
 
-        # Verify that a tracer can be acquired
-        tracer = trace.get_tracer("my.tracer")
-        assert tracer is not None
-        assert isinstance(tracer, trace.Tracer)
+@patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
+@patch('common.observability.Traceloop')
+def test_setup_observability_disabled(mock_traceloop, mock_add_resource_labels):
+    """Test that setup_observability does NOT call Traceloop.init when TRACELOOP_ENABLED is false."""
+    with patch.dict(os.environ, {"TRACELOOP_ENABLED": "false"}, clear=True):
+        setup_observability("test-service-disabled")
+        mock_traceloop.init.assert_not_called()
+
+@patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
+@patch('common.observability.Traceloop')
+def test_setup_observability_default_disabled(mock_traceloop, mock_add_resource_labels):
+    """Test that setup_observability does NOT call Traceloop.init by default."""
+    with patch.dict(os.environ, {}, clear=True):
+        setup_observability("test-service-default")
+        mock_traceloop.init.assert_not_called()

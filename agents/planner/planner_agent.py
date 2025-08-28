@@ -17,8 +17,8 @@ from google.adk.events import Event, EventActions
 from opentelemetry import trace
 import sys
 sys.path.append('.')
-from common.tracing import configure_tracer
-configure_tracer(service_name="planner-agent")
+from common.observability import setup_observability
+setup_observability(service_name="planner-agent")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 nest_asyncio.apply()
@@ -79,22 +79,28 @@ class PlannerAgent(BaseAgent):
         logging.info(f"PlannerAgent '{self.name}' processing query for user '{user_id}' in session '{session_id}': '{query_text}'")
 
         try:
-            response_event = None
-            async for event in self._runner.run(
-                user_id=user_id,
-                session_id=session_id,
-                new_message=Content(parts=[Part(text=query_text)], role="user")
-            ):
-                response_event = event
-                break
+            with tracer.start_as_current_span("PlannerAgent.run") as span:
+                span.set_attribute("gen_ai.system", "Traceloop")
+                span.set_attribute("gen_ai.request.model", "gemini-2.0-flash-001")
+                span.set_attribute("gen_ai.user.message", query_text)
 
-            if response_event and response_event.content and response_event.content.parts:
-                final_output = response_event.content.parts[0].text
-                logging.info(f"PlannerAgent '{self.name}' got final response: {final_output}")
-                yield Event(author=self.name, actions=EventActions(finish=True, output=final_output))
-            else:
-                logging.warning("PlannerAgent did not receive a valid response from the runner.")
-                yield Event(author=self.name, actions=EventActions(finish=True, output="Failed to get a response."))
+                response_event = None
+                async for event in self._runner.run(
+                    user_id=user_id,
+                    session_id=session_id,
+                    new_message=Content(parts=[Part(text=query_text)], role="user")
+                ):
+                    response_event = event
+                    break
+
+                if response_event and response_event.content and response_event.content.parts:
+                    final_output = response_event.content.parts[0].text
+                    span.set_attribute("gen_ai.assistant.message", final_output)
+                    logging.info(f"PlannerAgent '{self.name}' got final response: {final_output}")
+                    yield Event(author=self.name, actions=EventActions(finish=True, output=final_output))
+                else:
+                    logging.warning("PlannerAgent did not receive a valid response from the runner.")
+                    yield Event(author=self.name, actions=EventActions(finish=True, output="Failed to get a response."))
         except Exception as e:
             logging.error(f"Error during PlannerAgent execution for session '{session_id}': {e}", exc_info=True)
             yield Event(author=self.name, actions=EventActions(finish=True, output=f"An error occurred: {e}"))

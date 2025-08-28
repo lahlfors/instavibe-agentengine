@@ -3,7 +3,8 @@ import logging
 import asyncio
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, AsyncGenerator
-from google.adk.agents import LlmAgent, InvocationContext, Event
+from google.adk.agents import LlmAgent, InvocationContext
+from google.adk.events import Event
 from google.adk.tools import google_search
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode

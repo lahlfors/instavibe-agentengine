@@ -134,7 +134,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
-            extra_packages=[base_dir, "agents/app", "agents/a2a_common-0.1.0-py3-none-any.whl", "common"],
+            extra_packages=[base_dir, "agents", "agents/a2a_common-0.1.0-py3-none-any.whl", "common"],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

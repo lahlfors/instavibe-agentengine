@@ -11,7 +11,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 # For this example, we'll register it manually.
 # The URL should be the one for the Cloud Run proxy service.
 SOCIAL_PROXY_URL = os.environ.get("SOCIAL_AGENT_URL", "http://localhost:8080")
-adk.agents.register(name='social-agent-v1', agent_card_url=f'{SOCIAL_PROXY_URL}/.well-known/agent.json')
+adk.agents.register(name='social_agent-v1', agent_card_url=f'{SOCIAL_PROXY_URL}/.well-known/agent.json')
 
 # Register the platform mcp client proxy
 PLATFORM_MCP_PROXY_URL = os.environ.get("PLATFORM_MCP_AGENT_URL", "http://localhost:8082")
@@ -26,7 +26,7 @@ async def share_via_proxy(data_to_share: dict):
         print("Invoking 'share' via proxy...")
         response_data = await call_agent_capability(
             source_agent="instavibe_test_client",
-            target_agent="social-agent-v1",
+            target_agent="social_agent-v1",
             capability="share",
             prompt=data_to_share
         )

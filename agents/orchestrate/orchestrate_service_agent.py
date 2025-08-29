@@ -1,33 +1,20 @@
 # In agents/orchestrate/orchestrate_service_agent.py
-from common.observability import setup_observability
-setup_observability(service_name="orchestrate-agent")
-
 import logging
 import os
 import asyncio
-from typing import Optional, Dict, Any
-
-# OpenTelemetry imports
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
-
 import google.auth
 import google.auth.credentials
-
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
-from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.tool_context import ToolContext
 from google.genai.types import ThinkingConfig
-
+from typing import Optional
 from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
 
 logging.basicConfig(level=logging.INFO)
-
-# Get a tracer
-tracer = trace.get_tracer(__name__)
 
 class OrchestrateServiceAgent(Agent):
     """
@@ -36,13 +23,14 @@ class OrchestrateServiceAgent(Agent):
     project: Optional[str] = None
     location: Optional[str] = None
     reasoning_engine_id: Optional[str] = None
+    orchestrator_agent: Optional[Agent] = None
     memory_service: Optional[VertexAiMemoryBankService] = None
 
     def __init__(self, name: str, instruction: Optional[str] = None, description: Optional[str] = None):
         super().__init__(
             name=name,
             model="gemini-2.5-flash",
-            instruction=self.root_instruction,
+            instruction=instruction or "I am an orchestrator agent with memory and task delegation capabilities.",
             description=description or "An agent that can create/search memories and delegate tasks.",
         )
 
@@ -50,64 +38,54 @@ class OrchestrateServiceAgent(Agent):
         """
         Called by the Agent Engine framework after deployment.
         """
-        with tracer.start_as_current_span("OrchestrateServiceAgent.set_up") as span:
-            if self.memory_service:
-                 span.set_status(Status(StatusCode.OK, description="Already set up"))
-                 return
+        if self.orchestrator_agent:
+            return
 
-            logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
-            try:
-                self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-                self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-                self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
 
-                if not self.project or not self.location:
-                    error_msg = "COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION must be set."
-                    span.set_status(Status(StatusCode.ERROR, description=error_msg))
-                    raise RuntimeError(error_msg)
-                if not self.reasoning_engine_id:
-                    error_msg = "GOOGLE_CLOUD_AGENT_ENGINE_ID not set."
-                    span.set_status(Status(StatusCode.ERROR, description=error_msg))
-                    raise RuntimeError(error_msg)
+        if not self.project or not self.location:
+            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
+        if not self.reasoning_engine_id:
+            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
+            raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
 
-                self.memory_service = VertexAiMemoryBankService(
-                    project=self.project,
-                    location=self.location,
-                    agent_engine_id=self.reasoning_engine_id,
-                )
-                self.memory = self.memory_service
-                logging.info("VertexAiMemoryBankService initialized.")
+        self.memory_service = VertexAiMemoryBankService(
+            project=self.project,
+            location=self.location,
+            agent_engine_id=self.reasoning_engine_id,
+        )
+        logging.info("VertexAiMemoryBankService initialized.")
 
-                thinking_config = ThinkingConfig(
-                    include_thoughts=True,
-                    thinking_budget=-1,
-                )
-                self.planner = BuiltInPlanner(thinking_config=thinking_config)
+        thinking_config = ThinkingConfig(
+            include_thoughts=True,
+            thinking_budget=-1,  # Use dynamic thinking
+        )
+        planner = BuiltInPlanner(thinking_config=thinking_config)
+        all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
 
-                send_task_tool = FunctionTool(
-                    func=self._send_task_impl,
-                    name="send_task",
-                    description="Delegates a task to a specified remote agent by invoking one of its capabilities."
-                )
-                preload_tool = preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)
-                self.tools = [send_task_tool, preload_tool]
-
-                span.set_status(Status(StatusCode.OK))
-                logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
-
-            except Exception as e:
-                logging.error(f"Error during set_up: {e}", exc_info=True)
-                if span.is_recording():
-                    span.set_status(Status(StatusCode.ERROR, description=str(e)))
-                    span.record_exception(e)
-                raise
+        self.orchestrator_agent = Agent(
+            model="gemini-2.5-flash",
+            name="orchestrate_agent",
+            instruction=self.root_instruction,
+            description=(
+                "This agent orchestrates the decomposition of the user request into"
+                " tasks that can be performed by the child agents."
+            ),
+            tools=all_tools,
+            planner=planner,
+            memory=self.memory_service,
+        )
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
     def root_instruction(self, context: ReadonlyContext) -> str:
         return """
     You are an expert AI Orchestrator for the Instavibe application. Your primary responsibility is to intelligently interpret user requests and delegate them to the most appropriate specialized remote agents by invoking their capabilities.
 
     You have the following agents at your disposal:
-    - **planner_agent**: Helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions.
+    - **planner-agent**: Helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions.
     - **platform-mcp-client-agent**: Interacts with the Instavibe platform. It can create events, posts, and perform other platform-specific actions.
     - **social-agent**: Interacts with social media platforms.
 
@@ -116,14 +94,14 @@ class OrchestrateServiceAgent(Agent):
     2.  **Identify Action and Agent:** Determine the appropriate 'action' (capability) to call and the 'agent_name' that provides it.
     3.  **Provide Reasoning:** After you have identified the agent and action, but before you call the tool, provide a brief summary of your reasoning for choosing a particular agent and action.
     4.  **Delegate Task:** Use the `send_task` tool to delegate the task. Your call MUST include:
-        *   `agent_name`: The name of the target agent (e.g., 'planner_agent').
+        *   `agent_name`: The name of the target agent (e.g., 'planner-agent').
         *   `action`: The name of the capability to invoke (e.g., 'plan', 'create_event').
         *   `data`: A dictionary containing the payload for the action.
 
     Examples:
     - User Request: "Plan a fun night out for me and my friends."
-      - Your thought process: The user wants to plan an event. The 'planner_agent' is the best agent for this.
-      - Your tool call: `send_task(agent_name='planner_agent', action='plan', data={'prompt': 'Plan a fun night out for me and my friends.'})`
+      - Your thought process: The user wants to plan an event. The 'planner-agent' is the best agent for this.
+      - Your tool call: `send_task(agent_name='planner-agent', action='plan', data={'prompt': 'Plan a fun night out for me and my friends.'})`
     - User Request: "Create an event for the plan we just made."
       - Your thought process: The user wants to create an event on Instavibe. The 'platform-mcp-client-agent' is the best agent for this.
       - Your tool call: `send_task(agent_name='platform-mcp-client-agent', action='create_event', data={'event_details': ...})`
@@ -134,52 +112,35 @@ class OrchestrateServiceAgent(Agent):
     Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
     """
 
-    async def _send_task_impl(
+    async def send_task(
         self,
         agent_name: str,
         action: str,
         data: dict,
+        tool_context: ToolContext
     ) -> dict:
         """
-        Implementation for the send_task tool.
-        This method is called by the ADK planner when the send_task tool is invoked.
+        Finds a remote agent and invokes one of its capabilities.
         """
-        # The span for the tool call is likely created by the ADK framework.
-        # We get the current span to add status and attributes.
-        span = trace.get_current_span()
-
         try:
-            logging.info(f"Sending task to '{agent_name}', action '{action}'")
-            span.set_attributes({
-                "a2a.target_agent": agent_name,
-                "a2a.capability": action,
-            })
-
             response_data = await call_agent_capability(
-                source_agent=self.name,
+                source_agent="orchestrate_agent",
                 target_agent=agent_name,
                 capability=action,
                 prompt=data
             )
-
-            if isinstance(response_data, dict) and response_data.get("error"):
-                error_detail = response_data['error']
-                logging.warning(f"A2A call to {agent_name} for {action} returned an error: {error_detail}")
-                if span.is_recording():
-                    span.set_status(Status(StatusCode.ERROR, description=f"Error from {agent_name}"))
-                    span.add_event("a2a_call_failed", attributes={"error": str(error_detail)})
-            else:
-                if span.is_recording():
-                    span.set_status(Status(StatusCode.OK))
             return response_data
         except Exception as e:
-            logging.error(f"Exception during A2A call to {agent_name} for {action}: {e}", exc_info=True)
-            if span.is_recording():
-                span.set_status(Status(StatusCode.ERROR, description=str(e)))
-                span.record_exception(e)
-            return {"error": f"An unexpected exception occurred while calling {agent_name}: {str(e)}"}
+            return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
-# root_agent instance remains the same
+    def query(self, input_text: str) -> str:
+        if not self.orchestrator_agent:
+            logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+            raise RuntimeError("Agent not properly initialized.")
+        return self.orchestrator_agent.query(input_text)
+
+OrchestrateServiceAgent.model_rebuild()
+
 root_agent = OrchestrateServiceAgent(
     name="orchestrate_service_agent",
 )

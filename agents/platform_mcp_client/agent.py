@@ -1,7 +1,5 @@
 import asyncio
 from dotenv import load_dotenv
-from common.observability import setup_observability
-setup_observability(service_name="platform-mcp-client-agent")
 from google.adk.agents import Agent
 from google.adk.tools.function_tool import FunctionTool
 import logging
@@ -11,6 +9,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
+from mcp import client as mcp_client
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -31,16 +30,12 @@ class PlatformMCPClientAgent(Agent):
         self.mcp_server_address = mcp_server_address
         self.api_key_secret = api_key_secret
         self.tools = [
-            FunctionTool(
-                func=self._create_event_impl,
-                name="create_event",
-                description="Creates an event on the Instavibe platform.",
-            ),
-            FunctionTool(
-                func=self._get_person_posts_impl,
-                name="get_person_posts",
-                description="Gets posts for a person from the Instavibe platform.",
-            ),
+            FunctionTool(self.create_event),
+            FunctionTool(self.get_person_posts),
+            FunctionTool(self.get_person_friends),
+            FunctionTool(self.get_person_id_by_name),
+            FunctionTool(self.get_person_attended_events),
+            FunctionTool(self.create_post),
         ]
         log.info("PlatformMCPClientAgent __init__ called. Config stored.")
 
@@ -48,8 +43,7 @@ class PlatformMCPClientAgent(Agent):
         """Helper function to contain client creation logic."""
         api_key = self._get_api_key(self.api_key_secret)
         log.info(f"Initializing MCPClient for {self.mcp_server_address}")
-        # return mcp.client(self.mcp_server_address, api_key)
-        return f"FakeMCPClient(server='{self.mcp_server_address}')"  # Placeholder
+        return mcp_client.Client(self.mcp_server_address, api_key)
 
     def _get_api_key(self, secret_name):
         # Placeholder for fetching secret
@@ -74,53 +68,32 @@ class PlatformMCPClientAgent(Agent):
                 main_span.set_status(Status(StatusCode.ERROR, str(e)))
                 raise
 
-    async def _create_event_impl(self, event_details: Dict[str, Any], user_id: str):
-        with tracer.start_as_current_span("PlatformMCPClientAgent.create_event") as span:
-            if not self.mcp_client:
-                error_msg = "MCP Client is not initialized. The set_up() method was likely not called or failed."
-                log.error(error_msg)
-                span.set_status(Status(StatusCode.ERROR, error_msg))
-                raise RuntimeError(error_msg)
+    async def create_event(self, event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str]):
+        if not self.mcp_client:
+            raise RuntimeError("MCP Client is not initialized.")
+        return await self.mcp_client.call_tool("create_event", event_name=event_name, description=description, event_date=event_date, locations=locations, attendee_names=attendee_names)
 
-            span.set_attributes({
-                "user_id": user_id,
-                "event.title": event_details.get("title", "Unknown")
-            })
-            log.info(f"Creating event for user {user_id}")
-            try:
-                # response = await self.mcp_client.call_tool("create_event", {**event_details, "user_id": user_id})
-                response = {"status": "success", "event_id": "fake123"} # Placeholder
-                if response.get("error"):
-                    span.set_status(Status(StatusCode.ERROR, response["error"]))
-                else:
-                    span.set_status(Status(StatusCode.OK))
-                return response
-            except Exception as e:
-                log.error(f"Error creating event: {e}", exc_info=True)
-                span.record_exception(e)
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                return {"error": str(e)}
+    async def get_person_posts(self, person_id: str):
+        if not self.mcp_client:
+            raise RuntimeError("MCP Client is not initialized.")
+        return await self.mcp_client.call_tool("get_person_posts", person_id=person_id)
 
-    async def _get_person_posts_impl(self, person_id: str):
-        with tracer.start_as_current_span("PlatformMCPClientAgent.get_person_posts") as span:
-            if not self.mcp_client:
-                error_msg = "MCP Client is not initialized. The set_up() method was likely not called or failed."
-                log.error(error_msg)
-                span.set_status(Status(StatusCode.ERROR, error_msg))
-                raise RuntimeError(error_msg)
+    async def get_person_friends(self, person_id: str):
+        if not self.mcp_client:
+            raise RuntimeError("MCP Client is not initialized.")
+        return await self.mcp_client.call_tool("get_person_friends", person_id=person_id)
 
-            span.set_attributes({"person_id": person_id})
-            log.info(f"Getting posts for person {person_id}")
-            try:
-                # response = await self.mcp_client.call_tool("get_person_posts", {"person_id": person_id})
-                response = [{"post_id": "post1", "text": "Hello world!"}] # Placeholder
-                if isinstance(response, dict) and response.get("error"):
-                    span.set_status(Status(StatusCode.ERROR, response["error"]))
-                else:
-                    span.set_status(Status(StatusCode.OK))
-                return response
-            except Exception as e:
-                log.error(f"Error getting posts: {e}", exc_info=True)
-                span.record_exception(e)
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                return {"error": str(e)}
+    async def get_person_id_by_name(self, name: str):
+        if not self.mcp_client:
+            raise RuntimeError("MCP Client is not initialized.")
+        return await self.mcp_client.call_tool("get_person_id_by_name", name=name)
+
+    async def get_person_attended_events(self, person_id: str):
+        if not self.mcp_client:
+            raise RuntimeError("MCP Client is not initialized.")
+        return await self.mcp_client.call_tool("get_person_attended_events", person_id=person_id)
+
+    async def create_post(self, author_name: str, text: str, sentiment: str):
+        if not self.mcp_client:
+            raise RuntimeError("MCP Client is not initialized.")
+        return await self.mcp_client.call_tool("create_post", author_name=author_name, text=text, sentiment=sentiment)

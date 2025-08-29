@@ -191,7 +191,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--agent-name",
-        default="orchestrate-agent",
+        default="orchestrate_agent",
         help="Name for the agent engine",
     )
     parser.add_argument(

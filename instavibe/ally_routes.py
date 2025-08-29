@@ -2,10 +2,12 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 import json 
 import traceback 
 import logging # Added for logging
+from opentelemetry import trace
 from .introvertally import call_agent_for_plan, post_plan_event
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # It's good practice to use a Blueprint for organizing routes
 ally_bp = Blueprint('ally', __name__, template_folder='templates')
@@ -54,6 +56,7 @@ def get_all_people_for_ally_page():
     return unique_people_list
 
 @ally_bp.route('/introvert-ally', methods=['GET'])
+@tracer.start_as_current_span("http.get /introvert-ally")
 def introvert_ally_page():
     """Renders the Introvert Ally page."""
     print("--- DEBUG: introvert_ally_page route CALLED (ally_routes.py) ---")
@@ -66,6 +69,7 @@ def introvert_ally_page():
 
 
 @ally_bp.route('/api/introvert-ally/submit', methods=['POST'])
+@tracer.start_as_current_span("http.post /api/introvert-ally/submit")
 def submit_introvert_ally_request():
     """Handles the submission of the Introvert Ally form."""
     if request.method == 'POST':
@@ -99,6 +103,7 @@ def submit_introvert_ally_request():
     return redirect(url_for('ally.introvert_ally_page')) # Fallback redirect
 
 @ally_bp.route('/introvert-ally/stream-plan')
+@tracer.start_as_current_span("http.get /introvert-ally/stream-plan")
 def stream_introvert_ally_plan():
     ally_params = session.get('ally_request_params')
     if not ally_params:
@@ -153,6 +158,7 @@ def stream_introvert_ally_plan():
     return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
 
 @ally_bp.route('/introvert-ally/review', methods=['GET'])
+@tracer.start_as_current_span("http.get /introvert-ally/review")
 def introvert_ally_review_page():
     plan_details = session.get('ally_plan_details')
     agent_thoughts = session.get('ally_agent_thoughts', [])
@@ -170,6 +176,7 @@ def introvert_ally_review_page():
                            title="Review Introvert Ally Plan")
 
 @ally_bp.route('/api/introvert-ally/confirm-plan', methods=['POST'])
+@tracer.start_as_current_span("http.post /api/introvert-ally/confirm-plan")
 def confirm_introvert_ally_plan():
     # Get plan from the hidden form field first
     confirmed_plan_json_str = request.form.get('confirmed_plan_json')
@@ -227,6 +234,7 @@ def confirm_introvert_ally_plan():
     return redirect(url_for('ally.introvert_ally_post_status_page'))
 
 @ally_bp.route('/introvert-ally/post-status', methods=['GET'])
+@tracer.start_as_current_span("http.get /introvert-ally/post-status")
 def introvert_ally_post_status_page():
     """Renders the page that will show the live status of event/post creation."""
     print(f"--- [DEBUG] Entered introvert_ally_post_status_page ---")
@@ -240,6 +248,7 @@ def introvert_ally_post_status_page():
     return render_template('introvert_ally_post_status.html', title=f"Posting Status for: {plan_name}")
 
 @ally_bp.route('/introvert-ally/stream-post-status')
+@tracer.start_as_current_span("http.get /introvert-ally/stream-post-status")
 def stream_post_status():
     post_params = session.get('ally_post_params')
     if not post_params:

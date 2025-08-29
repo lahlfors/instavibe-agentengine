@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import json
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, AsyncGenerator
 from google.adk.agents import LlmAgent, InvocationContext
@@ -11,6 +12,8 @@ from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
 from common.observability import setup_observability
+from agents.app.utils.evaluation import evaluate_rag
+
 setup_observability(service_name="planner_agent")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -64,6 +67,7 @@ class PlannerAgent(LlmAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         with tracer.start_as_current_span("PlannerAgent.run") as span:
             try:
+                final_output = ""
                 async for event in super()._run_async_impl(ctx):
                     if event.is_final_response():
                         if event.content and event.content.parts:
@@ -81,6 +85,20 @@ class PlannerAgent(LlmAgent):
                             span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
                             span.set_attribute("gen_ai.usage.cost", cost)
                     yield event
+
+                # Evaluate the response
+                evaluation = evaluate_rag(
+                    context=ctx.prompt,
+                    response=final_output,
+                    question=ctx.prompt,
+                    rag_type="planner",
+                )
+                logging.info(f"Evaluation result: {evaluation}")
+
+                # Save evaluation results to a file
+                with open("agents/planner/evaluation_results.json", "w") as f:
+                    json.dump(evaluation.model_dump(), f, indent=2)
+
                 span.set_status(Status(StatusCode.OK))
             except Exception as e:
                 logging.error(f"Error during PlannerAgent execution: {e}", exc_info=True)

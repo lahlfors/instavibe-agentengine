@@ -13,6 +13,7 @@ from typing import Optional
 from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
+from agents.app.utils.evaluation import evaluate_rag
 
 logging.basicConfig(level=logging.INFO)
 
@@ -137,7 +138,19 @@ class OrchestrateServiceAgent(Agent):
         if not self.orchestrator_agent:
             logging.error("OrchestratorAgent not initialized. set_up() was not called.")
             raise RuntimeError("Agent not properly initialized.")
-        return self.orchestrator_agent.query(input_text)
+
+        response = self.orchestrator_agent.query(input_text)
+
+        # Evaluate the response
+        evaluation = evaluate_rag(
+            context=input_text,
+            response=response,
+            question=input_text,
+            rag_type="orchestration",
+        )
+        logging.info(f"Evaluation result: {evaluation}")
+
+        return response
 
 OrchestrateServiceAgent.model_rebuild()
 

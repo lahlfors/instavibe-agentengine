@@ -1,5 +1,5 @@
 # Core dependencies for Vertex AI Agent Engine deployment
-google-cloud-aiplatform[agent_engines,adk,memory_bank]==1.110.0
+google-cloud-aiplatform[agent_engines,adk,memory_bank,evaluation]==1.110.0
 python-dotenv>=1.0.0
 google-adk==1.13.0
 deprecated>=1.2.0

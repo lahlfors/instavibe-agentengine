@@ -299,6 +299,7 @@ def main():
     parser.add_argument("--skip-mcp-server", action="store_true", help="Skip deploying the MCP Tool Server.")
     parser.add_argument("--skip-app", action="store_true", help="Skip deploying the main InstaVibe web app.")
     parser.add_argument("--skip-spanner", action="store_true", help="Skip Spanner setup.")
+    parser.add_argument("--skip-evaluation-service", action="store_true", help="Skip deploying the evaluation service.")
     parser.add_argument("--deploy-orchestrate-only", action="store_true", help="Deploy only the orchestrate agent.")
     args = parser.parse_args()
 
@@ -408,6 +409,15 @@ def main():
         else:
             logging.info("Skipping all agent deployments.")
 
+        if not args.skip_evaluation_service:
+            build_and_deploy_cloud_run_service(
+                project_id,
+                region,
+                "evaluation-service",
+                "./services/evaluation_service",
+                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id, "COMMON_VERTEX_STAGING_BUCKET": config["staging_bucket"]},
+                allow_unauthenticated=False, # Internal service
+            )
 
         if not args.skip_app:
             app_env_vars = {

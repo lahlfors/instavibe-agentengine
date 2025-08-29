@@ -137,6 +137,7 @@ class OrchestrateServiceAgent(Agent):
         if not self.orchestrator_agent:
             logging.error("OrchestratorAgent not initialized. set_up() was not called.")
             raise RuntimeError("Agent not properly initialized.")
+
         return self.orchestrator_agent.query(input_text)
 
 OrchestrateServiceAgent.model_rebuild()

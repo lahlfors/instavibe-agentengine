@@ -20,5 +20,4 @@ opentelemetry-sdk
 opentelemetry-exporter-otlp
 traceloop-sdk
 opentelemetry-instrumentation-requests
-opentelemetry-propagator-gcp
 google-cloud-logging

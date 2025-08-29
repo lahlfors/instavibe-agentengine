@@ -11,7 +11,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.sdk.trace import TracerProvider, export
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry_propagator_gcp import GcpCloudTraceFormatPropagator
+from opentelemetry.trace.propagation.tracecontext import W3CTraceContextPropagator
 
 
 def setup_observability(service_name: str):
@@ -54,9 +54,9 @@ def setup_observability(service_name: str):
     except Exception as e:
         logging.error(f"Failed to configure OTLP Exporter: {e}")
 
-    # Set the global propagator to W3C and GCP format
+    # Set the global propagator to W3C format
     propagate.set_global_textmap(
-        GcpCloudTraceFormatPropagator()
+        W3CTraceContextPropagator()
     )
 
     logging.info(

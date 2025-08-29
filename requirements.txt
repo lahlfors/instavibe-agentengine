@@ -21,5 +21,4 @@ opentelemetry-exporter-otlp
 opentelemetry-instrumentation-requests
 opentelemetry-semantic-conventions
 opentelemetry-semantic-conventions-ai
-google-cloud-logging
 traceloop-sdk

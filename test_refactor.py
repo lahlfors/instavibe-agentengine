@@ -11,23 +11,17 @@ os.environ["COMMON_GOOGLE_CLOUD_PROJECT"] = "test-project"
 # This prevents the client from trying to authenticate when the module is loaded.
 patcher = patch('google.cloud.spanner.Client', autospec=True)
 patcher_ts = patch('google.cloud.spanner.COMMIT_TIMESTAMP', 'COMMIT_TIMESTAMP')
-patcher_logging = patch('google.cloud.logging.Client', autospec=True)
 
 from unittest.mock import MagicMock
 # Start the patches
 mock_spanner_client = patcher.start()
 mock_spanner_ts = patcher_ts.start()
-mock_logging_client = patcher_logging.start()
-mock_logging_client.return_value._handlers = MagicMock()
-mock_logging_client.return_value._handlers.add = MagicMock()
-mock_logging_client.return_value.project = "test-project"
 
 
 # Make sure to stop the patcher after tests are done
 import atexit
 atexit.register(patcher.stop)
 atexit.register(patcher_ts.stop)
-atexit.register(patcher_logging.stop)
 
 
 # Must be imported before the modules that use them for patching to work
@@ -210,14 +204,13 @@ from opentelemetry.trace.propagation.tracecontext import W3CTraceContextPropagat
 import os
 
 @patch('google.auth.default', return_value=(None, "test-project"))
-@patch('google.cloud.logging.Client')
-@patch('google.cloud.logging_v2.handlers.CloudLoggingHandler')
 @patch('opentelemetry.sdk.trace.TracerProvider')
 @patch('opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter')
 @patch('opentelemetry.sdk.trace.export.BatchSpanProcessor')
 @patch('opentelemetry.sdk.trace.export.ConsoleSpanExporter')
 @patch('opentelemetry.propagate.set_global_textmap')
-def test_setup_observability(mock_set_global_textmap, mock_console_exporter, mock_batch_processor, mock_otlp_exporter, mock_tracer_provider, mock_cloud_logging_handler, mock_logging_client, mock_google_auth):
+@patch('logging.StreamHandler')
+def test_setup_observability(mock_stream_handler, mock_set_global_textmap, mock_console_exporter, mock_batch_processor, mock_otlp_exporter, mock_tracer_provider, mock_google_auth):
     """Test the new observability setup."""
     setup_observability("test-service")
 
@@ -229,5 +222,4 @@ def test_setup_observability(mock_set_global_textmap, mock_console_exporter, moc
     # Check that the propagator is set
     mock_set_global_textmap.assert_called()
     # Check that structured logging is configured
-    mock_logging_client.assert_called()
-    mock_cloud_logging_handler.assert_called()
+    mock_stream_handler.assert_called()

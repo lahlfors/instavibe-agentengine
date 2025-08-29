@@ -1,17 +1,44 @@
 import logging
 import os
+import json
+import sys
 import google.auth
 from google.auth.transport import grpc as transport_grpc
 from google.auth.transport import requests as transport_requests
-from google.cloud.logging_v2.handlers import CloudLoggingHandler
-from google.cloud.logging_v2.resource import Resource as GcpResource
-import google.cloud.logging
 from opentelemetry import trace, propagate
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.sdk.trace import TracerProvider, export
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+
+class JsonFormatter(logging.Formatter):
+    def __init__(self, project_id: str):
+        super().__init__()
+        self.project_id = project_id
+
+    def format(self, record):
+        log_record = {
+            "message": record.getMessage(),
+            "severity": record.levelname,
+            "timestamp": self.formatTime(record, self.datefmt),
+            "logger": record.name,
+        }
+
+        # Add OpenTelemetry Trace Context
+        span = trace.get_current_span()
+        if span != trace.INVALID_SPAN:
+            span_context = span.get_span_context()
+            if span_context.is_valid:
+                log_record["logging.googleapis.com/trace"] = f"projects/{self.project_id}/traces/{format(span_context.trace_id, '032x')}"
+                log_record["logging.googleapis.com/spanId"] = format(span_context.span_id, "016x")
+                log_record["logging.googleapis.com/trace_sampled"] = span_context.trace_flags.sampled
+
+        if record.exc_info:
+            log_record["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(log_record)
 
 
 def setup_observability(service_name: str):
@@ -64,15 +91,9 @@ def setup_observability(service_name: str):
     )
 
     # --- Structured Logging Setup ---
-    gcp_resource = GcpResource(
-        type="cloud_run_revision",
-        labels={
-            "service_name": service_name,
-            "project_id": project_id,
-        },
-    )
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter(project_id=project_id))
 
-    client = google.cloud.logging.Client(credentials=credentials, project=project_id)
-    handler = CloudLoggingHandler(client, resource=gcp_resource)
-    google.cloud.logging.handlers.setup_logging(handler)
-    logging.info("Structured logging configured.")
+    logging.basicConfig(handlers=[handler], level=logging.INFO, force=True)
+    logger = logging.getLogger(__name__)
+    logger.info("Structured logging configured.")

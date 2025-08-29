@@ -18,17 +18,17 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+from pydantic import Field
+
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
-    api_key_secret: str
+    api_key_secret: Optional[str] = None
     mcp_client: "Optional[Any]" = None
+    tools: List[Any] = Field(default_factory=list, exclude=True)
 
-    def __init__(self, mcp_server_address: str, api_key_secret: str, **kwargs):
-        """Initializes the agent with serializable configuration."""
-        super().__init__(name="platform_mcp_client_agent", **kwargs)
-        self.mcp_server_address = mcp_server_address
-        self.api_key_secret = api_key_secret
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self.tools = [
             FunctionTool(self.create_event),
             FunctionTool(self.get_person_posts),
@@ -37,11 +37,14 @@ class PlatformMCPClientAgent(Agent):
             FunctionTool(self.get_person_attended_events),
             FunctionTool(self.create_post),
         ]
-        log.info("PlatformMCPClientAgent __init__ called. Config stored.")
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
-        api_key = self._get_api_key(self.api_key_secret)
+        api_key = None
+        if self.api_key_secret:
+            api_key = self._get_api_key(self.api_key_secret)
+        else:
+            log.info("api_key_secret not provided, using Application Default Credentials.")
         log.info(f"Initializing MCPClient for {self.mcp_server_address}")
         return mcp_client.Client(self.mcp_server_address, api_key)
 

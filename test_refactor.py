@@ -200,7 +200,6 @@ async def test_social_get_friends(mock_client):
 
 from common.observability import setup_observability
 from opentelemetry import trace, propagate
-from opentelemetry.trace.propagation.tracecontext import W3CTraceContextPropagator
 import os
 
 @patch('google.auth.default', return_value=(None, "test-project"))

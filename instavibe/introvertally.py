@@ -10,7 +10,7 @@ import google.cloud.aiplatform as vertexai
 from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
 from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 from opentelemetry import trace
-from opentelemetry.semconv.ai import SpanAttributes as AISpanAttributes
+import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
 # google.cloud.aiplatform is already imported as vertexai
@@ -119,9 +119,9 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     accumulated_json_str = ""
 
     with tracer.start_as_current_span("call_agent_for_plan") as span:
-        span.set_attribute(AISpanAttributes.GEN_AI_SYSTEM, "google_vertexai")
-        span.set_attribute(AISpanAttributes.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
-        span.set_attribute(AISpanAttributes.INPUT_VALUE, prompt_message)
+        span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
+        span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
+        span.set_attribute(ai_semconv.INPUT_VALUE, prompt_message)
         try:
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot query for plan.")
@@ -186,7 +186,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
                     accumulated_json_str += text_to_accumulate
 
             yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
-            span.set_attribute(AISpanAttributes.OUTPUT_VALUE, accumulated_json_str)
+            span.set_attribute(ai_semconv.OUTPUT_VALUE, accumulated_json_str)
 
         except Exception as e_outer:
             logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
@@ -314,9 +314,9 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     
     accumulated_response_text = "" # Used to capture text for error reporting if needed
     with tracer.start_as_current_span("post_plan_event") as span:
-        span.set_attribute(AISpanAttributes.GEN_AI_SYSTEM, "google_vertexai")
-        span.set_attribute(AISpanAttributes.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
-        span.set_attribute(AISpanAttributes.INPUT_VALUE, prompt_message)
+        span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
+        span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
+        span.set_attribute(ai_semconv.INPUT_VALUE, prompt_message)
         try:
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot process post_plan_event.")
@@ -376,7 +376,7 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
                     accumulated_response_text += text_from_chunk
 
             yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
-            span.set_attribute(AISpanAttributes.OUTPUT_VALUE, accumulated_response_text)
+            span.set_attribute(ai_semconv.OUTPUT_VALUE, accumulated_response_text)
         except Exception as e_outer_post:
             logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)
             yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration for posting (session: {session_id}): {str(e_outer_post)}"}

@@ -22,3 +22,4 @@ opentelemetry-instrumentation-requests
 opentelemetry-semantic-conventions
 opentelemetry-semantic-conventions-ai
 traceloop-sdk
+fastmcp

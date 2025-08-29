@@ -4,7 +4,9 @@ import os
 import asyncio
 import google.auth
 import google.auth.credentials
+import json
 from opentelemetry import trace
+from opentelemetry.semconv.ai import SpanAttributes as AISpanAttributes
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
@@ -124,9 +126,15 @@ class OrchestrateServiceAgent(Agent):
         """
         Finds a remote agent and invokes one of its capabilities.
         """
-        with tracer.start_as_current_span("tool.send_task") as span:
-            span.set_attribute("tool.name", "send_task")
-            span.set_attribute("tool.parameters", f"agent_name={agent_name}, action={action}, data={data}")
+        with tracer.start_as_current_span(f"{agent_name}.{action}") as span:
+            span.set_attribute(AISpanAttributes.GEN_AI_OPERATION_NAME, "send_task")
+            span.set_attribute(AISpanAttributes.GEN_AI_TOOL_NAME, "send_task")
+            tool_params = {
+                "agent_name": agent_name,
+                "action": action,
+                "data": data,
+            }
+            span.set_attribute(AISpanAttributes.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
             try:
                 response_data = await call_agent_capability(
                     source_agent="orchestrate_agent",
@@ -134,26 +142,24 @@ class OrchestrateServiceAgent(Agent):
                     capability=action,
                     prompt=data
                 )
+                span.set_attribute(AISpanAttributes.OUTPUT_VALUE, json.dumps(response_data))
                 return response_data
             except Exception as e:
+                span.set_attribute(AISpanAttributes.OUTPUT_VALUE, json.dumps({"error": str(e)}))
                 return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
     def query(self, input_text: str) -> str:
-        with tracer.start_as_current_span("orchestrate_agent_main") as span:
-            span.set_attribute("user_query", input_text)
+        with tracer.start_as_current_span("orchestrate_agent.query") as span:
+            span.set_attribute(AISpanAttributes.GEN_AI_SYSTEM, "google_vertexai")
+            span.set_attribute(AISpanAttributes.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
+            span.set_attribute(AISpanAttributes.INPUT_VALUE, input_text)
             if not self.orchestrator_agent:
                 logging.error("OrchestratorAgent not initialized. set_up() was not called.")
                 raise RuntimeError("Agent not properly initialized.")
 
-            # The ADK's query method will automatically pick up the parent span
-            # and create child spans for LLM calls and tool calls if the integration
-            # is configured correctly.
             response = self.orchestrator_agent.query(input_text)
 
-            # Since we don't have direct access to the LLM response here to add it as an attribute,
-            # we rely on the ADK's auto-instrumentation. If that is not available,
-            # we would need to find a way to intercept the LLM calls.
-            span.set_attribute("llm.response", str(response))
+            span.set_attribute(AISpanAttributes.OUTPUT_VALUE, str(response))
             return response
 
 OrchestrateServiceAgent.model_rebuild()

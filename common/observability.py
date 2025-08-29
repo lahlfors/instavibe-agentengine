@@ -11,7 +11,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.sdk.trace import TracerProvider, export
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.trace.propagation.tracecontext import W3CTraceContextPropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 
 def setup_observability(service_name: str):
@@ -56,7 +56,7 @@ def setup_observability(service_name: str):
 
     # Set the global propagator to W3C format
     propagate.set_global_textmap(
-        W3CTraceContextPropagator()
+        TraceContextTextMapPropagator()
     )
 
     logging.info(

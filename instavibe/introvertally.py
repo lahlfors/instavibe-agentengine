@@ -9,12 +9,15 @@ import logging # Added for logging
 import google.cloud.aiplatform as vertexai
 from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
 from vertexai.preview import reasoning_engines # Added for direct RE instantiation
+from opentelemetry import trace
+from opentelemetry.semconv.ai import SpanAttributes as AISpanAttributes
 # from vertexai import agent_engines # This is available via vertexai.agent_engines
 
 # google.cloud.aiplatform is already imported as vertexai
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # Global variable for the ADK app instance
 adk_app = None
@@ -115,97 +118,102 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
 
     accumulated_json_str = ""
 
-    try:
-        if not adk_app:
-            logger.error("ADK App is not initialized. Cannot query for plan.")
-            yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot query for plan.", "raw_output": ""}}
-            return
-
-        # Create a session
+    with tracer.start_as_current_span("call_agent_for_plan") as span:
+        span.set_attribute(AISpanAttributes.GEN_AI_SYSTEM, "google_vertexai")
+        span.set_attribute(AISpanAttributes.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
+        span.set_attribute(AISpanAttributes.INPUT_VALUE, prompt_message)
         try:
-            logger.info(f"Creating session for user_id: {user_id}")
-            session = adk_app.create_session(user_id=user_id)
-            session_id = session['id'] # Changed to access 'id' key from dict
-            yield {"type": "thought", "data": f"Session created: {session_id} for user {user_id}"}
-            logger.info(f"Session {session_id} created for user {user_id}")
-        except Exception as e_session_create:
-            logger.error(f"Error creating session for user {user_id}: {e_session_create}", exc_info=True)
-            yield {"type": "error", "data": {"message": f"Error creating session: {str(e_session_create)}", "raw_output": ""}}
+            if not adk_app:
+                logger.error("ADK App is not initialized. Cannot query for plan.")
+                yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot query for plan.", "raw_output": ""}}
+                return
+
+            # Create a session
+            try:
+                logger.info(f"Creating session for user_id: {user_id}")
+                session = adk_app.create_session(user_id=user_id)
+                session_id = session['id'] # Changed to access 'id' key from dict
+                yield {"type": "thought", "data": f"Session created: {session_id} for user {user_id}"}
+                logger.info(f"Session {session_id} created for user {user_id}")
+            except Exception as e_session_create:
+                logger.error(f"Error creating session for user {user_id}: {e_session_create}", exc_info=True)
+                yield {"type": "error", "data": {"message": f"Error creating session: {str(e_session_create)}", "raw_output": ""}}
+                return
+
+            yield {"type": "thought", "data": f"--- ADK App Response Stream Starting (session: {session_id}) ---"}
+
+            stream_iterator = adk_app.stream_query(
+                user_id=user_id,
+                session_id=session_id,
+                message=prompt_message
+            )
+
+            for chunk_idx, chunk in enumerate(stream_iterator):
+                # logger.debug(f"Stream Chunk {chunk_idx} (user: {user_id}, session: {session_id}): {chunk}")
+                # pprint.pprint(chunk) # Keep for debugging if necessary, but can be verbose
+
+                text_to_accumulate = None
+                # ADK stream_query might yield objects with different structures.
+                # Common ADK event types include 'thought', 'tool_code', 'tool_result', 'response'.
+                # We are primarily interested in the 'response' for accumulating the final JSON.
+                # Other event types can be logged as 'thoughts'.
+
+                if hasattr(chunk, 'response'): # Standard way to get LLM response text
+                    text_to_accumulate = chunk.response
+                    yield {"type": "thought", "data": f"ADK App (response content via .response): \"{text_to_accumulate}\""}
+                elif isinstance(chunk, dict) and \
+                     chunk.get('content') and \
+                     isinstance(chunk['content'].get('parts'), list) and \
+                     len(chunk['content']['parts']) > 0 and \
+                     isinstance(chunk['content']['parts'][0].get('text'), str):
+                    text_to_accumulate = chunk['content']['parts'][0]['text']
+                    yield {"type": "thought", "data": f"ADK App (response content via dict): \"{text_to_accumulate}\""}
+                elif hasattr(chunk, 'thought'):
+                     yield {"type": "thought", "data": f"ADK App (thought): \"{chunk.thought}\""}
+                elif hasattr(chunk, 'tool_code'):
+                     yield {"type": "thought", "data": f"ADK App (tool_code): \"{chunk.tool_code}\""}
+                elif hasattr(chunk, 'tool_result'):
+                     yield {"type": "thought", "data": f"ADK App (tool_result for {chunk.tool_name if hasattr(chunk, 'tool_name') else 'unknown tool'}): \"{chunk.tool_result}\""}
+                elif isinstance(chunk, str): # Fallback if it's just a string
+                    text_to_accumulate = chunk
+                    yield {"type": "thought", "data": f"ADK App (string chunk): \"{text_to_accumulate}\""}
+                else: # If structure is unknown, log it
+                    unknown_chunk_str = str(chunk)
+                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query (user: {user_id}, session: {session_id}): {unknown_chunk_str}")
+                    yield {"type": "thought", "data": f"ADK App (unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
+
+                if text_to_accumulate:
+                    accumulated_json_str += text_to_accumulate
+
+            yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
+            span.set_attribute(AISpanAttributes.OUTPUT_VALUE, accumulated_json_str)
+
+        except Exception as e_outer:
+            logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
+            yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration (session: {session_id}): {str(e_outer)}"}
+            yield {"type": "error", "data": {"message": f"Error during ADK App interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
+            # Ensure session is deleted even if an error occurs mid-stream
+            if adk_app and session_id and user_id:
+                try:
+                    logger.info(f"Attempting to delete session {session_id} for user {user_id} due to error.")
+                    adk_app.delete_session(user_id=user_id, session_id=session_id)
+                    yield {"type": "thought", "data": f"Session {session_id} deleted for user {user_id} after error."}
+                    logger.info(f"Session {session_id} for user {user_id} deleted after error.")
+                except Exception as e_del_err:
+                    logger.error(f"Failed to delete session {session_id} for user {user_id} after error: {e_del_err}", exc_info=True)
+                    yield {"type": "thought", "data": f"Failed to delete session {session_id} after error: {str(e_del_err)}"}
             return
-
-        yield {"type": "thought", "data": f"--- ADK App Response Stream Starting (session: {session_id}) ---"}
-
-        stream_iterator = adk_app.stream_query(
-            user_id=user_id,
-            session_id=session_id,
-            message=prompt_message
-        )
-
-        for chunk_idx, chunk in enumerate(stream_iterator):
-            # logger.debug(f"Stream Chunk {chunk_idx} (user: {user_id}, session: {session_id}): {chunk}")
-            # pprint.pprint(chunk) # Keep for debugging if necessary, but can be verbose
-
-            text_to_accumulate = None
-            # ADK stream_query might yield objects with different structures.
-            # Common ADK event types include 'thought', 'tool_code', 'tool_result', 'response'.
-            # We are primarily interested in the 'response' for accumulating the final JSON.
-            # Other event types can be logged as 'thoughts'.
-
-            if hasattr(chunk, 'response'): # Standard way to get LLM response text
-                text_to_accumulate = chunk.response
-                yield {"type": "thought", "data": f"ADK App (response content via .response): \"{text_to_accumulate}\""}
-            elif isinstance(chunk, dict) and \
-                 chunk.get('content') and \
-                 isinstance(chunk['content'].get('parts'), list) and \
-                 len(chunk['content']['parts']) > 0 and \
-                 isinstance(chunk['content']['parts'][0].get('text'), str):
-                text_to_accumulate = chunk['content']['parts'][0]['text']
-                yield {"type": "thought", "data": f"ADK App (response content via dict): \"{text_to_accumulate}\""}
-            elif hasattr(chunk, 'thought'):
-                 yield {"type": "thought", "data": f"ADK App (thought): \"{chunk.thought}\""}
-            elif hasattr(chunk, 'tool_code'):
-                 yield {"type": "thought", "data": f"ADK App (tool_code): \"{chunk.tool_code}\""}
-            elif hasattr(chunk, 'tool_result'):
-                 yield {"type": "thought", "data": f"ADK App (tool_result for {chunk.tool_name if hasattr(chunk, 'tool_name') else 'unknown tool'}): \"{chunk.tool_result}\""}
-            elif isinstance(chunk, str): # Fallback if it's just a string
-                text_to_accumulate = chunk
-                yield {"type": "thought", "data": f"ADK App (string chunk): \"{text_to_accumulate}\""}
-            else: # If structure is unknown, log it
-                unknown_chunk_str = str(chunk)
-                logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query (user: {user_id}, session: {session_id}): {unknown_chunk_str}")
-                yield {"type": "thought", "data": f"ADK App (unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
-
-            if text_to_accumulate:
-                accumulated_json_str += text_to_accumulate
-
-        yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
-
-    except Exception as e_outer:
-        logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
-        yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration (session: {session_id}): {str(e_outer)}"}
-        yield {"type": "error", "data": {"message": f"Error during ADK App interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
-        # Ensure session is deleted even if an error occurs mid-stream
-        if adk_app and session_id and user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {user_id} due to error.")
-                adk_app.delete_session(user_id=user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} deleted for user {user_id} after error."}
-                logger.info(f"Session {session_id} for user {user_id} deleted after error.")
-            except Exception as e_del_err:
-                logger.error(f"Failed to delete session {session_id} for user {user_id} after error: {e_del_err}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} after error: {str(e_del_err)}"}
-        return
-    finally:
-        # Always attempt to delete the session after processing is complete or an error handled by the main try-except occurred
-        if adk_app and session_id and user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {user_id} (end of call_agent_for_plan).")
-                adk_app.delete_session(user_id=user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} deleted successfully for user {user_id}."}
-                logger.info(f"Session {session_id} for user {user_id} deleted successfully.")
-            except Exception as e_del_final:
-                logger.error(f"Failed to delete session {session_id} for user {user_id} at end of call: {e_del_final}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} at end of call: {str(e_del_final)}"}
+        finally:
+            # Always attempt to delete the session after processing is complete or an error handled by the main try-except occurred
+            if adk_app and session_id and user_id:
+                try:
+                    logger.info(f"Attempting to delete session {session_id} for user {user_id} (end of call_agent_for_plan).")
+                    adk_app.delete_session(user_id=user_id, session_id=session_id)
+                    yield {"type": "thought", "data": f"Session {session_id} deleted successfully for user {user_id}."}
+                    logger.info(f"Session {session_id} for user {user_id} deleted successfully.")
+                except Exception as e_del_final:
+                    logger.error(f"Failed to delete session {session_id} for user {user_id} at end of call: {e_del_final}", exc_info=True)
+                    yield {"type": "thought", "data": f"Failed to delete session {session_id} at end of call: {str(e_del_final)}"}
 
 
     if "```json" in accumulated_json_str:
@@ -305,91 +313,94 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     logger.debug(f"Prompt for posting: {prompt_message}")
     
     accumulated_response_text = "" # Used to capture text for error reporting if needed
-
-    try:
-        if not adk_app:
-            logger.error("ADK App is not initialized. Cannot process post_plan_event.")
-            yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot process posting.", "raw_output": ""}}
-            return
-
-        # Create a session
+    with tracer.start_as_current_span("post_plan_event") as span:
+        span.set_attribute(AISpanAttributes.GEN_AI_SYSTEM, "google_vertexai")
+        span.set_attribute(AISpanAttributes.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
+        span.set_attribute(AISpanAttributes.INPUT_VALUE, prompt_message)
         try:
-            logger.info(f"Creating session for user_id: {adk_user_id} (for posting)")
-            session = adk_app.create_session(user_id=adk_user_id)
-            session_id = session['id'] # Changed to access 'id' key from dict
-            yield {"type": "thought", "data": f"Session created for posting: {session_id} for user {adk_user_id}"}
-            logger.info(f"Session {session_id} created for user {adk_user_id} (for posting)")
-        except Exception as e_session_create_post:
-            logger.error(f"Error creating session for user {adk_user_id} (for posting): {e_session_create_post}", exc_info=True)
-            yield {"type": "error", "data": {"message": f"Error creating session for posting: {str(e_session_create_post)}", "raw_output": ""}}
+            if not adk_app:
+                logger.error("ADK App is not initialized. Cannot process post_plan_event.")
+                yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot process posting.", "raw_output": ""}}
+                return
+
+            # Create a session
+            try:
+                logger.info(f"Creating session for user_id: {adk_user_id} (for posting)")
+                session = adk_app.create_session(user_id=adk_user_id)
+                session_id = session['id'] # Changed to access 'id' key from dict
+                yield {"type": "thought", "data": f"Session created for posting: {session_id} for user {adk_user_id}"}
+                logger.info(f"Session {session_id} created for user {adk_user_id} (for posting)")
+            except Exception as e_session_create_post:
+                logger.error(f"Error creating session for user {adk_user_id} (for posting): {e_session_create_post}", exc_info=True)
+                yield {"type": "error", "data": {"message": f"Error creating session for posting: {str(e_session_create_post)}", "raw_output": ""}}
+                return
+
+            yield {"type": "thought", "data": f"--- ADK App Response Stream Starting for Posting (session: {session_id}) ---"}
+
+            stream_iterator_post = adk_app.stream_query(
+                user_id=adk_user_id,
+                session_id=session_id,
+                message=prompt_message
+            )
+
+            for chunk_idx, chunk in enumerate(stream_iterator_post):
+                # logger.debug(f"Post Event - ADK Chunk {chunk_idx} (user: {adk_user_id}, session: {session_id}): {chunk}")
+                # pprint.pprint(chunk) # Debug if needed
+
+                text_from_chunk = None
+                if hasattr(chunk, 'response'):
+                    text_from_chunk = chunk.response
+                    yield {"type": "thought", "data": f"ADK App (post response content via .response): \"{text_from_chunk}\""}
+                elif isinstance(chunk, dict) and \
+                     chunk.get('content') and \
+                     isinstance(chunk['content'].get('parts'), list) and \
+                     len(chunk['content']['parts']) > 0 and \
+                     isinstance(chunk['content']['parts'][0].get('text'), str):
+                    text_from_chunk = chunk['content']['parts'][0]['text']
+                    yield {"type": "thought", "data": f"ADK App (post response content via dict): \"{text_from_chunk}\""}
+                elif hasattr(chunk, 'thought'):
+                     yield {"type": "thought", "data": f"ADK App (post thought): \"{chunk.thought}\""}
+                elif hasattr(chunk, 'tool_code'):
+                     yield {"type": "thought", "data": f"ADK App (post tool_code): \"{chunk.tool_code}\""}
+                elif hasattr(chunk, 'tool_result'):
+                     yield {"type": "thought", "data": f"ADK App (post tool_result for {getattr(chunk, 'tool_name', 'unknown tool')}): \"{chunk.tool_result}\""}
+                elif isinstance(chunk, str):
+                    text_from_chunk = chunk
+                    yield {"type": "thought", "data": f"ADK App (post string chunk): \"{text_from_chunk}\""}
+                else:
+                    unknown_chunk_str = str(chunk)
+                    logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query for post (user: {adk_user_id}, session: {session_id}): {unknown_chunk_str}")
+                    yield {"type": "thought", "data": f"ADK App (post unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
+
+                if text_from_chunk: # Accumulate for error reporting context if needed
+                    accumulated_response_text += text_from_chunk
+
+            yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
+            span.set_attribute(AISpanAttributes.OUTPUT_VALUE, accumulated_response_text)
+        except Exception as e_outer_post:
+            logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)
+            yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration for posting (session: {session_id}): {str(e_outer_post)}"}
+            yield {"type": "error", "data": {"message": f"Error during ADK App interaction for posting: {str(e_outer_post)}", "raw_output": accumulated_response_text}}
+            if adk_app and session_id and adk_user_id:
+                try:
+                    logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (posting error).")
+                    adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
+                    yield {"type": "thought", "data": f"Session {session_id} (posting) deleted for user {adk_user_id} after error."}
+                    logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted after error.")
+                except Exception as e_del_err_post:
+                    logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting error): {e_del_err_post}", exc_info=True)
+                    yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) after error: {str(e_del_err_post)}"}
             return
-
-        yield {"type": "thought", "data": f"--- ADK App Response Stream Starting for Posting (session: {session_id}) ---"}
-
-        stream_iterator_post = adk_app.stream_query(
-            user_id=adk_user_id,
-            session_id=session_id,
-            message=prompt_message
-        )
-
-        for chunk_idx, chunk in enumerate(stream_iterator_post):
-            # logger.debug(f"Post Event - ADK Chunk {chunk_idx} (user: {adk_user_id}, session: {session_id}): {chunk}")
-            # pprint.pprint(chunk) # Debug if needed
-
-            text_from_chunk = None
-            if hasattr(chunk, 'response'):
-                text_from_chunk = chunk.response
-                yield {"type": "thought", "data": f"ADK App (post response content via .response): \"{text_from_chunk}\""}
-            elif isinstance(chunk, dict) and \
-                 chunk.get('content') and \
-                 isinstance(chunk['content'].get('parts'), list) and \
-                 len(chunk['content']['parts']) > 0 and \
-                 isinstance(chunk['content']['parts'][0].get('text'), str):
-                text_from_chunk = chunk['content']['parts'][0]['text']
-                yield {"type": "thought", "data": f"ADK App (post response content via dict): \"{text_from_chunk}\""}
-            elif hasattr(chunk, 'thought'):
-                 yield {"type": "thought", "data": f"ADK App (post thought): \"{chunk.thought}\""}
-            elif hasattr(chunk, 'tool_code'):
-                 yield {"type": "thought", "data": f"ADK App (post tool_code): \"{chunk.tool_code}\""}
-            elif hasattr(chunk, 'tool_result'):
-                 yield {"type": "thought", "data": f"ADK App (post tool_result for {getattr(chunk, 'tool_name', 'unknown tool')}): \"{chunk.tool_result}\""}
-            elif isinstance(chunk, str):
-                text_from_chunk = chunk
-                yield {"type": "thought", "data": f"ADK App (post string chunk): \"{text_from_chunk}\""}
-            else:
-                unknown_chunk_str = str(chunk)
-                logger.warning(f"Received chunk of unexpected type/structure {type(chunk)} from ADK App stream_query for post (user: {adk_user_id}, session: {session_id}): {unknown_chunk_str}")
-                yield {"type": "thought", "data": f"ADK App (post unknown chunk type {type(chunk)}): {unknown_chunk_str}"}
-
-            if text_from_chunk: # Accumulate for error reporting context if needed
-                accumulated_response_text += text_from_chunk
-
-        yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
-
-    except Exception as e_outer_post:
-        logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)
-        yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration for posting (session: {session_id}): {str(e_outer_post)}"}
-        yield {"type": "error", "data": {"message": f"Error during ADK App interaction for posting: {str(e_outer_post)}", "raw_output": accumulated_response_text}}
-        if adk_app and session_id and adk_user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (posting error).")
-                adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} (posting) deleted for user {adk_user_id} after error."}
-                logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted after error.")
-            except Exception as e_del_err_post:
-                logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting error): {e_del_err_post}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) after error: {str(e_del_err_post)}"}
-        return
-    finally:
-        if adk_app and session_id and adk_user_id:
-            try:
-                logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (end of post_plan_event).")
-                adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
-                yield {"type": "thought", "data": f"Session {session_id} (posting) deleted successfully for user {adk_user_id}."}
-                logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted successfully.")
-            except Exception as e_del_final_post:
-                logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting, end of call): {e_del_final_post}", exc_info=True)
-                yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) at end of call: {str(e_del_final_post)}"}
+        finally:
+            if adk_app and session_id and adk_user_id:
+                try:
+                    logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (end of post_plan_event).")
+                    adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
+                    yield {"type": "thought", "data": f"Session {session_id} (posting) deleted successfully for user {adk_user_id}."}
+                    logger.info(f"Session {session_id} (posting) for user {adk_user_id} deleted successfully.")
+                except Exception as e_del_final_post:
+                    logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting, end of call): {e_del_final_post}", exc_info=True)
+                    yield {"type": "thought", "data": f"Failed to delete session {session_id} (posting) at end of call: {str(e_del_final_post)}"}
 
     # The original function always yielded posting_finished, regardless of the agent's text output,
     # as long as no exceptions occurred during the stream. We maintain this behavior.

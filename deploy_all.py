@@ -386,6 +386,10 @@ def main():
                     if agent["name"] in ["Social Agent", "Platform MCP Client Agent"]:
                         deploy_args["extra_packages"] = ['agents']
                         logging.info(f"Including shared code for '{agent['name']}' from relative path: agents")
+                    if agent["name"] == "Platform MCP Client Agent" and mcp_tool_server_url:
+                        if "env_vars" not in deploy_args:
+                            deploy_args["env_vars"] = {}
+                        deploy_args["env_vars"]["AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL"] = mcp_tool_server_url
                     agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
 
                 # Deploy the orchestrator agent

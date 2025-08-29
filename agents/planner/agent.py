@@ -26,7 +26,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 # Define model name string - ensure this is the desired model
 def create_agent():
-    MODEL_NAME = "gemini-2.0-flash-001" # Updated deprecated model
+    MODEL_NAME = "gemini-2.5-flash"
     AGENT_NAME = "location_search_agent" # Consistent name from before
     AGENT_INSTRUCTION = """
 

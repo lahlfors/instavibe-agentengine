@@ -27,7 +27,7 @@ log = logging.getLogger(__name__) # Added
 
 from typing import List, Optional
 
-def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None):
+def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None, env_vars: Optional[dict[str, str]] = None):
     """
     Deploys the Platform MCP Client Agent to Vertex AI Reasoning Engines using ADK.
 
@@ -36,15 +36,17 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         region: The Google Cloud region for deployment.
         base_dir: The base directory of the repository (repo root).
         extra_packages: A list of extra packages to install.
+        env_vars: A dictionary of environment variables to pass to the agent.
     """
 
     display_name = "Platform MCP Client Agent"
     description = "An agent that connects to an MCP Tool Server to provide tools for other agents or clients. It can interact with Instavibe services like creating posts and events."
 
     # Get required config from environment variables.
-    mcp_server_url = os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL")
+    env_vars = env_vars or {}
+    mcp_server_url = env_vars.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL") or os.environ.get("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL")
     if not mcp_server_url:
-        raise ValueError("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL environment variable not set.")
+        raise ValueError("AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL not found in provided env_vars or environment.")
 
     # This secret name is a placeholder, adjust if a real secret is used.
     api_key_secret_name = os.environ.get("MCP_API_KEY_SECRET", "default-mcp-api-key-secret")
@@ -52,6 +54,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     # Instantiate the agent directly, passing serializable config.
     local_agent_instance = PlatformMCPClientAgent(
         name="platform_mcp_client_agent",
+        model="gemini-2.5-flash",
         mcp_server_address=mcp_server_url,
         api_key_secret=api_key_secret_name
     )
@@ -92,8 +95,8 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         "COMMON_GOOGLE_CLOUD_LOCATION": region,
         "COMMON_SPANNER_INSTANCE_ID": os.environ.get("COMMON_SPANNER_INSTANCE_ID", ""),
         "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
-        "TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL": os.environ.get("TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL", "")
-        # Add other necessary env vars for Platform MCP Client
+        "TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL": os.environ.get("TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL", ""),
+        "INSTAVIBE_GOOGLE_MAPS_API_KEY": os.getenv("INSTAVIBE_GOOGLE_MAPS_API_KEY")
     }
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")

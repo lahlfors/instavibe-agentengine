@@ -11,10 +11,10 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.sdk.trace import TracerProvider, export
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry_propagator_gcp import GcpCloudTraceFormatPropagator
 
 
 def setup_observability(service_name: str):
-    from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator
     """
     Sets up OpenTelemetry for a service, including Cloud Trace and structured
     logging.

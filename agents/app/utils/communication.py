@@ -1,4 +1,4 @@
-from opentelemetry import trace
+from opentelemetry import trace, propagate
 from google.adk import agents
 import aiohttp
 
@@ -54,10 +54,19 @@ async def call_agent_capability(source_agent: str, target_agent: str, capability
             raise
 
 
+import logging
+
 async def call_http_endpoint(source_agent: str, target_service: str, http_method: str, url: str, headers: dict, json: dict) -> dict:
     """
-    A wrapper to trace an HTTP call to an external service.
+    A wrapper to trace an HTTP call to an external service, including trace context propagation.
     """
+    if headers is None:
+        headers = {}
+
+    # Inject the current trace context into the headers
+    propagate.inject(headers)
+    logging.info(f"Injecting trace context into headers: {headers}")
+
     # Create a span with a descriptive name
     with tracer.start_as_current_span(f"http.{http_method.lower()}") as span:
         print(f"Starting trace for HTTP call from {source_agent} to {target_service}")

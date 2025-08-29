@@ -41,7 +41,26 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
+from starlette.types import ASGIApp, Receive, Scope, Send
+from opentelemetry.propagate import extract
+
+class HeaderLoggingMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = scope.get("headers", [])
+            logging.info(f"Incoming request headers: {headers}")
+            context = extract(headers)
+            logging.info(f"Extracted trace context: {context}")
+        await self.app(scope, receive, send)
+
 class AgentEngineApp(AdkApp):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.app = HeaderLoggingMiddleware(self.app)
+
     def set_up(self) -> None:
         """Set up logging and tracing for the agent engine app."""
         super().set_up()

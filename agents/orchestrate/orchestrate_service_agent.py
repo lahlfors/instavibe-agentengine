@@ -4,6 +4,7 @@ import os
 import asyncio
 import google.auth
 import google.auth.credentials
+from opentelemetry import trace
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
@@ -15,6 +16,7 @@ from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
 
 logging.basicConfig(level=logging.INFO)
+tracer = trace.get_tracer(__name__)
 
 class OrchestrateServiceAgent(Agent):
     """
@@ -122,22 +124,37 @@ class OrchestrateServiceAgent(Agent):
         """
         Finds a remote agent and invokes one of its capabilities.
         """
-        try:
-            response_data = await call_agent_capability(
-                source_agent="orchestrate_agent",
-                target_agent=agent_name,
-                capability=action,
-                prompt=data
-            )
-            return response_data
-        except Exception as e:
-            return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
+        with tracer.start_as_current_span("tool.send_task") as span:
+            span.set_attribute("tool.name", "send_task")
+            span.set_attribute("tool.parameters", f"agent_name={agent_name}, action={action}, data={data}")
+            try:
+                response_data = await call_agent_capability(
+                    source_agent="orchestrate_agent",
+                    target_agent=agent_name,
+                    capability=action,
+                    prompt=data
+                )
+                return response_data
+            except Exception as e:
+                return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
     def query(self, input_text: str) -> str:
-        if not self.orchestrator_agent:
-            logging.error("OrchestratorAgent not initialized. set_up() was not called.")
-            raise RuntimeError("Agent not properly initialized.")
-        return self.orchestrator_agent.query(input_text)
+        with tracer.start_as_current_span("orchestrate_agent_main") as span:
+            span.set_attribute("user_query", input_text)
+            if not self.orchestrator_agent:
+                logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+                raise RuntimeError("Agent not properly initialized.")
+
+            # The ADK's query method will automatically pick up the parent span
+            # and create child spans for LLM calls and tool calls if the integration
+            # is configured correctly.
+            response = self.orchestrator_agent.query(input_text)
+
+            # Since we don't have direct access to the LLM response here to add it as an attribute,
+            # we rely on the ADK's auto-instrumentation. If that is not available,
+            # we would need to find a way to intercept the LLM calls.
+            span.set_attribute("llm.response", str(response))
+            return response
 
 OrchestrateServiceAgent.model_rebuild()
 

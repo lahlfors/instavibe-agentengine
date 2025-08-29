@@ -1,46 +1,78 @@
 import logging
 import os
-from traceloop.sdk import Traceloop
+import google.auth
+from google.auth.transport import grpc as transport_grpc
+from google.auth.transport import requests as transport_requests
+from google.cloud.logging_v2.handlers import CloudLoggingHandler
 from google.cloud.logging_v2.resource import Resource as GcpResource
+import google.cloud.logging
+from opentelemetry import trace, propagate
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+from opentelemetry.sdk.trace import TracerProvider, export
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+
 
 def setup_observability(service_name: str):
+    from opentelemetry.propagators.gcp import GcpCloudTraceFormatPropagator
     """
     Sets up OpenTelemetry for a service, including Cloud Trace and structured
     logging.
     """
-    if os.getenv("TRACELOOP_ENABLED", "false").lower() == "true":
-        # Initialize OpenLLMetry for auto-instrumentation
-        os.environ["TRACELOOP_SERVICE_NAME"] = service_name
-        Traceloop.init()
-        logging.info(f"Traceloop enabled and initialized for service: {service_name}")
-    else:
-        logging.info("Traceloop is disabled. Skipping initialization.")
+    try:
+        credentials, project_id = google.auth.default()
+    except google.auth.exceptions.DefaultCredentialsError:
+        logging.error(
+            "Google Cloud credentials not found. Please run 'gcloud auth application-default login' or set up the environment."
+        )
+        return
 
+    # --- OpenTelemetry Tracing Setup ---
+    resource = Resource(
+        attributes={
+            SERVICE_NAME: service_name,
+            "gcp.project_id": project_id,
+        }
+    )
 
-    logging.info(f"OpenTelemetry Tracer configured for service: {service_name}")
+    provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(provider)
+
+    # Console Exporter for local debugging
+    provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+    logging.info("OpenTelemetry ConsoleSpanExporter configured.")
+
+    # OTLP Exporter for Google Cloud Trace
+    try:
+        request = transport_requests.Request()
+        channel = transport_grpc.secure_authorized_channel(
+            credentials, request, "cloudtrace.googleapis.com:443"
+        )
+        otlp_exporter = OTLPSpanExporter(channel=channel)
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        logging.info("OpenTelemetry OTLPSpanExporter configured for Google Cloud Trace.")
+    except Exception as e:
+        logging.error(f"Failed to configure OTLP Exporter: {e}")
+
+    # Set the global propagator to W3C and GCP format
+    propagate.set_global_textmap(
+        GcpCloudTraceFormatPropagator()
+    )
+
+    logging.info(
+        f"OpenTelemetry Tracer configured for service: {service_name} in project {project_id}"
+    )
 
     # --- Structured Logging Setup ---
-    # a "Resource" identifies your application
-    from google.cloud.logging_v2.handlers import CloudLoggingHandler
-    import google.cloud.logging
-
-    # Instantiates a client
-    client = google.cloud.logging.Client()
-
-    # A "Resource" identifies your application. The "service.name" is crucial
-    # as it's how you'll filter for your agent's traces in Cloud Trace.
     gcp_resource = GcpResource(
         type="cloud_run_revision",
         labels={
             "service_name": service_name,
-            "project_id": os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT", "unknown"),
+            "project_id": project_id,
         },
     )
 
-    # Retrieves a Cloud Logging handler based on the environment
-    # you're running in and integrates the handler with the
-    # Python logging module. By default this captures all logs
-    # at INFO level and higher.
+    client = google.cloud.logging.Client(credentials=credentials, project=project_id)
     handler = CloudLoggingHandler(client, resource=gcp_resource)
     google.cloud.logging.handlers.setup_logging(handler)
     logging.info("Structured logging configured.")

@@ -3,8 +3,6 @@ import os
 import json
 import sys
 import google.auth
-from google.auth.transport import grpc as transport_grpc
-from google.auth.transport import requests as transport_requests
 from opentelemetry import trace, propagate
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
@@ -71,11 +69,10 @@ def setup_observability(service_name: str):
 
     # OTLP Exporter for Google Cloud Trace
     try:
-        request = transport_requests.Request()
-        channel = transport_grpc.secure_authorized_channel(
-            credentials, request, "cloudtrace.googleapis.com:443"
+        otlp_exporter = OTLPSpanExporter(
+            endpoint="cloudtrace.googleapis.com:443",
+            credentials=credentials
         )
-        otlp_exporter = OTLPSpanExporter(channel=channel)
         provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
         logging.info("OpenTelemetry OTLPSpanExporter configured for Google Cloud Trace.")
     except Exception as e:

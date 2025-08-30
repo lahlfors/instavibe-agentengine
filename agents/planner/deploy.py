@@ -29,7 +29,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
+def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_run: bool = False):
     """
     Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK.
 
@@ -118,6 +118,8 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         requirements_list.append(nest_asyncio_req_line)
 
 
+    if dry_run:
+        return adk_app_to_deploy
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
     print(f"  Requirements file (source): {requirements_path}") # Log original source
@@ -130,7 +132,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
         remote_agent = agent_engines.create(
-            adk_app_to_deploy, # MODIFIED: Use the potentially re-configured adk_app_to_deploy
+            local_agent_instance,
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list

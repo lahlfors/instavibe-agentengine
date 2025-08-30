@@ -2,6 +2,7 @@ import pytest
 import pytest_asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 import os
+import logging
 os.environ["COMMON_SPANNER_INSTANCE_ID"] = "test-instance"
 os.environ["COMMON_SPANNER_DATABASE_ID"] = "test-database"
 os.environ["COMMON_GOOGLE_CLOUD_PROJECT"] = "test-project"
@@ -202,15 +203,15 @@ from common.observability import setup_observability
 from opentelemetry import trace, propagate
 import os
 
-@patch('google.auth.default', return_value=(None, "test-project"))
-@patch('opentelemetry.sdk.trace.TracerProvider')
-@patch('opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter')
-@patch('opentelemetry.sdk.trace.export.BatchSpanProcessor')
-@patch('opentelemetry.sdk.trace.export.ConsoleSpanExporter')
-@patch('opentelemetry.propagate.set_global_textmap')
-@patch('logging.StreamHandler')
-def test_setup_observability(mock_stream_handler, mock_set_global_textmap, mock_console_exporter, mock_batch_processor, mock_otlp_exporter, mock_tracer_provider, mock_google_auth):
+@patch('common.observability.google.auth.default', return_value=(None, "test-project"))
+@patch('common.observability.TracerProvider')
+@patch('common.observability.OTLPSpanExporter')
+@patch('common.observability.ConsoleSpanExporter')
+@patch('common.observability.propagate.set_global_textmap')
+@patch('common.observability.logging.StreamHandler')
+def test_setup_observability(mock_stream_handler, mock_set_global_textmap, mock_console_exporter, mock_otlp_exporter, mock_tracer_provider, mock_google_auth):
     """Test the new observability setup."""
+    mock_stream_handler.return_value.level = logging.INFO
     setup_observability("test-service")
 
     # Check that a tracer provider is created with the correct service name

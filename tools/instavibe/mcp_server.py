@@ -39,7 +39,6 @@ async def create_post(author_name: str, text: str, sentiment: str, base_url: str
             "text": text,
             "sentiment": sentiment,
         }
-        span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
         url = f"{base_url}/posts"
         headers = {"Content-Type": "application/json"}
         payload = {
@@ -58,7 +57,6 @@ async def create_post(author_name: str, text: str, sentiment: str, base_url: str
                 json=payload
             )
             print(f"Successfully created post.")
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response))
             return response
         except aiohttp.ClientError as e:
             print(f"Error creating post: {e}")
@@ -83,7 +81,6 @@ async def create_event(event_name: str, description: str, event_date: str, locat
             "locations": locations,
             "attendee_names": attendee_names,
         }
-        span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
         url = f"{base_url}/events"
         headers = {"Content-Type": "application/json"}
         payload = {
@@ -104,7 +101,6 @@ async def create_event(event_name: str, description: str, event_date: str, locat
                 json=payload
             )
             print(f"Successfully created event registration.")
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response))
             return response
         except aiohttp.ClientError as e:
             print(f"Error creating event registration: {e}")
@@ -124,7 +120,6 @@ async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
     with tracer.start_as_current_span("tool.get_person_id_by_name") as span:
         span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_id_by_name")
         tool_params = {"name": name}
-        span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
         url = f"{base_url}/api/person/by_name/{name}"
         try:
             response = await call_http_endpoint(
@@ -136,7 +131,6 @@ async def get_person_id_by_name(name: str, base_url: str = BASE_URL):
                 json={}
             )
             person_id = response.get('person_id') if response else None
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, person_id)
             return person_id
         except aiohttp.ClientError as e:
             print(f"Error getting person ID by name: {e}")
@@ -155,7 +149,6 @@ async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
     with tracer.start_as_current_span("tool.get_person_attended_events") as span:
         span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_attended_events")
         tool_params = {"person_id": person_id}
-        span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
         url = f"{base_url}/api/person/{person_id}/attended_events"
         try:
             response = await call_http_endpoint(
@@ -166,7 +159,6 @@ async def get_person_attended_events(person_id: str, base_url: str = BASE_URL):
                 headers={},
                 json={}
             )
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response))
             return response
         except aiohttp.ClientError as e:
             print(f"Error getting attended events: {e}")
@@ -185,7 +177,6 @@ async def get_person_posts(person_id: str, base_url: str = BASE_URL):
     with tracer.start_as_current_span("tool.get_person_posts") as span:
         span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_posts")
         tool_params = {"person_id": person_id}
-        span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
         url = f"{base_url}/api/person/{person_id}/posts"
         try:
             response = await call_http_endpoint(
@@ -196,7 +187,6 @@ async def get_person_posts(person_id: str, base_url: str = BASE_URL):
                 headers={},
                 json={}
             )
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response))
             return response
         except aiohttp.ClientError as e:
             print(f"Error getting person posts: {e}")
@@ -215,7 +205,6 @@ async def get_person_friends(person_id: str, base_url: str = BASE_URL):
     with tracer.start_as_current_span("tool.get_person_friends") as span:
         span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_friends")
         tool_params = {"person_id": person_id}
-        span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
         url = f"{base_url}/api/person/{person_id}/friends"
         try:
             response = await call_http_endpoint(
@@ -226,7 +215,6 @@ async def get_person_friends(person_id: str, base_url: str = BASE_URL):
                 headers={},
                 json={}
             )
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response))
             return response
         except aiohttp.ClientError as e:
             print(f"Error getting person friends: {e}")

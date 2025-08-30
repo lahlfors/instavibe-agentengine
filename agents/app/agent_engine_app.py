@@ -43,6 +43,7 @@ GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 from opentelemetry.propagate import extract
+from fastapi import FastAPI
 
 class HeaderLoggingMiddleware:
     def __init__(self, app: ASGIApp) -> None:
@@ -59,6 +60,7 @@ class HeaderLoggingMiddleware:
 class AgentEngineApp(AdkApp):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.app = FastAPI()
         self.app = HeaderLoggingMiddleware(self.app)
 
     def set_up(self) -> None:

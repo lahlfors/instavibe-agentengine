@@ -9,6 +9,11 @@ print(f"Agent's google-cloud-aiplatform SDK Version: {google.cloud.aiplatform.__
 print("--- AGENT INITIALIZATION CONTINUING ---")
 # --- END: Agent Environment Debugging Code ---
 
+# --- Observability Setup ---
+from common.observability import setup_observability
+setup_observability("planner-agent")
+# --- End Observability Setup ---
+
 import os
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity

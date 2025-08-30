@@ -29,6 +29,11 @@ from typing import Optional
 # to pick up necessary configurations (e.g., API keys, project IDs, Spanner details).
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
+# --- Observability Setup ---
+from common.observability import setup_observability
+setup_observability("social-agent")
+# --- End Observability Setup ---
+
 # Get a logger instance
 log = logging.getLogger(__name__)
 

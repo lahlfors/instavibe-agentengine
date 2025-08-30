@@ -14,6 +14,11 @@ from mcp import client as mcp_client
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
+# --- Observability Setup ---
+from common.observability import setup_observability
+setup_observability("platform-mcp-client-agent")
+# --- End Observability Setup ---
+
 # Configure standard logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 log = logging.getLogger(__name__)

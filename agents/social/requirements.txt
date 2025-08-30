@@ -1,18 +1,26 @@
-google-cloud-aiplatform[adk,agent_engines]==1.110.0
-google-cloud-spanner>=3.57.0
-google-genai>=1.17.0,<2.0.0
-google-adk==1.13.0
+# Core dependencies for Vertex AI Agent Engine deployment
+google-cloud-aiplatform[agent_engines,adk,memory_bank]>=1.110.0
 python-dotenv>=1.0.0
-fastapi>=0.115.12
-urllib3<3,>=1.21.1
-deprecated>=1.2.0
+google-adk>=1.13.0
+nest_asyncio>=1.6.0
 cloudpickle>=3.0.0
 pydantic
+requests>=2.0.0
+google-auth[aiohttp]>=2.0.0
 
-# OpenTelemetry for tracing and diagnostics
+# OpenTelemetry Core
 opentelemetry-api
 opentelemetry-sdk
-opentelemetry-exporter-otlp
-traceloop-sdk
+
+# OpenTelemetry Google Cloud Exporters
+opentelemetry-exporter-gcp-logging
+opentelemetry-exporter-otlp-proto-grpc
+
+# OpenTelemetry Instrumentations
+opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-requests
-google-auth
+opentelemetry-instrumentation-vertexai>=2.0b0
+
+# Other necessary gcp libraries
+google-cloud-logging
+grpcio

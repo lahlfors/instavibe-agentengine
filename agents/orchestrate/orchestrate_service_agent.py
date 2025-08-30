@@ -6,6 +6,7 @@ import google.auth
 import google.auth.credentials
 import json
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
@@ -16,6 +17,7 @@ from typing import Optional
 from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
+from common.observability import setup_observability
 
 logging.basicConfig(level=logging.INFO)
 tracer = trace.get_tracer(__name__)
@@ -42,6 +44,10 @@ class OrchestrateServiceAgent(Agent):
         """
         Called by the Agent Engine framework after deployment.
         """
+        # --- Observability Setup ---
+        setup_observability("orchestrate-agent")
+        # --- End Observability Setup ---
+
         if self.orchestrator_agent:
             return
 
@@ -145,6 +151,8 @@ class OrchestrateServiceAgent(Agent):
                 span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response_data))
                 return response_data
             except Exception as e:
+                logging.error(f"Error in send_task to '{agent_name}': {e}", exc_info=True)
+                span.set_status(Status(StatusCode.ERROR, f"Error sending task: {e}"))
                 span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps({"error": str(e)}))
                 return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
@@ -153,14 +161,28 @@ class OrchestrateServiceAgent(Agent):
             span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
             span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
             span.set_attribute(ai_semconv.INPUT_VALUE, input_text)
+
             if not self.orchestrator_agent:
                 logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+                span.set_status(Status(StatusCode.ERROR, "Agent not initialized"))
                 raise RuntimeError("Agent not properly initialized.")
 
-            response = self.orchestrator_agent.query(input_text)
+            try:
+                with tracer.start_as_current_span("llm_reasoning") as reasoning_span:
+                    response = self.orchestrator_agent.query(input_text)
 
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, str(response))
-            return response
+                    # Capture the LLM's "thoughts" or reasoning process
+                    if hasattr(response, "thoughts") and response.thoughts:
+                        reasoning_span.set_attribute("llm.thoughts", str(response.thoughts))
+
+                    reasoning_span.set_attribute(ai_semconv.OUTPUT_VALUE, str(response))
+
+                span.set_attribute(ai_semconv.OUTPUT_VALUE, str(response))
+                return response
+            except Exception as e:
+                logging.error(f"Error during orchestration query: {e}", exc_info=True)
+                span.set_status(Status(StatusCode.ERROR, f"Orchestration query failed: {e}"))
+                raise
 
 OrchestrateServiceAgent.model_rebuild()
 

@@ -19,18 +19,18 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-from pydantic import Field
+from pydantic import Field, model_post_init
 
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
     api_key_secret: Optional[str] = None
     mcp_client: "Optional[Any]" = None
+    tools: List[FunctionTool] = []
 
-    def __init__(self, mcp_server_address: str, api_key_secret: Optional[str] = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.mcp_server_address = mcp_server_address
-        self.api_key_secret = api_key_secret
+    @model_post_init
+    def _initialize_tools(self) -> None:
+        """Initializes the tools for the agent."""
         self.tools = [
             FunctionTool(self.create_event),
             FunctionTool(self.get_person_posts),

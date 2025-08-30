@@ -54,7 +54,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     # Instantiate the agent directly, passing serializable config.
     local_agent_instance = PlatformMCPClientAgent(
         name="platform_mcp_client_agent",
-    model="gemini-1.5-flash",
+        model="gemini-2.5-flash",
         mcp_server_address=mcp_server_url,
         api_key_secret=api_key_secret_name
     )

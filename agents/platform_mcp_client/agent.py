@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-from pydantic import Field, model_post_init
+from pydantic import Field, model_validator
 
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
@@ -33,8 +33,8 @@ class PlatformMCPClientAgent(Agent):
     mcp_client: "Optional[Any]" = None
     tools: List[FunctionTool] = []
 
-    @model_post_init
-    def _initialize_tools(self) -> None:
+    @model_validator(mode='after')
+    def _initialize_tools(self) -> "PlatformMCPClientAgent":
         """Initializes the tools for the agent."""
         self.tools = [
             FunctionTool(self.create_event),
@@ -44,6 +44,7 @@ class PlatformMCPClientAgent(Agent):
             FunctionTool(self.get_person_attended_events),
             FunctionTool(self.create_post),
         ]
+        return self
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""

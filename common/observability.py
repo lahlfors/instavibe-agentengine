@@ -22,6 +22,7 @@ import google.cloud.logging
 from opentelemetry.instrumentation.vertexai import VertexAIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient, GrpcInstrumentorServer
+from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 
 load_dotenv()
 
@@ -111,6 +112,8 @@ def setup_observability():
         GrpcInstrumentorClient().instrument()
         GrpcInstrumentorServer().instrument()
         logger.info("GrpcInstrumentor enabled.")
+        AioHttpClientInstrumentor().instrument()
+        logger.info("AioHttpClientInstrumentor enabled.")
     except Exception as e:
         logger.error(f"Error enabling OpenTelemetry instrumentors: {e}")
 

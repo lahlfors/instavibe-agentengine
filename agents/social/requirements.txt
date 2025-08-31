@@ -4,6 +4,7 @@ opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-vertexai
+opentelemetry-instrumentation-aiohttp-client
 
 # Google Cloud
 google-cloud-logging
@@ -19,3 +20,4 @@ requests>=2.0.0
 google-auth[aiohttp]>=2.0.0
 grpcio
 grpcio-status
+aiohttp

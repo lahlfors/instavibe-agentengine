@@ -7,21 +7,22 @@ opentelemetry-exporter-otlp-proto-grpc
 google-auth
 google-cloud-logging
 google-cloud-aiplatform>=1.110.0
+google-cloud-spanner
 
 # OpenTelemetry Instrumentations
 opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-aiohttp-client
 
 # Utilities
 python-dotenv>=1.0.0
 grpcio
 requests>=2.0.0
+python-dateutil
+aiohttp
 
 # Other dependencies
 Flask==3.0.0
-google-cloud-spanner
 humanize==4.8.0
-python-dateutil
-google-cloud-logging

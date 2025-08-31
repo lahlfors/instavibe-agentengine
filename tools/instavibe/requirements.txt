@@ -1,3 +1,6 @@
+# MCP Server
+fastmcp
+
 # Core OpenTelemetry
 opentelemetry-api
 opentelemetry-sdk
@@ -12,14 +15,13 @@ google-cloud-aiplatform>=1.110.0
 opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-grpc
+opentelemetry-instrumentation-aiohttp-client
 
 # Utilities
 python-dotenv>=1.0.0
 grpcio
 requests>=2.0.0
+aiohttp
 
 # Other dependencies
-fastmcp
-aiohttp
-google-auth
 google-adk>=1.13.0

@@ -28,19 +28,6 @@ class PlatformMCPClientAgent(Agent):
     mcp_client: "Optional[Any]" = None
     tools: List[FunctionTool] = []
 
-    @model_validator(mode='after')
-    def _initialize_tools(self) -> "PlatformMCPClientAgent":
-        """Initializes the tools for the agent."""
-        self.tools = [
-            FunctionTool(self.create_event),
-            FunctionTool(self.get_person_posts),
-            FunctionTool(self.get_person_friends),
-            FunctionTool(self.get_person_id_by_name),
-            FunctionTool(self.get_person_attended_events),
-            FunctionTool(self.create_post),
-        ]
-        return self
-
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
         api_key = None
@@ -63,18 +50,28 @@ class PlatformMCPClientAgent(Agent):
         Initialize non-serializable resources like network clients here.
         """
         with tracer.start_as_current_span("PlatformMCPClientAgent.set_up") as main_span:
-            log.info("Starting PlatformMCPClientAgent.set_up - MCP Client init")
+            log.info("Starting PlatformMCPClientAgent.set_up - MCP Client and Tools init")
             main_span.add_event("Starting PlatformMCPClientAgent.set_up")
             try:
                 self.mcp_client = self._initialize_mcp_client()
                 log.info("MCPClient initialized successfully in set_up.")
+                self.tools = [
+                    FunctionTool(self.create_event),
+                    FunctionTool(self.get_person_posts),
+                    FunctionTool(self.get_person_friends),
+                    FunctionTool(self.get_person_id_by_name),
+                    FunctionTool(self.get_person_attended_events),
+                    FunctionTool(self.create_post),
+                ]
+                log.info("Tools initialized successfully in set_up.")
                 main_span.set_status(Status(StatusCode.OK))
             except Exception as e:
-                log.error(f"Error during MCPClient initialization in set_up: {e}", exc_info=True)
+                log.error(f"Error during MCPClient or Tools initialization in set_up: {e}", exc_info=True)
                 main_span.record_exception(e)
                 main_span.set_status(Status(StatusCode.ERROR, str(e)))
                 self.mcp_client = None
-                log.warning("MCPClient initialization failed, agent methods will not function.")
+                self.tools = []
+                log.warning("MCPClient or Tools initialization failed, agent methods will not function.")
 
     async def create_event(self, event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str]):
         if not self.mcp_client:

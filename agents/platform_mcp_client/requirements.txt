@@ -5,7 +5,7 @@ opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-vertexai
-opentelemetry-instrumentation-aiohttp-client
+opentelemetry-instrumentation-aiohttp
 
 # Google Cloud
 google-cloud-logging

@@ -14,7 +14,7 @@ opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-flask
-opentelemetry-instrumentation-aiohttp-client
+opentelemetry-instrumentation-aiohttp
 
 # Utilities
 python-dotenv>=1.0.0

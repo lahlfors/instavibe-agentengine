@@ -15,7 +15,7 @@ google-cloud-aiplatform>=1.110.0
 opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-grpc
-opentelemetry-instrumentation-aiohttp-client
+opentelemetry-instrumentation-aiohttp
 
 # Utilities
 python-dotenv>=1.0.0

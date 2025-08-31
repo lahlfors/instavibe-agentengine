@@ -272,41 +272,54 @@ def main(args):
                 logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
 
         enable_tracing = not args.deploy_orchestrate_only
-        if enable_tracing:
-            setup_observability() # Call once for the script
 
         if not args.skip_agents:
             agent_resource_names = {}
             agents_to_deploy = [
                 {
                     "display_name": "Planner Agent",
-                    "agent_id": "planner_agent_main",  # Explicit unique ID
+                    "agent_id": "planner_agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
+                    "init_args": {
+                        "name": "planner_agent",
+                        "model": "gemini-1.5-pro-preview-1111",
+                    },
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./app", "./agents/planner", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "display_name": "Social Agent",
-                    "agent_id": "social_agent_main", # Explicit unique ID
+                    "agent_id": "social_agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
+                    "init_args": {
+                        "name": "social_agent",
+                        "model": "gemini-1.5-pro-preview-1111",
+                    },
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./app", "./agents/social", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "display_name": "Platform MCP Client Agent",
-                    "agent_id": "platform_mcp_client_agent_main", # Explicit unique ID
+                    "agent_id": "platform_mcp_client_agent",
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
                     "init_args": {
-                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
-                         "api_key_secret": os.environ.get("MCP_API_KEY_SECRET"),
-                         "name": "platform_mcp_client_agent", # BaseAgent init args
-                         "model": "gemini-1.5-pro",          # BaseAgent init args
+                        "name": "platform_mcp_client_agent",
+                        "model": "gemini-1.5-pro-preview-1111",
+                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./app", "./agents/platform_mcp_client", "./a2a_common-0.1.0-py3-none-any.whl"],
+                },
+                {
+                    "display_name": "Orchestrate Agent",
+                    "agent_id": "orchestrate_agent",
+                    "module": "agents.orchestrate.orchestrate_service_agent",
+                    "agent_variable": "root_agent",
+                    "requirements_file": "./agents/orchestrate/requirements.txt",
+                    "extra_packages": ["./app", "./agents/orchestrate", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
             ]
 
@@ -355,55 +368,6 @@ def main(args):
                 except Exception as e:
                     logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
 
-            # Now, deploy the orchestrator agent
-            uris = [
-                f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('planner_agent_main')}:predict" if agent_resource_names.get('planner_agent_main') else None,
-                f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('platform_mcp_client_agent_main')}:predict" if agent_resource_names.get('platform_mcp_client_agent_main') else None,
-                f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('social_agent_main')}:predict" if agent_resource_names.get('social_agent_main') else None,
-            ]
-            orchestrate_agent_config = {
-                "display_name": "Orchestrate Agent",
-                "agent_id": "orchestrate_agent_main", # Explicit unique ID
-                "module": "agents.orchestrate.orchestrate_service_agent",
-                "agent_variable": "root_agent",
-                "requirements_file": "./agents/orchestrate/requirements.txt",
-                "extra_packages": ["./app", "./agents/orchestrate", "./a2a_common-0.1.0-py3-none-any.whl"],
-                "env_vars": {
-                    "ADK_A2A_AGENT_URIS": ",".join(filter(None, uris)),
-                    "SERVICE_NAME": "orchestrate-agent",
-                }
-            }
-            display_name = orchestrate_agent_config["display_name"]
-            agent_id = orchestrate_agent_config["agent_id"]
-            logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
-            try:
-                # Dynamically import the agent
-                module_path = orchestrate_agent_config["module"]
-                agent_var = orchestrate_agent_config["agent_variable"]
-                module = importlib.import_module(module_path)
-                agent_ref = getattr(module, agent_var)
-                agent_to_deploy = agent_ref
-
-                with open(orchestrate_agent_config["requirements_file"]) as f:
-                    requirements = f.read().strip().split("\n")
-
-                agent_labels = {"agent_id": agent_id} # Use agent_id for the label
-
-                remote_agent = deploy_agent_engine_app(
-                    project=project_id,
-                    location=region,
-                    agent_object=agent_to_deploy,
-                    display_name=display_name,
-                    labels=agent_labels,
-                    requirements=requirements,
-                    extra_packages=orchestrate_agent_config["extra_packages"],
-                    env_vars=orchestrate_agent_config.get("env_vars"),
-                    enable_tracing=enable_tracing,
-                )
-                agent_resource_names[agent_id] = remote_agent.name
-                logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")
-            except Exception as e:
-                logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
         else:
             logging.info("Skipping all agent deployments.")
 
@@ -413,7 +377,7 @@ def main(args):
                 "COMMON_GOOGLE_CLOUD_LOCATION": region,
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
-                "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate_agent_main')}:predict" if agent_resource_names.get('orchestrate_agent_main') else "",
+                "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate_agent')}:predict" if agent_resource_names.get('orchestrate_agent') else "",
                 "SERVICE_NAME": "instavibe-app",
             }
             build_and_deploy_cloud_run_service(

@@ -83,17 +83,6 @@ class TestDeployAllScript(unittest.TestCase):
         with open(req_path, "w") as f:
             f.write("requirement1\nrequirement2")
 
-        mock_agents_to_deploy = [
-            {
-                "display_name": "Orchestrate Agent",
-                "agent_id": "orchestrate_agent_main",
-                "module": "agents.orchestrate.agent",
-                "agent_variable": "root_agent",
-                "requirements_file": req_path,
-                "extra_packages": [],
-            },
-        ]
-
         mock_args = argparse.Namespace(
             skip_agents=False,
             skip_gateway=False,
@@ -118,7 +107,7 @@ class TestDeployAllScript(unittest.TestCase):
         self.assertEqual(orchestrate_call.kwargs['location'], 'us-central1')
         self.assertIsInstance(orchestrate_call.kwargs['requirements'], list)
         self.assertIsInstance(orchestrate_call.kwargs['requirements'][0], str)
-        self.assertEqual(orchestrate_call.kwargs['labels'], {'agent_id': 'orchestrate_agent_main'})
+        self.assertEqual(orchestrate_call.kwargs['labels'], {'agent_id': 'orchestrate_agent'})
 
         # Assert correct arguments are passed for the app
         app_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'instavibe-app'), None)

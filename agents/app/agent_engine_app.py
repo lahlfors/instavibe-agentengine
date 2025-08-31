@@ -63,6 +63,11 @@ def deploy_agent_engine_app(
         enable_tracing=enable_tracing,
     )
 
+    # After AdkApp is initialized, which sets up the base TracerProvider,
+    # augment it with our custom observability settings.
+    if enable_tracing:
+        setup_observability()
+
     agent_config = {
         "agent_engine": agent_engine,
         "display_name": display_name,
@@ -77,26 +82,26 @@ def deploy_agent_engine_app(
     logging.info(json.dumps(log_config, indent=2, default=str))
 
     try:
-        agent_id = labels.get("agent_id", agent_name) # Use label for filter
+        agent_id = labels.get("agent_id", display_name) # Use label for filter
         list_filter = f"labels.agent_id=\"{agent_id}\""
         logging.info(f"Checking for existing agent with filter: {list_filter}")
         existing_agents = list(agent_engines.list(filter=list_filter))
 
         if len(existing_agents) > 1:
-            logging.warning(f"Found {len(existing_agents)} agents matching filter '{list_filter}'. This indicates a potential label collision. Skipping update for {agent_name}.")
+            logging.warning(f"Found {len(existing_agents)} agents matching filter '{list_filter}'. This indicates a potential label collision. Skipping update for {display_name}.")
             raise RuntimeError(f"Multiple agents found for agent_id: {agent_id}")
         elif existing_agents:
             remote_agent = existing_agents[0]
-            logging.info(f"Attempting to update existing agent: {agent_name} ({remote_agent.resource_name})")
+            logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
             remote_agent = remote_agent.update(**agent_config)
-            logging.info(f"Agent '{agent_name}' updated successfully.")
+            logging.info(f"Agent '{display_name}' updated successfully.")
         else:
-            logging.info(f"Attempting to create new agent: {agent_name}")
+            logging.info(f"Attempting to create new agent: {display_name}")
             remote_agent = agent_engines.create(**agent_config)
-            logging.info(f"Agent '{agent_name}' created successfully.")
+            logging.info(f"Agent '{display_name}' created successfully.")
 
     except google.api_core.exceptions.InvalidArgument as e:
-        logging.error(f"!!! InvalidArgument error during agent deployment for '{agent_name}' in project '{project}', location '{location}': {e}")
+        logging.error(f"!!! InvalidArgument error during agent deployment for '{display_name}' in project '{project}', location '{location}': {e}")
         logging.error("--- Agent Configuration Sent (excluding agent_engine object for brevity) ---")
         logging.error(json.dumps(log_config, indent=2, default=str))
         logging.error("--- End of Agent Configuration Sent ---")
@@ -111,7 +116,7 @@ def deploy_agent_engine_app(
         logging.error("4. Look for recent FAILED builds. The logs there will contain the specific reason for the build failure (e.g., pip install errors, code compilation issues).")
         raise
     except Exception as e:
-        logging.error(f"An unexpected error occurred during agent deployment for '{agent_name}' in project '{project}', location '{location}': {e}")
+        logging.error(f"An unexpected error occurred during agent deployment for '{display_name}' in project '{project}', location '{location}': {e}")
         logging.error(f"Agent configuration that might be relevant (excluding agent_engine object): {json.dumps(log_config, indent=2, default=str)}")
         import traceback
         logging.error(traceback.format_exc())
@@ -201,10 +206,9 @@ if __name__ == "__main__":
         _, args.project = google.auth.default()
 
     # --- Initialize Custom OpenTelemetry ---
-    if args.enable_tracing:
-        # Call the centralized setup function
-        setup_observability()
-    else:
+    # The call to setup_observability is now handled within deploy_agent_engine_app
+    # to ensure it runs after AdkApp initializes the TracerProvider.
+    if not args.enable_tracing:
         logging.info("AdkApp tracing and custom OpenTelemetry setup skipped.")
 
     agent_labels = {"agent_id": args.agent_name}

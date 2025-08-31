@@ -1,7 +1,6 @@
 import asyncio
 from dotenv import load_dotenv
 from google.adk.agents import Agent
-from google.adk.tools.function_tool import FunctionTool
 import logging
 import os
 from typing import Any, Dict, List, Tuple, Optional
@@ -9,7 +8,8 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
-from fastmcp import Client  # Corrected import
+from google.adk.tools.mcp_tool import mcp_toolset, StreamableHTTPConnectionParams
+from pydantic import PrivateAttr
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -19,21 +19,14 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-from pydantic import PrivateAttr
-
 class PlatformMCPClientAgent(Agent):
-    """An agent that interacts with the MCP server."""
+    """An agent that interacts with the MCP server by dynamically loading tools."""
     mcp_server_address: str
     api_key_secret: Optional[str] = None
-    _mcp_client: Any = PrivateAttr(default=None)
-    _tools: List[FunctionTool] = PrivateAttr(default_factory=list)
+    _mcp_tools: List[Any] = PrivateAttr(default_factory=list)
 
     def __getstate__(self):
         # Return a dictionary containing only the essential configuration.
-        # This prevents any dynamic or non-pickleable state from being
-        # included in the serialization.
-        # The goal is to only pickle the data needed to re-create the
-        # agent in a new process.
         return {
             "name": self.name,
             "mcp_server_address": self.mcp_server_address,
@@ -42,24 +35,12 @@ class PlatformMCPClientAgent(Agent):
             "instruction": self.instruction,
             "global_instruction": self.global_instruction,
             "model": self.model,
-            # We explicitly DO NOT include the runtime state like
-            # _mcp_client or _tools. They will be re-created by set_up().
         }
 
     def __setstate__(self, state):
         # Restore the state from the dictionary.
         self.__dict__.update(state)
-
-    def _initialize_mcp_client(self):
-        """Helper function to contain client creation logic."""
-        api_key = None
-        if self.api_key_secret:
-            api_key = self._get_api_key(self.api_key_secret)
-        else:
-            log.info("api_key_secret not provided, using Application Default Credentials for MCPClient.")
-        log.info(f"Initializing MCPClient for {self.mcp_server_address}")
-        # Use the corrected Client class
-        return Client(self.mcp_server_address, api_key)
+        self._mcp_tools = []
 
     def _get_api_key(self, secret_name):
         # Placeholder for fetching secret
@@ -67,148 +48,50 @@ class PlatformMCPClientAgent(Agent):
         # In a real scenario, this would fetch from Secret Manager or other secure store.
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
-    def set_up(self):
+    async def set_up(self):
         """
-        Called by Vertex AI Agent Engine after deserialization.
-        Initialize non-serializable resources like network clients here.
+        Called after deserialization. Initialize non-serializable resources.
+        Fetch tools from the MCP server.
         """
-        if self._mcp_client is not None:
+        if self._mcp_tools:
+            log.info("MCP Tools already loaded.")
             return
 
         with tracer.start_as_current_span("PlatformMCPClientAgent.set_up") as main_span:
-            log.info("Starting PlatformMCPClientAgent.set_up - MCP Client and Tools init")
-            main_span.add_event("Starting PlatformMCPClientAgent.set_up")
+            log.info(f"Starting set_up - Fetching tools from MCP server at {self.mcp_server_address}")
+            main_span.add_event("Fetching MCP tools")
             try:
-                self._mcp_client = self._initialize_mcp_client()
-                log.info("MCPClient initialized successfully in set_up.")
-                self._tools = [
-                    FunctionTool(self.create_event),
-                    FunctionTool(self.get_person_posts),
-                    FunctionTool(self.get_person_friends),
-                    FunctionTool(self.get_person_id_by_name),
-                    FunctionTool(self.get_person_attended_events),
-                    FunctionTool(self.create_post),
-                ]
-                log.info("Tools initialized successfully in set_up.")
+                api_key = None
+                if self.api_key_secret:
+                    api_key = self._get_api_key(self.api_key_secret)
+
+                headers = {"Accept": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+
+                conn_params = StreamableHTTPConnectionParams(
+                    url=self.mcp_server_address,
+                    headers=headers,
+                )
+                log.info(f"Connecting to MCP server with params: {conn_params}")
+
+                toolset = await mcp_toolset.MCPToolset.from_server(conn_params)
+                self._mcp_tools = list(toolset)
+
+                tool_names = [t.name for t in self._mcp_tools]
+                log.info(f"Successfully loaded {len(self._mcp_tools)} tools from MCP server: {tool_names}")
+                main_span.set_attribute("mcp.tool_count", len(self._mcp_tools))
+                main_span.set_attribute("mcp.tool_names", ",".join(tool_names))
                 main_span.set_status(Status(StatusCode.OK))
+
             except Exception as e:
-                log.error(f"Error during MCPClient or Tools initialization in set_up: {e}", exc_info=True)
+                log.error(f"Error fetching tools from MCP server in set_up: {e}", exc_info=True)
                 main_span.record_exception(e)
                 main_span.set_status(Status(StatusCode.ERROR, str(e)))
-                self._mcp_client = None
-                self._tools = []
-                log.warning("MCPClient or Tools initialization failed, agent methods will not function.")
+                self._mcp_tools = []
+                log.warning("MCP Tools initialization failed, agent will have no tools from this source.")
 
-    async def create_event(self, event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str]):
-        if not self._mcp_client:
-            log.error("MCP Client is not initialized in create_event.")
-            raise RuntimeError("MCP Client is not initialized.")
-
-        with tracer.start_as_current_span("mcp.tool_call", attributes={
-            "mcp.tool_id": "create_event",
-            "mcp.version": "1.0",
-        }) as span:
-            try:
-                response = await self._mcp_client.call_tool("create_event", event_name=event_name, description=description, event_date=event_date, locations=locations, attendee_names=attendee_names)
-                span.set_attribute("mcp.status", "success")
-                span.add_event("Tool execution finished")
-                return response
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(trace.Status(trace.StatusCode.ERROR))
-                raise
-
-    async def get_person_posts(self, person_id: str):
-        if not self._mcp_client:
-            log.error("MCP Client is not initialized in get_person_posts.")
-            raise RuntimeError("MCP Client is not initialized.")
-
-        with tracer.start_as_current_span("mcp.tool_call", attributes={
-            "mcp.tool_id": "get_person_posts",
-            "mcp.version": "1.0",
-        }) as span:
-            try:
-                response = await self._mcp_client.call_tool("get_person_posts", person_id=person_id)
-                span.set_attribute("mcp.status", "success")
-                span.add_event("Tool execution finished")
-                return response
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(trace.Status(trace.StatusCode.ERROR))
-                raise
-
-    async def get_person_friends(self, person_id: str):
-        if not self._mcp_client:
-            log.error("MCP Client is not initialized in get_person_friends.")
-            raise RuntimeError("MCP Client is not initialized.")
-
-        with tracer.start_as_current_span("mcp.tool_call", attributes={
-            "mcp.tool_id": "get_person_friends",
-            "mcp.version": "1.0",
-        }) as span:
-            try:
-                response = await self._mcp_client.call_tool("get_person_friends", person_id=person_id)
-                span.set_attribute("mcp.status", "success")
-                span.add_event("Tool execution finished")
-                return response
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(trace.Status(trace.StatusCode.ERROR))
-                raise
-
-    async def get_person_id_by_name(self, name: str):
-        if not self._mcp_client:
-            log.error("MCP Client is not initialized in get_person_id_by_name.")
-            raise RuntimeError("MCP Client is not initialized.")
-
-        with tracer.start_as_current_span("mcp.tool_call", attributes={
-            "mcp.tool_id": "get_person_id_by_name",
-            "mcp.version": "1.0",
-        }) as span:
-            try:
-                response = await self._mcp_client.call_tool("get_person_id_by_name", name=name)
-                span.set_attribute("mcp.status", "success")
-                span.add_event("Tool execution finished")
-                return response
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(trace.Status(trace.StatusCode.ERROR))
-                raise
-
-    async def get_person_attended_events(self, person_id: str):
-        if not self._mcp_client:
-            log.error("MCP Client is not initialized in get_person_attended_events.")
-            raise RuntimeError("MCP Client is not initialized.")
-
-        with tracer.start_as_current_span("mcp.tool_call", attributes={
-            "mcp.tool_id": "get_person_attended_events",
-            "mcp.version": "1.0",
-        }) as span:
-            try:
-                response = await self._mcp_client.call_tool("get_person_attended_events", person_id=person_id)
-                span.set_attribute("mcp.status", "success")
-                span.add_event("Tool execution finished")
-                return response
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(trace.Status(trace.StatusCode.ERROR))
-                raise
-
-    async def create_post(self, author_name: str, text: str, sentiment: str):
-        if not self._mcp_client:
-            log.error("MCP Client is not initialized in create_post.")
-            raise RuntimeError("MCP Client is not initialized.")
-
-        with tracer.start_as_current_span("mcp.tool_call", attributes={
-            "mcp.tool_id": "create_post",
-            "mcp.version": "1.0",
-        }) as span:
-            try:
-                response = await self._mcp_client.call_tool("create_post", author_name=author_name, text=text, sentiment=sentiment)
-                span.set_attribute("mcp.status", "success")
-                span.add_event("Tool execution finished")
-                return response
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(trace.Status(trace.StatusCode.ERROR))
-                raise
+    @property
+    def tools(self) -> List[Any]:
+        """Exposes the dynamically loaded MCP tools to the ADK framework."""
+        return self._mcp_tools

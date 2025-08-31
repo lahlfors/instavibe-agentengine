@@ -217,18 +217,23 @@ if __name__ == "__main__":
     ╚═══════════════════════════════════════════════════════════╝
     """)
 
-    from orchestrate.agent import root_agent
-    with open(args.requirements_file) as f:
-        requirements = f.read().strip().split("\n")
-
-    deploy_agent_engine_app(
-        project=args.project,
-        location=args.location,
-        agent_object=root_agent,
-        display_name=args.agent_name,
-        labels=agent_labels, # Pass labels
-        requirements=requirements,
-        extra_packages=args.extra_packages,
-        env_vars=env_vars,
-        enable_tracing=args.enable_tracing,
-    )
+    # The following section is commented out because this script is now
+    # a generic deployment utility. The actual agent deployment is orchestrated
+    # by deploy_all.py, which dynamically loads the agent and calls
+    # deploy_agent_engine_app.
+    #
+    # from orchestrate.agent import root_agent
+    # with open(args.requirements_file) as f:
+    #     requirements = f.read().strip().split("\n")
+    #
+    # deploy_agent_engine_app(
+    #     project=args.project,
+    #     location=args.location,
+    #     agent_object=root_agent,
+    #     display_name=args.agent_name,
+    #     labels=agent_labels, # Pass labels
+    #     requirements=requirements,
+    #     extra_packages=.extra_packages,
+    #     env_vars=env_vars,
+    #     enable_tracing=args.enable_tracing,
+    # )

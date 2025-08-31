@@ -9,7 +9,7 @@ from typing import Optional
 
 from google.cloud import aiplatform as vertexai # Standard alias
 # from vertexai.preview import reasoning_engines # ADK for deployment - Old
-from agents.app.agent_engine_app import AgentEngineApp # For wrapping
+from vertexai.preview.reasoning_engines import AdkApp as AgentEngineApp # For wrapping
 from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed

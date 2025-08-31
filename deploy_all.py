@@ -12,16 +12,9 @@ if PROJECT_ROOT not in sys.path:
 
 from agents.app.agent_engine_app import deploy_agent_engine_app
 from common.observability import setup_observability
-from google.api_core import exceptions as api_exceptions
 from google.cloud import aiplatform as vertexai
-from google.cloud.aiplatform_v1.services import \
-    reasoning_engine_service
-from google.cloud.aiplatform_v1.types import (DeleteReasoningEngineRequest,
-                                               ReasoningEngine as ReasoningEngineGAPIC)
-from typing import Any, Dict, List, Optional, Callable
+from typing import Dict, List, Optional
 import subprocess
-import time
-import json
 
 # Agent deployment functions are imported locally within main() to ensure
 # dependencies are installed first.
@@ -178,10 +171,6 @@ def setup_spanner(project_id: str, instance_id: str, db_id: str, region: str):
     finally:
         os.chdir(original_cwd)
     logging.info("--- Spanner Setup Complete ---")
-
-import importlib
-from agents.app.agent_engine_app import deploy_agent_engine_app
-from common.observability import setup_observability
 
 # --- Cloud Run Service Deployment (REFACTORED) ---
 def build_and_deploy_cloud_run_service(

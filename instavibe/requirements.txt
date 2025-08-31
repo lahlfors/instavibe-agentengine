@@ -26,3 +26,4 @@ aiohttp
 # Other dependencies
 Flask==3.0.0
 humanize==4.8.0
+gunicorn

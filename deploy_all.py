@@ -325,7 +325,7 @@ def main():
                 region,
                 "mcp-tool-server",
                 "./tools/instavibe",
-                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id},
+                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id, "SERVICE_NAME": "mcp-tool-server"},
                 allow_unauthenticated=False, # Internal tool, requires auth
             )
             if mcp_tool_server_url:
@@ -348,7 +348,8 @@ def main():
             deploy_args = agent.get("args", {})
             deploy_args["extra_packages"] = ['agents']
             deploy_args["env_vars"] = {
-                "ADK_A2A_AGENT_URIS": ""
+                "ADK_A2A_AGENT_URIS": "",
+                "SERVICE_NAME": "orchestrate-agent"
             }
             agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
         elif not args.skip_agents:
@@ -356,17 +357,17 @@ def main():
                 "planner": {
                     "name": "Planner Agent",
                     "func": deploy_planner_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}
+                    "args": {"base_dir": PROJECT_ROOT, "env_vars": {"SERVICE_NAME": "planner-agent"}}
                 },
                 "social": {
                     "name": "Social Agent",
                     "func": deploy_social_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}
+                    "args": {"base_dir": PROJECT_ROOT, "env_vars": {"SERVICE_NAME": "social-agent"}}
                 },
                 "mcp_client": {
                     "name": "Platform MCP Client Agent",
                     "func": deploy_platform_mcp_client_main_func,
-                    "args": {"base_dir": PROJECT_ROOT}
+                    "args": {"base_dir": PROJECT_ROOT, "env_vars": {"SERVICE_NAME": "mcp-client-agent"}}
                 },
             }
             orchestrate_def = {
@@ -403,7 +404,8 @@ def main():
                     f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('social')}:predict" if agent_resource_names.get('social') else None,
                 ]
                 deploy_args["env_vars"] = {
-                    "ADK_A2A_AGENT_URIS": ",".join(filter(None, uris))
+                    "ADK_A2A_AGENT_URIS": ",".join(filter(None, uris)),
+                    "SERVICE_NAME": "orchestrate-agent"
                 }
                 agent_resource_names[key] = deploy_agent(project_id, region, agent["name"], agent["func"], deploy_args=deploy_args)
             finally:
@@ -420,6 +422,7 @@ def main():
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
                 "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate')}:predict" if agent_resource_names.get('orchestrate') else "",
+                "SERVICE_NAME": "instavibe-app",
             }
             build_and_deploy_cloud_run_service(
                 project_id,

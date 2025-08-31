@@ -66,7 +66,7 @@ class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Set up logging and tracing for the agent engine app."""
         super().set_up()
-        setup_observability("agent-engine")
+        setup_observability()
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""

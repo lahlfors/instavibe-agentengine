@@ -9,7 +9,7 @@ from common.observability import setup_observability
 from opentelemetry import trace
 import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
 
-setup_observability("mcp-tool-server")
+setup_observability()
 tracer = trace.get_tracer(__name__)
 
 # Get port from environment variable, default to 8080 for Cloud Run

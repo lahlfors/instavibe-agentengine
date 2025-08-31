@@ -11,7 +11,7 @@ from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
 from common.observability import setup_observability
-setup_observability(service_name="planner_agent")
+setup_observability()
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)

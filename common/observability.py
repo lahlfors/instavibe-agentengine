@@ -25,14 +25,15 @@ from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient, GrpcInstr
 
 load_dotenv()
 
-def setup_observability(name):
+def setup_observability():
+    service_name = os.environ.get("SERVICE_NAME", "my_adk_agent")
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
         stream=sys.stderr,
         force=True
     )
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(service_name)
     logger.info("--- setup_observability started ---")
     try:
         credentials, project_id = google.auth.default()
@@ -44,8 +45,6 @@ def setup_observability(name):
         )
         return
 
-
-    service_name = os.environ.get("SERVICE_NAME", "my_adk_agent")
     resource = Resource(attributes={"service.name": service_name, "gcp.project_id": project_id})
 
     tracer_provider = TracerProvider(resource=resource)

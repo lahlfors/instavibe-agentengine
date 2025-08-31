@@ -1,9 +1,11 @@
 # OpenTelemetry
+opentelemetry-api
 opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-vertexai
+opentelemetry-instrumentation-grpc
 
 # Google Cloud
 google-cloud-logging

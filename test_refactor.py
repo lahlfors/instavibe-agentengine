@@ -241,7 +241,8 @@ def test_setup_observability(
     mock_google_auth,
 ):
     """Test the new observability setup."""
-    setup_observability("test_service")
+    os.environ["SERVICE_NAME"] = "test_service"
+    setup_observability()
 
 
     mock_google_auth.assert_called_once()

@@ -19,6 +19,14 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Builder function for pickling
+def _build_platform_mcp_client_agent(state):
+    """
+    A top-level function to reconstruct the agent from its pickled state.
+    This is used by the __reduce__ method to control pickling.
+    """
+    return PlatformMCPClientAgent(**state)
+
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server by dynamically loading tools."""
     mcp_server_address: str
@@ -26,7 +34,6 @@ class PlatformMCPClientAgent(Agent):
     _mcp_tools: List[Any] = PrivateAttr(default_factory=list)
 
     def __getstate__(self):
-        # Return a dictionary containing only the essential configuration.
         return {
             "name": self.name,
             "mcp_server_address": self.mcp_server_address,
@@ -38,21 +45,20 @@ class PlatformMCPClientAgent(Agent):
         }
 
     def __setstate__(self, state):
-        # Restore the state from the dictionary.
         self.__dict__.update(state)
         self._mcp_tools = []
 
+    def __reduce__(self):
+        """
+        Hijacks the pickling process to ensure only the safe state is used.
+        """
+        return (_build_platform_mcp_client_agent, (self.__getstate__(),))
+
     def _get_api_key(self, secret_name):
-        # Placeholder for fetching secret
         log.info(f"Fetching API key from secret: {secret_name}")
-        # In a real scenario, this would fetch from Secret Manager or other secure store.
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
     async def set_up(self):
-        """
-        Called after deserialization. Initialize non-serializable resources.
-        Fetch tools from the MCP server.
-        """
         if self._mcp_tools:
             log.info("MCP Tools already loaded.")
             return

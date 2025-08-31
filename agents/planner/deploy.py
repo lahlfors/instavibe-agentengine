@@ -29,7 +29,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_run: bool = False):
+def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_run: bool = False, env_vars: Optional[dict[str, str]] = None):
     """
     Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK.
 
@@ -72,6 +72,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_ru
         "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
         "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
     }
+    env_vars_for_deployment.update(env_vars or {})
     # --- END SIMPLIFICATION ---
 
     # Filter out any keys that have None or empty string values from the env_vars_for_deployment

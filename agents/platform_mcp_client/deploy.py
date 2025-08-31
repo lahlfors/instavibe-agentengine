@@ -98,6 +98,7 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
         "TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL": os.environ.get("TOOLS_INSTAVIBE_MCP_SERVER_BASE_URL", ""),
         "INSTAVIBE_GOOGLE_MAPS_API_KEY": os.getenv("INSTAVIBE_GOOGLE_MAPS_API_KEY")
     }
+    env_vars_for_deployment.update(env_vars or {})
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
 

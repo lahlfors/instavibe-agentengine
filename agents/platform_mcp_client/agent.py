@@ -19,14 +19,14 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-from pydantic import Field, model_validator
+from pydantic import PrivateAttr
 
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
     api_key_secret: Optional[str] = None
-    mcp_client: "Optional[Any]" = None
-    tools: List[FunctionTool] = []
+    _mcp_client: "Optional[Any]" = PrivateAttr(default=None)
+    _tools: List[FunctionTool] = PrivateAttr(default_factory=list)
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
@@ -53,9 +53,9 @@ class PlatformMCPClientAgent(Agent):
             log.info("Starting PlatformMCPClientAgent.set_up - MCP Client and Tools init")
             main_span.add_event("Starting PlatformMCPClientAgent.set_up")
             try:
-                self.mcp_client = self._initialize_mcp_client()
+                self._mcp_client = self._initialize_mcp_client()
                 log.info("MCPClient initialized successfully in set_up.")
-                self.tools = [
+                self._tools = [
                     FunctionTool(self.create_event),
                     FunctionTool(self.get_person_posts),
                     FunctionTool(self.get_person_friends),
@@ -69,12 +69,12 @@ class PlatformMCPClientAgent(Agent):
                 log.error(f"Error during MCPClient or Tools initialization in set_up: {e}", exc_info=True)
                 main_span.record_exception(e)
                 main_span.set_status(Status(StatusCode.ERROR, str(e)))
-                self.mcp_client = None
-                self.tools = []
+                self._mcp_client = None
+                self._tools = []
                 log.warning("MCPClient or Tools initialization failed, agent methods will not function.")
 
     async def create_event(self, event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str]):
-        if not self.mcp_client:
+        if not self._mcp_client:
             log.error("MCP Client is not initialized in create_event.")
             raise RuntimeError("MCP Client is not initialized.")
 
@@ -83,7 +83,7 @@ class PlatformMCPClientAgent(Agent):
             "mcp.version": "1.0",
         }) as span:
             try:
-                response = await self.mcp_client.call_tool("create_event", event_name=event_name, description=description, event_date=event_date, locations=locations, attendee_names=attendee_names)
+                response = await self._mcp_client.call_tool("create_event", event_name=event_name, description=description, event_date=event_date, locations=locations, attendee_names=attendee_names)
                 span.set_attribute("mcp.status", "success")
                 span.add_event("Tool execution finished")
                 return response
@@ -93,7 +93,7 @@ class PlatformMCPClientAgent(Agent):
                 raise
 
     async def get_person_posts(self, person_id: str):
-        if not self.mcp_client:
+        if not self._mcp_client:
             log.error("MCP Client is not initialized in get_person_posts.")
             raise RuntimeError("MCP Client is not initialized.")
 
@@ -102,7 +102,7 @@ class PlatformMCPClientAgent(Agent):
             "mcp.version": "1.0",
         }) as span:
             try:
-                response = await self.mcp_client.call_tool("get_person_posts", person_id=person_id)
+                response = await self._mcp_client.call_tool("get_person_posts", person_id=person_id)
                 span.set_attribute("mcp.status", "success")
                 span.add_event("Tool execution finished")
                 return response
@@ -112,7 +112,7 @@ class PlatformMCPClientAgent(Agent):
                 raise
 
     async def get_person_friends(self, person_id: str):
-        if not self.mcp_client:
+        if not self._mcp_client:
             log.error("MCP Client is not initialized in get_person_friends.")
             raise RuntimeError("MCP Client is not initialized.")
 
@@ -121,7 +121,7 @@ class PlatformMCPClientAgent(Agent):
             "mcp.version": "1.0",
         }) as span:
             try:
-                response = await self.mcp_client.call_tool("get_person_friends", person_id=person_id)
+                response = await self._mcp_client.call_tool("get_person_friends", person_id=person_id)
                 span.set_attribute("mcp.status", "success")
                 span.add_event("Tool execution finished")
                 return response
@@ -131,7 +131,7 @@ class PlatformMCPClientAgent(Agent):
                 raise
 
     async def get_person_id_by_name(self, name: str):
-        if not self.mcp_client:
+        if not self._mcp_client:
             log.error("MCP Client is not initialized in get_person_id_by_name.")
             raise RuntimeError("MCP Client is not initialized.")
 
@@ -140,7 +140,7 @@ class PlatformMCPClientAgent(Agent):
             "mcp.version": "1.0",
         }) as span:
             try:
-                response = await self.mcp_client.call_tool("get_person_id_by_name", name=name)
+                response = await self._mcp_client.call_tool("get_person_id_by_name", name=name)
                 span.set_attribute("mcp.status", "success")
                 span.add_event("Tool execution finished")
                 return response
@@ -150,7 +150,7 @@ class PlatformMCPClientAgent(Agent):
                 raise
 
     async def get_person_attended_events(self, person_id: str):
-        if not self.mcp_client:
+        if not self._mcp_client:
             log.error("MCP Client is not initialized in get_person_attended_events.")
             raise RuntimeError("MCP Client is not initialized.")
 
@@ -159,7 +159,7 @@ class PlatformMCPClientAgent(Agent):
             "mcp.version": "1.0",
         }) as span:
             try:
-                response = await self.mcp_client.call_tool("get_person_attended_events", person_id=person_id)
+                response = await self._mcp_client.call_tool("get_person_attended_events", person_id=person_id)
                 span.set_attribute("mcp.status", "success")
                 span.add_event("Tool execution finished")
                 return response
@@ -169,7 +169,7 @@ class PlatformMCPClientAgent(Agent):
                 raise
 
     async def create_post(self, author_name: str, text: str, sentiment: str):
-        if not self.mcp_client:
+        if not self._mcp_client:
             log.error("MCP Client is not initialized in create_post.")
             raise RuntimeError("MCP Client is not initialized.")
 
@@ -178,7 +178,7 @@ class PlatformMCPClientAgent(Agent):
             "mcp.version": "1.0",
         }) as span:
             try:
-                response = await self.mcp_client.call_tool("create_post", author_name=author_name, text=text, sentiment=sentiment)
+                response = await self._mcp_client.call_tool("create_post", author_name=author_name, text=text, sentiment=sentiment)
                 span.set_attribute("mcp.status", "success")
                 span.add_event("Tool execution finished")
                 return response

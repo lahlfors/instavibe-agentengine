@@ -3,8 +3,8 @@ opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-requests
-opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-vertexai
+opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-aiohttp-client
 
 # Google Cloud

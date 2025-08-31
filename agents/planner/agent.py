@@ -1,33 +1,53 @@
+import os
 import sys
-import google.cloud.aiplatform
+from dotenv import load_dotenv
+from google.adk.agents import LlmAgent
+from google.adk.tools import google_search
+from opentelemetry import trace
+from common.observability import setup_observability
+import logging
 
 # --- START: Agent Environment Debugging Code ---
 # This code will run when the agent container starts on Vertex AI.
 print("--- AGENT SERVER-SIDE ENVIRONMENT CHECK ---")
 print(f"Python Version Used by Agent: {sys.version}")
-print(f"Agent's google-cloud-aiplatform SDK Version: {google.cloud.aiplatform.__version__}")
+# print(f"Agent's google-cloud-aiplatform SDK Version: {google.cloud.aiplatform.__version__}")
 print("--- AGENT INITIALIZATION CONTINUING ---")
 # --- END: Agent Environment Debugging Code ---
 
-import os
-from dotenv import load_dotenv
-from google.adk.agents import LlmAgent as Agent # Use LlmAgent alias for clarity
-# from google.adk.models.google_llm import GoogleLlm # Removed import
-from google.adk.tools import google_search
-
-# Load environment variables from the root .env file.
-# This is important so that any underlying ADK or Google library calls
-# (e.g., for API keys for google_search, or project/location for Vertex AI)
-# can pick up the correct configuration.
+# Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
 
-# project_id, location, and model_config_kwargs are removed as LlmAgent will use
-# values from vertexai.init() or environment variables.
+class PlannerAgent(LlmAgent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
-# Define model name string - ensure this is the desired model
+    def set_up(self):
+        logger.info("Initializing PlannerAgent and Observability...")
+        setup_observability()
+        logger.info("PlannerAgent setup complete.")
+        return self
+
+    def __call__(self, **kwargs):
+        with tracer.start_as_current_span("a2a.planner.plan") as span:
+            span.set_attribute("request.data", str(kwargs))
+            logger.info(f"Handling plan request: {kwargs}")
+
+            try:
+                response = super().__call__(**kwargs)
+                span.set_attribute("response.data", str(response))
+                span.set_status(trace.StatusCode.OK)
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.StatusCode.ERROR, str(e))
+                raise
+
 def create_agent():
-    MODEL_NAME = "gemini-2.5-flash"
-    AGENT_NAME = "location_search_agent" # Consistent name from before
+    MODEL_NAME = "gemini-1.5-flash"
+    AGENT_NAME = "planner_agent"
     AGENT_INSTRUCTION = """
 
             You are a specialized AI assistant tasked with generating creative and fun plan suggestions.
@@ -62,16 +82,13 @@ def create_agent():
             }
 
         """
-    root_tools = [google_search] # Assuming this was the original definition
 
-    root_agent = Agent(
+    return PlannerAgent(
         name=AGENT_NAME,
         model=MODEL_NAME,
-        description="Agent tasked with generating creative and fun event plan suggestions", # Kept original description
+        description="Agent that creates plans",
         instruction=AGENT_INSTRUCTION,
-        tools=root_tools
-        # NO model_kwargs
+        tools=[google_search]
     )
-    return root_agent
 
-root_agent = None
+root_agent = create_agent()

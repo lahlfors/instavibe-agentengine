@@ -2,15 +2,12 @@ import sys
 import os
 
 # Determine the project root directory
-# This assumes the entry point script is two levels down from the project root (e.g., agents/social/main.py)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Add the project root to the Python path if it's not already there
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import datetime
-from dotenv import load_dotenv # To load .env
+from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 from google.adk.agents import LoopAgent, LlmAgent, BaseAgent
 from google.adk.tools import FunctionTool
@@ -19,131 +16,92 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from typing import AsyncGenerator
 import logging
-
-from google.genai import types # For types.Content
+from opentelemetry import trace
+from common.observability import setup_observability
+from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional
 
-# Load environment variables from the root .env file.
-# This is crucial for LlmAgent instances and any tools (like those from instavibe.py)
-# to pick up necessary configurations (e.g., API keys, project IDs, Spanner details).
+# Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
-# Get a logger instance
+tracer = trace.get_tracer(__name__)
 log = logging.getLogger(__name__)
 
-def create_agent():
-    # project_id, location, and model_config_kwargs are removed as LlmAgent will use
-    # values from vertexai.init() or environment variables.
+class SocialLlmAgent(LlmAgent):
+    def set_up(self):
+        setup_observability()
+        return self
 
+    def __call__(self, **kwargs):
+        with tracer.start_as_current_span(f"a2a.social.{self.name}") as span:
+            span.set_attribute("request.data", str(kwargs))
+            try:
+                response = super().__call__(**kwargs)
+                span.set_attribute("response.data", str(response))
+                span.set_status(trace.StatusCode.OK)
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.StatusCode.ERROR, str(e))
+                raise
+
+class SocialLoopAgent(LoopAgent):
+    def set_up(self):
+        setup_observability()
+        for agent in self.sub_agents:
+            if hasattr(agent, "set_up"):
+                agent.set_up()
+        return self
+
+def create_agent():
     class CheckCondition(BaseAgent):
         async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-            #log.info(f"Checking status: {ctx.session.state.get("summary_status", "fail")}")
             log.info(f"Summary: {ctx.session.state.get('summary')}")
-
             status = ctx.session.state.get("summary_status", "fail").strip()
             is_done = (status == "completed")
-
             yield Event(author=self.name, actions=EventActions(escalate=is_done))
 
-    profile_agent = LlmAgent(
+    profile_agent = SocialLlmAgent(
         name="profile_agent",
-        model="gemini-2.5-flash",
-        description=(
-            "Agent to answer questions about the this person's social profile. User will ask person's profile using their name, make sure to fetch the id before getting other data."
-        ),
-        instruction=(
-            "You are a helpful agent who can answer user questions about this person's social profile."
-        ),
+        model="gemini-1.5-flash",
+        description="Agent to answer questions about the this person's social profile.",
+        instruction="You are a helpful agent who can answer user questions about this person's social profile.",
         tools=[
             FunctionTool(get_person_posts),
             FunctionTool(get_person_friends),
             FunctionTool(get_person_id_by_name),
             FunctionTool(get_person_attended_events),
         ]
-        # model_kwargs removed
     )
 
-
-    summary_agent = LlmAgent(
+    summary_agent = SocialLlmAgent(
         name="summary_agent",
-        model="gemini-2.5-flash",
-        description=(
-            "Generate a comprehensive social summary as a single, cohesive paragraph. This summary should cover the activities, posts, friend networks, and event participation of one or more individuals. If multiple profiles are analyzed, the paragraph must also identify and integrate any common ground found between them."
-        ),
-        instruction=(
-            """
-            Your primary task is to synthesize social profile information into a single, comprehensive paragraph.
-
-                **Input Scope & Default Behavior:**
-                *   If specific individuals are named by the user, focus your analysis on them.
-                *   **If no individuals are specified, or if the request is general, assume the user wants an analysis of *all relevant profiles available in the current dataset/context*.**
-
-                **For each profile (whether specified or determined by default), you must analyze:**
-
-                1.  **Post Analysis:**
-                    *   Systematically review their posts (e.g., content, topics, frequency, engagement).
-                    *   Identify recurring themes, primary interests, and expressed sentiments.
-
-                2.  **Friendship Relationship Analysis:**
-                    *   Examine their connections/friends list.
-                    *   Identify key relationships, mutual friends (especially if comparing multiple profiles), and the general structure of their social network.
-
-                3.  **Event Participation Analysis:**
-                    *   Investigate their past (and if available, upcoming) event participation.
-                    *   Note the types of events, frequency of attendance, and any notable roles (e.g., organizer, speaker).
-
-                **Output Generation (Single Paragraph):**
-
-                *   **Your entire output must be a single, cohesive summary paragraph.**
-                    *   **If analyzing a single profile:** This paragraph will detail their activities, interests, and social connections based on the post, friend, and event analysis.
-                    *   **If analyzing multiple profiles:** This paragraph will synthesize the key findings regarding posts, friends, and events for each individual. Crucially, it must then seamlessly integrate or conclude with an identification and description of the common ground found between them (e.g., shared interests from posts, overlapping event attendance, mutual friends). The aim is a unified narrative within this single paragraph.
-
-                **Key Considerations:**
-                *   Base your summary strictly on the available data.
-                *   If data for a specific category (posts, friends, events) is missing or sparse for a profile, you may briefly acknowledge this within the narrative if relevant.
-                    """
-            ),
+        model="gemini-1.5-flash",
+        description="Generate a comprehensive social summary.",
+        instruction="Your primary task is to synthesize social profile information into a single, comprehensive paragraph.",
         output_key="summary"
-        # model_kwargs removed
     )
 
-    check_agent = LlmAgent(
+    check_agent = SocialLlmAgent(
         name="check_agent",
-        model="gemini-2.5-flash",
-        description=(
-            "Check if everyone's social profile are summarized and has been generated. Output 'completed' or 'pending'."
-        ),
+        model="gemini-1.5-flash",
+        description="Check if everyone's social profile are summarized.",
         output_key="summary_status"
-        # model_kwargs removed
     )
 
     def modify_output_after_agent(callback_context: CallbackContext) -> Optional[types.Content]:
-
         agent_name = callback_context.agent_name
         invocation_id = callback_context.invocation_id
         current_state = callback_context.state.to_dict()
-        current_user_content = callback_context.user_content
-        print(f"[Callback] Exiting agent: {agent_name} (Inv: {invocation_id})")
-        print(f"[Callback] Current summary_status: {current_state.get('summary_status')}")
-        print(f"[Callback] Current Content: {current_user_content}")
-
         status = current_state.get("summary_status").strip()
         is_done = (status == "completed")
-        # Retrieve the final summary from the state
-
         final_summary = current_state.get("summary")
-        print(f"[Callback] final_summary: {final_summary}")
         if final_summary and is_done and isinstance(final_summary, str):
-            log.info(f"[Callback] Found final summary, constructing output Content.")
-            # Construct the final output Content object to be sent back
             return types.Content(role="model", parts=[types.Part(text=final_summary.strip())])
         else:
-            log.warning("[Callback] No final summary found in state or it's not a string.")
-            # Optionally return a default message or None if no summary was generated
             return None
 
-    root_agent = LoopAgent(
+    root_agent = SocialLoopAgent(
         name="InteractivePipeline",
         sub_agents=[
             profile_agent,

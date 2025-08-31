@@ -80,34 +80,112 @@ class PlatformMCPClientAgent(Agent):
         if not self.mcp_client:
             log.error("MCP Client is not initialized in create_event.")
             raise RuntimeError("MCP Client is not initialized.")
-        return await self.mcp_client.call_tool("create_event", event_name=event_name, description=description, event_date=event_date, locations=locations, attendee_names=attendee_names)
+
+        with tracer.start_as_current_span("mcp.tool_call", attributes={
+            "mcp.tool_id": "create_event",
+            "mcp.version": "1.0",
+        }) as span:
+            try:
+                response = await self.mcp_client.call_tool("create_event", event_name=event_name, description=description, event_date=event_date, locations=locations, attendee_names=attendee_names)
+                span.set_attribute("mcp.status", "success")
+                span.add_event("Tool execution finished")
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
+                raise
 
     async def get_person_posts(self, person_id: str):
         if not self.mcp_client:
             log.error("MCP Client is not initialized in get_person_posts.")
             raise RuntimeError("MCP Client is not initialized.")
-        return await self.mcp_client.call_tool("get_person_posts", person_id=person_id)
+
+        with tracer.start_as_current_span("mcp.tool_call", attributes={
+            "mcp.tool_id": "get_person_posts",
+            "mcp.version": "1.0",
+        }) as span:
+            try:
+                response = await self.mcp_client.call_tool("get_person_posts", person_id=person_id)
+                span.set_attribute("mcp.status", "success")
+                span.add_event("Tool execution finished")
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
+                raise
 
     async def get_person_friends(self, person_id: str):
         if not self.mcp_client:
             log.error("MCP Client is not initialized in get_person_friends.")
             raise RuntimeError("MCP Client is not initialized.")
-        return await self.mcp_client.call_tool("get_person_friends", person_id=person_id)
+
+        with tracer.start_as_current_span("mcp.tool_call", attributes={
+            "mcp.tool_id": "get_person_friends",
+            "mcp.version": "1.0",
+        }) as span:
+            try:
+                response = await self.mcp_client.call_tool("get_person_friends", person_id=person_id)
+                span.set_attribute("mcp.status", "success")
+                span.add_event("Tool execution finished")
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
+                raise
 
     async def get_person_id_by_name(self, name: str):
         if not self.mcp_client:
             log.error("MCP Client is not initialized in get_person_id_by_name.")
             raise RuntimeError("MCP Client is not initialized.")
-        return await self.mcp_client.call_tool("get_person_id_by_name", name=name)
+
+        with tracer.start_as_current_span("mcp.tool_call", attributes={
+            "mcp.tool_id": "get_person_id_by_name",
+            "mcp.version": "1.0",
+        }) as span:
+            try:
+                response = await self.mcp_client.call_tool("get_person_id_by_name", name=name)
+                span.set_attribute("mcp.status", "success")
+                span.add_event("Tool execution finished")
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
+                raise
 
     async def get_person_attended_events(self, person_id: str):
         if not self.mcp_client:
             log.error("MCP Client is not initialized in get_person_attended_events.")
             raise RuntimeError("MCP Client is not initialized.")
-        return await self.mcp_client.call_tool("get_person_attended_events", person_id=person_id)
+
+        with tracer.start_as_current_span("mcp.tool_call", attributes={
+            "mcp.tool_id": "get_person_attended_events",
+            "mcp.version": "1.0",
+        }) as span:
+            try:
+                response = await self.mcp_client.call_tool("get_person_attended_events", person_id=person_id)
+                span.set_attribute("mcp.status", "success")
+                span.add_event("Tool execution finished")
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
+                raise
 
     async def create_post(self, author_name: str, text: str, sentiment: str):
         if not self.mcp_client:
             log.error("MCP Client is not initialized in create_post.")
             raise RuntimeError("MCP Client is not initialized.")
-        return await self.mcp_client.call_tool("create_post", author_name=author_name, text=text, sentiment=sentiment)
+
+        with tracer.start_as_current_span("mcp.tool_call", attributes={
+            "mcp.tool_id": "create_post",
+            "mcp.version": "1.0",
+        }) as span:
+            try:
+                response = await self.mcp_client.call_tool("create_post", author_name=author_name, text=text, sentiment=sentiment)
+                span.set_attribute("mcp.status", "success")
+                span.add_event("Tool execution finished")
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
+                raise

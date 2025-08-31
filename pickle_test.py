@@ -2,11 +2,9 @@ import cloudpickle
 from agents.platform_mcp_client.agent import PlatformMCPClientAgent
 import sys
 import traceback
+import pprint
 
 print(f"Python version: {sys.version}")
-# You might try increasing the recursion limit for testing,
-# but the root cause should be fixed.
-# sys.setrecursionlimit(3000)
 
 try:
     print("Testing agent cloudpickling BEFORE set_up...")
@@ -25,6 +23,16 @@ try:
     agent_after = PlatformMCPClientAgent(name="test_agent", mcp_server_address="dummy:8080")
     agent_after.set_up()
     print("Agent set_up complete.")
+
+    # --- Deeper Inspection ---
+    print("\n--- Inspecting agent state before pickling ---")
+    print("--- dir(agent_after): ---")
+    pprint.pprint(dir(agent_after))
+    print("\n--- vars(agent_after): ---")
+    # Use pprint for better readability
+    pprint.pprint(vars(agent_after))
+    print("--- End of inspection ---\n")
+
 
     # Try to dump and load
     pickled_agent_after = cloudpickle.dumps(agent_after)

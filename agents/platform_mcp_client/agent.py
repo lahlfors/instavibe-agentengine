@@ -29,12 +29,22 @@ class PlatformMCPClientAgent(Agent):
     _tools: List[FunctionTool] = PrivateAttr(default_factory=list)
 
     def __getstate__(self):
-        # Return a dictionary of the state to be pickled.
-        # Exclude non-pickleable attributes like _mcp_client and _tools.
-        state = self.__dict__.copy()
-        state['_mcp_client'] = None
-        state['_tools'] = []
-        return state
+        # Return a dictionary containing only the essential configuration.
+        # This prevents any dynamic or non-pickleable state from being
+        # included in the serialization.
+        # The goal is to only pickle the data needed to re-create the
+        # agent in a new process.
+        return {
+            "name": self.name,
+            "mcp_server_address": self.mcp_server_address,
+            "api_key_secret": self.api_key_secret,
+            "description": self.description,
+            "instruction": self.instruction,
+            "global_instruction": self.global_instruction,
+            "model": self.model,
+            # We explicitly DO NOT include the runtime state like
+            # _mcp_client or _tools. They will be re-created by set_up().
+        }
 
     def __setstate__(self, state):
         # Restore the state from the dictionary.

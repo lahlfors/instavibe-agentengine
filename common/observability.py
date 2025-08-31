@@ -47,14 +47,13 @@ def setup_observability():
 
     resource = Resource(attributes={"service.name": service_name, "gcp.project_id": project_id})
 
+    # --- OpenTelemetry Tracing Setup ---
     tracer_provider = TracerProvider(resource=resource)
     trace.set_tracer_provider(tracer_provider)
     tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
     logger.info("OpenTelemetry ConsoleSpanExporter configured.")
 
-    meter_provider = MeterProvider(resource=resource)
-    metrics.set_meter_provider(meter_provider)
-
+    # --- OTLP Exporters and Metrics Setup ---
     try:
         request = google.auth.transport.requests.Request()
         auth_metadata_plugin = AuthMetadataPlugin(credentials=credentials, request=request)
@@ -65,22 +64,35 @@ def setup_observability():
         )
         logger.debug(f"Type of channel_creds for OTLP exporters: {type(channel_creds)}")
 
+        # OTLP Trace Exporter
         otlp_trace_exporter = OTLPSpanExporter(
             endpoint="telemetry.googleapis.com:443",
             credentials=channel_creds,
         )
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_trace_exporter))
+        logger.info("OTLP Trace Exporter added to TracerProvider.")
 
+        # --- CORRECTED OpenTelemetry Metrics Setup ---
+        # 1. Create the Metric Exporter
         otlp_metric_exporter = OTLPMetricExporter(
             endpoint="telemetry.googleapis.com:443",
             credentials=channel_creds,
         )
-        reader = PeriodicExportingMetricReader(otlp_metric_exporter)
-        meter_provider.add_metric_reader(reader)
+        # 2. Create the Reader with the Exporter
+        metric_reader = PeriodicExportingMetricReader(otlp_metric_exporter)
+        logger.info("OTLP Metric Exporter and Reader created.")
 
-        logger.info("OpenTelemetry OTLP Trace and Metric exporters configured for telemetry.googleapis.com.")
+        # 3. Instantiate MeterProvider with the reader and resource
+        meter_provider = MeterProvider(
+            resource=resource,
+            metric_readers=[metric_reader]  # Pass reader in constructor
+        )
+        metrics.set_meter_provider(meter_provider)
+        logger.info("MeterProvider configured with OTLP Metric Reader.")
+        # --- End CORRECTED Metrics Setup ---
+
     except Exception as e:
-        logger.error(f"Failed to configure OTLP Exporters: {e}", exc_info=True)
+        logger.error(f"Failed to configure OTLP Exporters or MeterProvider: {e}", exc_info=True)
 
     propagate.set_global_textmap(TraceContextTextMapPropagator())
 

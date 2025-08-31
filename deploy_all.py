@@ -282,7 +282,7 @@ def main(args):
                     "display_name": "Planner Agent",
                     "agent_id": "planner_agent_main",  # Explicit unique ID
                     "module": "agents.planner.agent",
-                    "agent_variable": "planner_agent",
+                    "agent_variable": "PlannerAgent",
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./app", "./agents/planner", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
@@ -290,7 +290,7 @@ def main(args):
                     "display_name": "Social Agent",
                     "agent_id": "social_agent_main", # Explicit unique ID
                     "module": "agents.social.agent",
-                    "agent_variable": "social_agent",
+                    "agent_variable": "SocialLlmAgent",
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./app", "./agents/social", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
@@ -302,7 +302,7 @@ def main(args):
                     "init_args": {
                          "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                          "api_key_secret": os.environ.get("MCP_API_KEY_SECRET"),
-                         "name": "Platform MCP Client Agent", # BaseAgent init args
+                         "name": "platform_mcp_client_agent", # BaseAgent init args
                          "model": "gemini-1.5-pro",          # BaseAgent init args
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
@@ -364,7 +364,7 @@ def main(args):
             orchestrate_agent_config = {
                 "display_name": "Orchestrate Agent",
                 "agent_id": "orchestrate_agent_main", # Explicit unique ID
-                "module": "agents.orchestrate.agent",
+                "module": "agents.orchestrate.orchestrate_service_agent",
                 "agent_variable": "root_agent",
                 "requirements_file": "./agents/orchestrate/requirements.txt",
                 "extra_packages": ["./app", "./agents/orchestrate", "./a2a_common-0.1.0-py3-none-any.whl"],

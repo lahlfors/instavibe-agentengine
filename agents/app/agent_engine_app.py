@@ -18,7 +18,7 @@ import json
 import logging # Keep logging import
 import os
 from dotenv import load_dotenv
-from typing import Any
+from typing import Any, Dict
 
 import google.auth
 import vertexai
@@ -39,61 +39,59 @@ GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 def deploy_agent_engine_app(
     project: str,
     location: str,
-    agent_name: str | None = None,
-    requirements_file: str = "requirements.txt",
-    extra_packages: list[str] = ["./app","./orchestrate","a2a_common-0.1.0-py3-none-any.whl"],
+    agent_object: Any,  # *** Accept the agent object ***
+    display_name: str,
+    labels: Dict[str, str],
+    requirements: list[str],
+    extra_packages: list[str] = [],
     env_vars: dict[str, str] | None = None,
     enable_tracing: bool = True,
 ) -> agent_engines.AgentEngine:
-    """Deploy the agent engine aEngine backing LRO:pp to Vertex AI."""
+    """Deploys or updates an ADK Agent on Vertex AI Agent Engine using AdkApp."""
+    logging.info(f"--- Preparing to deploy/update: {display_name} ---")
 
     staging_bucket = f"gs://{project}-agent-engine"
-
-    create_bucket_if_not_exists(
-        bucket_name=staging_bucket, project=project, location=location
-    )
+    create_bucket_if_not_exists(bucket_name=staging_bucket, project=project, location=location)
     vertexai.init(project=project, location=location, staging_bucket=staging_bucket)
 
-    # Read requirements
-    with open(requirements_file) as f:
-        requirements = f.read().strip().split("\n")
+    # --- REMOVED hardcoded import ---
+    # from orchestrate.agent import root_agent
 
-    from orchestrate.agent import root_agent
     agent_engine = AdkApp(
-        agent=root_agent,
+        agent=agent_object, # Use the passed agent object
         env_vars=env_vars,
         enable_tracing=enable_tracing,
     )
 
-    # Common configuration for both create and update operations
     agent_config = {
         "agent_engine": agent_engine,
-        "display_name": agent_name,
-        "description": "A base ReAct agent built with Google's Agent Development Kit (ADK)",
+        "display_name": display_name,
+        "description": f"Agent: {display_name}",
+        "labels": labels,
         "extra_packages": extra_packages,
+        "requirements": requirements,
     }
-    logging.info(f"Agent config: {agent_config}")
-    agent_config["requirements"] = requirements
-    # Log the complete configuration that will be sent
-    logging.info(
-        "Complete agent_config being used for deployment (excluding agent_engine object itself for brevity if too large, focusing on parameters):"
-    )
-    # Create a copy for logging to avoid modifying the original if we decide to remove agent_engine for logging
+    # ... (log_config creation) ...
     log_config = {k: v for k, v in agent_config.items() if k != "agent_engine"}
     log_config["agent_engine_class"] = agent_config["agent_engine"].__class__.__name__
     logging.info(json.dumps(log_config, indent=2, default=str))
 
     try:
-        # Check if an agent with this name already exists
-        existing_agents = list(agent_engines.list(filter=f"display_name={agent_name}"))
-        if existing_agents:
-            # Update the existing agent with new configuration
-            logging.info(f"Attempting to updste existing: {agent_name} in project {project}, location {location} ")
-            remote_agent = existing_agents[0].update(**agent_config)
+        agent_id = labels.get("agent_id", agent_name) # Use label for filter
+        list_filter = f"labels.agent_id=\"{agent_id}\""
+        logging.info(f"Checking for existing agent with filter: {list_filter}")
+        existing_agents = list(agent_engines.list(filter=list_filter))
+
+        if len(existing_agents) > 1:
+            logging.warning(f"Found {len(existing_agents)} agents matching filter '{list_filter}'. This indicates a potential label collision. Skipping update for {agent_name}.")
+            raise RuntimeError(f"Multiple agents found for agent_id: {agent_id}")
+        elif existing_agents:
+            remote_agent = existing_agents[0]
+            logging.info(f"Attempting to update existing agent: {agent_name} ({remote_agent.resource_name})")
+            remote_agent = remote_agent.update(**agent_config)
             logging.info(f"Agent '{agent_name}' updated successfully.")
         else:
-            # Create a new agent if none exists
-            logging.info(f"Attempting to create new agent: {agent_name} in project {project}, location {location}")
+            logging.info(f"Attempting to create new agent: {agent_name}")
             remote_agent = agent_engines.create(**agent_config)
             logging.info(f"Agent '{agent_name}' created successfully.")
 
@@ -209,6 +207,8 @@ if __name__ == "__main__":
     else:
         logging.info("AdkApp tracing and custom OpenTelemetry setup skipped.")
 
+    agent_labels = {"agent_id": args.agent_name}
+
     logging.info("""
     ╔═══════════════════════════════════════════════════════════╗
     ║                                                           ║
@@ -217,11 +217,17 @@ if __name__ == "__main__":
     ╚═══════════════════════════════════════════════════════════╝
     """)
 
+    from orchestrate.agent import root_agent
+    with open(args.requirements_file) as f:
+        requirements = f.read().strip().split("\n")
+
     deploy_agent_engine_app(
         project=args.project,
         location=args.location,
-        agent_name=args.agent_name,
-        requirements_file=args.requirements_file,
+        agent_object=root_agent,
+        display_name=args.agent_name,
+        labels=agent_labels, # Pass labels
+        requirements=requirements,
         extra_packages=args.extra_packages,
         env_vars=env_vars,
         enable_tracing=args.enable_tracing,

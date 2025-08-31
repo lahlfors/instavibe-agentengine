@@ -208,15 +208,75 @@ async def test_social_get_friends(mock_client):
 from common.observability import setup_observability
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.resources import Resource
 
+@patch('common.observability.google.auth.default', return_value=(("creds", "project-id")))
 @patch('common.observability.trace.get_tracer_provider')
-def test_setup_observability(mock_get_tracer_provider):
-    """Test the new observability setup."""
-    # Set up the mock to return a real TracerProvider instance
-    mock_get_tracer_provider.return_value = TracerProvider()
+@patch('common.observability.BatchSpanProcessor')
+@patch('common.observability.ConsoleSpanExporter')
+@patch('common.observability.OTLPMetricExporter')
+@patch('common.observability.PeriodicExportingMetricReader')
+@patch('common.observability.MeterProvider')
+@patch('common.observability.propagate.set_global_textmap')
+@patch('common.observability.google.cloud.logging.Client')
+@patch('common.observability.VertexAIInstrumentor')
+@patch('common.observability.RequestsInstrumentor')
+@patch('common.observability.GrpcInstrumentorClient')
+@patch('common.observability.AioHttpClientInstrumentor')
+@patch('common.observability.AuthMetadataPlugin')
+@patch('common.observability.grpc.ssl_channel_credentials')
+@patch('common.observability.grpc.composite_channel_credentials')
+def test_setup_observability_with_existing_provider(
+    mock_composite_channel_credentials,
+    mock_ssl_channel_credentials,
+    mock_auth_metadata_plugin,
+    mock_aiohttp_instrumentor,
+    mock_grpc_client_instrumentor,
+    mock_requests_instrumentor,
+    mock_vertexai_instrumentor,
+    mock_logging_client,
+    mock_set_global_textmap,
+    mock_meter_provider,
+    mock_periodic_exporting_metric_reader,
+    mock_otlp_metric_exporter,
+    mock_console_exporter,
+    mock_batch_span_processor,
+    mock_get_tracer_provider,
+    mock_google_auth,
+):
+    """Test setup_observability when a TracerProvider already exists."""
+    # Arrange
+    mock_provider = MagicMock(spec=TracerProvider)
+    mock_provider.resource = Resource.create({"existing.attr": "value"})
+    mock_provider._span_processors = []
+    mock_get_tracer_provider.return_value = mock_provider
+    os.environ["SERVICE_NAME"] = "test_service"
 
-    # Call the function
+    # Act
     setup_observability()
 
-    # Assert that the global tracer provider was requested
-    mock_get_tracer_provider.assert_called_once()
+    # Assert
+    mock_google_auth.assert_called_once()
+    mock_get_tracer_provider.assert_called() # Called to get the provider
+
+    # Resource merging check
+    assert "service.name" in mock_provider._resource.attributes
+    assert mock_provider._resource.attributes["service.name"] == "test_service"
+    assert "existing.attr" in mock_provider._resource.attributes
+
+    # Console exporter check (idempotency)
+    mock_provider.add_span_processor.assert_called_once()
+    mock_console_exporter.assert_called_once()
+    mock_batch_span_processor.assert_called_once_with(mock_console_exporter.return_value)
+
+    # Metrics check
+    mock_otlp_metric_exporter.assert_called_once()
+    mock_periodic_exporting_metric_reader.assert_called_once()
+    mock_meter_provider.assert_called_once()
+
+    # Instrumentors check
+    mock_vertexai_instrumentor.return_value.instrument.assert_called_once()
+    mock_requests_instrumentor.return_value.instrument.assert_called_once()
+    mock_grpc_client_instrumentor.return_value.instrument.assert_called_once()
+    mock_aiohttp_instrumentor.return_value.instrument.assert_called_once()

@@ -83,7 +83,7 @@ def deploy_agent_engine_app(
 
     try:
         agent_id = labels.get("agent_id", display_name) # Use label for filter
-        list_filter = f"labels.agent_id=\"{agent_id}\""
+        list_filter = f'labels.agent_id = "{agent_id}"'
         logging.info(f"Checking for existing agent with filter: {list_filter}")
         existing_agents = list(agent_engines.list(filter=list_filter))
 

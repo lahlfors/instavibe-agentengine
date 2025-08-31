@@ -1,15 +1,27 @@
-google-cloud-aiplatform[adk,agent_engines]==1.110.0
-google-adk==1.13.0
-Flask==3.1.0
-google-cloud-spanner==3.56.0
-humanize==4.12.3
-gunicorn
-python-dotenv==1.0.1
-python-dateutil==2.9.0.post0
+# Core OpenTelemetry
 opentelemetry-api
 opentelemetry-sdk
-opentelemetry-exporter-otlp
-traceloop-sdk
-opentelemetry-instrumentation-flask
+opentelemetry-exporter-otlp-proto-grpc
+
+# Google Cloud
+google-auth
+google-cloud-logging
+google-cloud-aiplatform>=1.110.0
+
+# OpenTelemetry Instrumentations
+opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-requests
-agents/a2a_common-0.1.0-py3-none-any.whl
+opentelemetry-instrumentation-grpc
+opentelemetry-instrumentation-flask
+
+# Utilities
+python-dotenv>=1.0.0
+grpcio
+requests>=2.0.0
+
+# Other dependencies
+Flask==3.0.0
+google-cloud-spanner
+humanize==4.8.0
+python-dateutil
+google-cloud-logging

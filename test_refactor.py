@@ -1,3 +1,15 @@
+import sys
+import os
+import site
+
+print(f"\n--- DEBUG: Test Execution Environment ---")
+print(f"Python Executable: {sys.executable}")
+print(f"VIRTUAL_ENV: {os.environ.get('VIRTUAL_ENV')}")
+print(f"sys.path:")
+for p in sys.path:
+    print(f" - {p}")
+print(f"Site Packages: {site.getsitepackages()}")
+print("--- END DEBUG ---\n")
 import pytest
 import pytest_asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -7,23 +19,21 @@ os.environ["COMMON_SPANNER_INSTANCE_ID"] = "test-instance"
 os.environ["COMMON_SPANNER_DATABASE_ID"] = "test-database"
 os.environ["COMMON_GOOGLE_CLOUD_PROJECT"] = "test-project"
 
-
 # Patch the spanner client at the source, before it's imported by app.py
 # This prevents the client from trying to authenticate when the module is loaded.
 patcher = patch('google.cloud.spanner.Client', autospec=True)
 patcher_ts = patch('google.cloud.spanner.COMMIT_TIMESTAMP', 'COMMIT_TIMESTAMP')
 
 from unittest.mock import MagicMock
+
 # Start the patches
 mock_spanner_client = patcher.start()
 mock_spanner_ts = patcher_ts.start()
-
 
 # Make sure to stop the patcher after tests are done
 import atexit
 atexit.register(patcher.stop)
 atexit.register(patcher_ts.stop)
-
 
 # Must be imported before the modules that use them for patching to work
 from flask import Flask, jsonify
@@ -32,7 +42,6 @@ from tools.instavibe import mcp_server as instavibe_tool_client
 from agents.social import instavibe as social_instavibe_data
 
 # --- 1. Tests for instavibe/app.py (Flask App API Endpoints) ---
-
 @pytest.fixture
 def app():
     """Create and configure a new app instance for each test."""
@@ -58,12 +67,12 @@ def test_get_person_id_by_name_api(mock_get_person_by_name_db, client):
     assert response.status_code == 200
     assert response.json == {"person_id": "person-123"}
 
+
     # Test case 2: Person not found
     mock_get_person_by_name_db.return_value = None
     response = client.get('/api/person/by_name/Unknown')
     assert response.status_code == 404
     assert 'error' in response.json
-
 @patch('instavibe.app.get_person_db')
 @patch('instavibe.app.get_person_attended_events_db')
 def test_get_person_attended_events_api(mock_get_events_db, mock_get_person_db, client):
@@ -97,9 +106,7 @@ def test_get_person_friends_api(mock_get_friends_db, mock_get_person_db, client)
     assert response.json == [{"person_id": "person-456", "name": "Bob"}]
     mock_get_friends_db.assert_called_with("person-123")
 
-
 # --- 2. Tests for tools/instavibe/instavibe.py (API Client) ---
-
 @pytest.mark.asyncio
 @patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_id_by_name(mock_call_http):
@@ -163,7 +170,6 @@ async def test_client_get_person_friends(mock_call_http):
     )
 
 # --- 3. Tests for agents/social/instavibe.py (Refactored Data Access Layer) ---
-
 @pytest.mark.asyncio
 @patch('agents.social.instavibe.instavibe_client', new_callable=MagicMock)
 async def test_social_get_person_id_by_name(mock_client):
@@ -198,28 +204,56 @@ async def test_social_get_friends(mock_client):
     mock_client.get_person_friends.assert_awaited_with(person_id="person-123")
 
 # --- 4. Tests for common/observability.py ---
-
 from common.observability import setup_observability
 from opentelemetry import trace, propagate
 import os
 
-@patch('common.observability.google.auth.default', return_value=(None, "test-project"))
+@patch('common.observability.google.auth.default', return_value=(("creds", "project-id")))
 @patch('common.observability.TracerProvider')
+@patch('common.observability.MeterProvider')
 @patch('common.observability.OTLPSpanExporter')
+@patch('common.observability.OTLPMetricExporter')
 @patch('common.observability.ConsoleSpanExporter')
 @patch('common.observability.propagate.set_global_textmap')
-@patch('common.observability.logging.StreamHandler')
-def test_setup_observability(mock_stream_handler, mock_set_global_textmap, mock_console_exporter, mock_otlp_exporter, mock_tracer_provider, mock_google_auth):
+@patch('common.observability.google.cloud.logging.Client')
+@patch('common.observability.VertexAIInstrumentor')
+@patch('common.observability.RequestsInstrumentor')
+@patch('common.observability.GrpcInstrumentorClient')
+@patch('common.observability.GrpcInstrumentorServer')
+@patch('common.observability.AuthMetadataPlugin')
+@patch('common.observability.grpc.ssl_channel_credentials')
+@patch('common.observability.grpc.composite_channel_credentials')
+def test_setup_observability(
+    mock_composite_channel_credentials,
+    mock_ssl_channel_credentials,
+    mock_auth_metadata_plugin,
+    mock_grpc_server_instrumentor,
+    mock_grpc_client_instrumentor,
+    mock_requests_instrumentor,
+    mock_vertexai_instrumentor,
+    mock_logging_client,
+    mock_set_global_textmap,
+    mock_console_exporter,
+    mock_otlp_metric_exporter,
+    mock_otlp_span_exporter,
+    mock_meter_provider,
+    mock_tracer_provider,
+    mock_google_auth,
+):
     """Test the new observability setup."""
-    mock_stream_handler.return_value.level = logging.INFO
-    setup_observability("test-service")
+    setup_observability("test_service")
 
-    # Check that a tracer provider is created with the correct service name
-    mock_tracer_provider.assert_called()
-    # Check that the OTLP and Console exporters are configured
-    mock_otlp_exporter.assert_called()
-    mock_console_exporter.assert_called()
-    # Check that the propagator is set
-    mock_set_global_textmap.assert_called()
-    # Check that structured logging is configured
-    mock_stream_handler.assert_called()
+
+    mock_google_auth.assert_called_once()
+    mock_tracer_provider.assert_called_once()
+    mock_meter_provider.assert_called_once()
+    mock_console_exporter.assert_called_once()
+    mock_otlp_span_exporter.assert_called_once()
+    mock_otlp_metric_exporter.assert_called_once()
+    mock_set_global_textmap.assert_called_once()
+    mock_logging_client.assert_called_once_with(project="project-id", credentials="creds")
+    mock_logging_client.return_value.setup_logging.assert_called_once()
+    mock_vertexai_instrumentor.return_value.instrument.assert_called_once()
+    mock_requests_instrumentor.return_value.instrument.assert_called_once()
+    mock_grpc_client_instrumentor.return_value.instrument.assert_called_once()
+    mock_grpc_server_instrumentor.return_value.instrument.assert_called_once()

@@ -1,39 +1,37 @@
-import pickle
-import sys
-sys.path.append('.')
-# Since we are emptying the __init__.py, we need to do a direct import
+import cloudpickle
 from agents.platform_mcp_client.agent import PlatformMCPClientAgent
+import sys
+import traceback
 
-# 1. Instantiate the agent with a valid server address and name
-print("Instantiating PlatformMCPClientAgent...")
-# The agent name must be a valid Python identifier.
-agent_before_setup = PlatformMCPClientAgent(name="test_agent", mcp_server_address="dummy:8080")
-print("Agent instantiated.")
+print(f"Python version: {sys.version}")
+# You might try increasing the recursion limit for testing,
+# but the root cause should be fixed.
+# sys.setrecursionlimit(3000)
 
-# 2. Test pickling *before* calling set_up()
-print("\n--- Testing pickling BEFORE set_up() ---")
 try:
-    pickled_agent_before = pickle.dumps(agent_before_setup)
-    print("✅ SUCCESS: Agent IS pickleable before set_up().")
-    # Optional: Test unpickling
-    unpickled_agent = pickle.loads(pickled_agent_before)
-    print("✅ SUCCESS: Agent can be unpickled before set_up().")
+    print("Testing agent cloudpickling BEFORE set_up...")
+    agent_before = PlatformMCPClientAgent(name="test_agent", mcp_server_address="dummy:8080")
+    pickled_agent_before = cloudpickle.dumps(agent_before)
+    unpickled_agent_before = cloudpickle.loads(pickled_agent_before)
+    print("Agent IS cloudpickleable before set_up()")
 except Exception as e:
-    print(f"❌ FAILURE: Pickling failed before set_up(): {e}")
+    print(f"Cloudpickling failed before set_up(): {type(e).__name__}: {e}")
+    traceback.print_exc()
 
-# 3. Call the set_up() method
-print("\nCalling agent.set_up()...")
-agent_before_setup.set_up()
-print("agent.set_up() finished.")
+print("-" * 20)
 
-
-# 4. Test pickling *after* calling set_up()
-print("\n--- Testing pickling AFTER set_up() ---")
 try:
-    pickled_agent_after = pickle.dumps(agent_before_setup)
-    print("✅ SUCCESS: Agent IS pickleable after set_up().")
-    # Optional: Test unpickling
-    unpickled_agent_after = pickle.loads(pickled_agent_after)
-    print("✅ SUCCESS: Agent can be unpickled after set_up().")
+    print("\nTesting agent cloudpickling AFTER set_up...")
+    agent_after = PlatformMCPClientAgent(name="test_agent", mcp_server_address="dummy:8080")
+    agent_after.set_up()
+    print("Agent set_up complete.")
+
+    # Try to dump and load
+    pickled_agent_after = cloudpickle.dumps(agent_after)
+    print("Cloudpickle dump successful.")
+    unpickled_agent_after = cloudpickle.loads(pickled_agent_after)
+    print("Cloudpickle load successful.")
+    print("Agent IS cloudpickleable after set_up()")
 except Exception as e:
-    print(f"❌ FAILURE: Pickling failed after set_up(): {e}")
+    print(f"Cloudpickling failed after set_up(): {type(e).__name__}: {e}")
+    traceback.print_exc()

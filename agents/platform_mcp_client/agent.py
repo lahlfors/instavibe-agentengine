@@ -9,7 +9,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
-from mcp import client as mcp_client
+from fastmcp import Client  # Corrected import
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -25,8 +25,20 @@ class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server."""
     mcp_server_address: str
     api_key_secret: Optional[str] = None
-    _mcp_client: "Optional[Any]" = PrivateAttr(default=None)
+    _mcp_client: Any = PrivateAttr(default=None)
     _tools: List[FunctionTool] = PrivateAttr(default_factory=list)
+
+    def __getstate__(self):
+        # Return a dictionary of the state to be pickled.
+        # Exclude non-pickleable attributes like _mcp_client and _tools.
+        state = self.__dict__.copy()
+        state['_mcp_client'] = None
+        state['_tools'] = []
+        return state
+
+    def __setstate__(self, state):
+        # Restore the state from the dictionary.
+        self.__dict__.update(state)
 
     def _initialize_mcp_client(self):
         """Helper function to contain client creation logic."""
@@ -36,7 +48,8 @@ class PlatformMCPClientAgent(Agent):
         else:
             log.info("api_key_secret not provided, using Application Default Credentials for MCPClient.")
         log.info(f"Initializing MCPClient for {self.mcp_server_address}")
-        return mcp_client.Client(self.mcp_server_address, api_key)
+        # Use the corrected Client class
+        return Client(self.mcp_server_address, api_key)
 
     def _get_api_key(self, secret_name):
         # Placeholder for fetching secret
@@ -49,6 +62,9 @@ class PlatformMCPClientAgent(Agent):
         Called by Vertex AI Agent Engine after deserialization.
         Initialize non-serializable resources like network clients here.
         """
+        if self._mcp_client is not None:
+            return
+
         with tracer.start_as_current_span("PlatformMCPClientAgent.set_up") as main_span:
             log.info("Starting PlatformMCPClientAgent.set_up - MCP Client and Tools init")
             main_span.add_event("Starting PlatformMCPClientAgent.set_up")

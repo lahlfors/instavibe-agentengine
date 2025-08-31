@@ -10,7 +10,7 @@ opentelemetry-instrumentation-aiohttp-client
 
 # Google Cloud
 google-cloud-logging
-google-cloud-aiplatform[agent_engines,adk,memory_bank]>=1.110.0
+google-cloud-aiplatform[agent_engines,adk]>=1.110.0
 google-adk>=1.13.0
 
 # Other

@@ -3,6 +3,7 @@ opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-aiohttp-client
 

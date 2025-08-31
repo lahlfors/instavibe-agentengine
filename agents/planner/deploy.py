@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 # import uuid # No longer needed for generating unique GCS filenames
 # from urllib.parse import urlparse # No longer needed for parsing staging_bucket_uri
 # import cloudpickle # Handled by ADK

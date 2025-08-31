@@ -45,7 +45,7 @@ class TestDeployAllScript(unittest.TestCase):
         self.assertIn("_ANOTHER_KEY=ANOTHER_VALUE", substitutions_arg)
 
 
-    @patch('deploy_all.deploy_agent', return_value="projects/test-p-env/locations/us-central1/reasoningEngines/test-agent-123")
+    @patch('deploy_all.deploy_agent_engine_app')
     @patch('deploy_all.setup_environment', return_value={
         "project_id": "test-p-env", "region": "us-central1",
         "staging_bucket": "gs://test-bucket-env", "spanner_instance": "test-instance",
@@ -53,7 +53,7 @@ class TestDeployAllScript(unittest.TestCase):
     })
     @patch('deploy_all.setup_spanner')
     @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_main_deployment_calls(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_agent):
+    def test_main_deployment_calls(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_agent_engine_app):
         """Test that main() calls deployment functions with the correct arguments."""
         # Set up mock return values for build_and_deploy_cloud_run_service
         def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=True, service_account=None):
@@ -62,19 +62,33 @@ class TestDeployAllScript(unittest.TestCase):
             return "https://some-other-url.a.run.app"
         mock_build_and_deploy.side_effect = build_and_deploy_side_effect
 
+        # Mock the return value of deploy_agent_engine_app
+        mock_agent = MagicMock()
+        mock_agent.name = "projects/test-p-env/locations/us-central1/reasoningEngines/test-agent-123"
+        mock_deploy_agent_engine_app.return_value = mock_agent
+
         with patch('sys.argv', ['deploy_all.py']):
              deploy_all.main()
 
         # --- Assertions ---
         mock_setup_env.assert_called_once()
         mock_setup_spanner.assert_called_once_with("test-p-env", "test-instance", "test-db", "us-central1")
-        self.assertEqual(mock_deploy_agent.call_count, 4)
+        self.assertEqual(mock_deploy_agent_engine_app.call_count, 4)
         self.assertEqual(mock_build_and_deploy.call_count, 2)
 
-        # Assert correct arguments are passed
+        # Assert correct arguments are passed for one of the agents
+        orchestrate_call = next((c for c in mock_deploy_agent_engine_app.call_args_list if c.kwargs['agent_name'] == 'Orchestrate Agent'), None)
+        self.assertIsNotNone(orchestrate_call)
+        self.assertEqual(orchestrate_call.kwargs['project'], 'test-p-env')
+        self.assertEqual(orchestrate_call.kwargs['location'], 'us-central1')
+        self.assertEqual(orchestrate_call.kwargs['requirements_file'], 'agents/orchestrate/requirements.txt')
+
+        # Assert correct arguments are passed for the app
         app_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'instavibe-app'), None)
         self.assertIsNotNone(app_call)
         self.assertEqual(app_call.kwargs['service_account'], 'test-sa@example.com')
+        self.assertIn("ORCHESTRATE_AGENT_URL", app_call.kwargs['env_vars'])
+        self.assertEqual(app_call.kwargs['env_vars']["ORCHESTRATE_AGENT_URL"], "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/test-p-env/locations/us-central1/reasoningEngines/test-agent-123:predict")
 
 
     @patch.dict(os.environ, {}, clear=True)

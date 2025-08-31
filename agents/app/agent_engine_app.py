@@ -13,26 +13,21 @@
 # limitations under the License.
 
 # mypy: disable-error-code="attr-defined"
-import copy
 import datetime
 import json
 import logging # Keep logging import
 import os
 from dotenv import load_dotenv
-from collections.abc import Mapping, Sequence
 from typing import Any
 
 import google.auth
 import vertexai
 import google.api_core.exceptions # For specific exception handling
 from google.cloud import logging as google_cloud_logging
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider, export
 from vertexai import agent_engines
 from vertexai.preview import reasoning_engines
 from agents.app.utils.gcs import create_bucket_if_not_exists
 from common.observability import setup_observability
-from agents.app.utils.typing import Feedback
 from vertexai.preview.reasoning_engines import AdkApp
 
 # Load environment variables from the root .env file
@@ -41,61 +36,6 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 
-from starlette.types import ASGIApp, Receive, Scope, Send
-from opentelemetry.propagate import extract
-from fastapi import FastAPI
-
-class HeaderLoggingMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http":
-            headers = scope.get("headers", [])
-            logging.info(f"Incoming request headers: {headers}")
-            context = extract(headers)
-            logging.info(f"Extracted trace context: {context}")
-        await self.app(scope, receive, send)
-
-class AgentEngineApp(AdkApp):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.app = FastAPI()
-        self.app = HeaderLoggingMiddleware(self.app)
-
-    def set_up(self) -> None:
-        """Set up logging and tracing for the agent engine app."""
-        super().set_up()
-        setup_observability()
-
-    def register_feedback(self, feedback: dict[str, Any]) -> None:
-        """Collect and log feedback."""
-        feedback_obj = Feedback.model_validate(feedback)
-        self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
-
-    def register_operations(self) -> Mapping[str, Sequence]:
-        """Registers the operations of the Agent.
-
-        Extends the base operations to include feedback registration functionality.
-        """
-        operations = super().register_operations()
-        operations[""] = operations[""] + ["register_feedback"]
-        return operations
-
-    def clone(self) -> "AgentEngineApp":
-        """Returns a clone of the ADK application."""
-        template_attributes = self._tmpl_attrs
-        return self.__class__(
-            agent=copy.deepcopy(template_attributes.get("agent")),
-            enable_tracing=template_attributes.get("enable_tracing"),
-            session_service_builder=template_attributes.get("session_service_builder"),
-            artifact_service_builder=template_attributes.get(
-                "artifact_service_builder"
-            ),
-            env_vars=template_attributes.get("env_vars"),
-        )
-
-
 def deploy_agent_engine_app(
     project: str,
     location: str,
@@ -103,6 +43,7 @@ def deploy_agent_engine_app(
     requirements_file: str = "requirements.txt",
     extra_packages: list[str] = ["./app","./orchestrate","a2a_common-0.1.0-py3-none-any.whl"],
     env_vars: dict[str, str] | None = None,
+    enable_tracing: bool = True,
 ) -> agent_engines.AgentEngine:
     """Deploy the agent engine aEngine backing LRO:pp to Vertex AI."""
 
@@ -118,9 +59,10 @@ def deploy_agent_engine_app(
         requirements = f.read().strip().split("\n")
 
     from orchestrate.agent import root_agent
-    agent_engine = AgentEngineApp(
+    agent_engine = AdkApp(
         agent=root_agent,
         env_vars=env_vars,
+        enable_tracing=enable_tracing,
     )
 
     # Common configuration for both create and update operations
@@ -230,6 +172,12 @@ if __name__ == "__main__":
         "--set-env-vars",
         help="Comma-separated list of environment variables in KEY=VALUE format",
     )
+    parser.add_argument(
+        "--enable-tracing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable OpenTelemetry tracing via AdkApp and apply custom OTel setup from common.observability",
+    )
     args = parser.parse_args()
 
     # --- Parse and Set Environment Variables ---
@@ -254,6 +202,13 @@ if __name__ == "__main__":
     if not args.project:
         _, args.project = google.auth.default()
 
+    # --- Initialize Custom OpenTelemetry ---
+    if args.enable_tracing:
+        # Call the centralized setup function
+        setup_observability()
+    else:
+        logging.info("AdkApp tracing and custom OpenTelemetry setup skipped.")
+
     logging.info("""
     ╔═══════════════════════════════════════════════════════════╗
     ║                                                           ║
@@ -269,4 +224,5 @@ if __name__ == "__main__":
         requirements_file=args.requirements_file,
         extra_packages=args.extra_packages,
         env_vars=env_vars,
+        enable_tracing=args.enable_tracing,
     )

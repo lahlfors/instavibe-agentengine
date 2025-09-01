@@ -88,9 +88,14 @@ def deploy_agent_engine_app(
             logging.info(f"Agent '{display_name}' updated successfully.")
         else:
             logging.info(f"Attempting to create new agent: {display_name}")
-            remote_agent = reasoning_engines.ReasoningEngine.create(
-                **agent_config
+            new_agent_config = reasoning_engines.ReasoningEngine(
+                display_name=display_name,
+                description=agent_config["description"],
+                spec=agent_engine,
+                requirements=agent_config["requirements"],
+                extra_packages=agent_config["extra_packages"],
             )
+            remote_agent = reasoning_engines.ReasoningEngine.create(new_agent_config)
             logging.info(f"Agent '{display_name}' created successfully.")
 
         config = {

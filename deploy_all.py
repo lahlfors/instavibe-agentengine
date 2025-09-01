@@ -4,6 +4,7 @@ import logging
 import importlib
 import argparse
 from dotenv import load_dotenv
+from opentelemetry import trace, metrics
 
 # CRITICAL: Add the project root to the path for local module imports
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
@@ -293,7 +294,7 @@ def main(args):
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
                     "requirements_file": "./agents/planner/requirements.txt",
-                    "extra_packages": ["app", "agents/planner", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["agents/app", "agents/planner", "agents/a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "social_agent",
@@ -301,7 +302,7 @@ def main(args):
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
                     "requirements_file": "./agents/social/requirements.txt",
-                    "extra_packages": ["app", "agents/social", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["agents/app", "agents/social", "agents/a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -313,7 +314,7 @@ def main(args):
                         "name": "platform_mcp_client_agent",
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["app", "agents/platform_mcp_client", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["agents/app", "agents/platform_mcp_client", "agents/a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "orchestrate_agent",
@@ -321,7 +322,7 @@ def main(args):
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/orchestrate/requirements.txt",
-                    "extra_packages": ["app", "agents/orchestrate", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["agents/app", "agents/orchestrate", "agents/a2a_common-0.1.0-py3-none-any.whl"],
                 },
             ]
 
@@ -404,6 +405,18 @@ def main(args):
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)
         logging.error("Deployment failed.")
         sys.exit(1)
+    finally:
+        # --- OpenTelemetry Shutdown ---
+        logging.info("--- Shutting down OpenTelemetry ---")
+        # Flush and shutdown the meter provider
+        meter_provider = metrics.get_meter_provider()
+        if hasattr(meter_provider, "shutdown"):
+            meter_provider.shutdown()
+        # Flush and shutdown the tracer provider
+        tracer_provider = trace.get_tracer_provider()
+        if hasattr(tracer_provider, "shutdown"):
+            tracer_provider.shutdown()
+        logging.info("--- OpenTelemetry shut down successfully. ---")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')

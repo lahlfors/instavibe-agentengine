@@ -15,11 +15,10 @@
 # mypy: disable-error-code="attr-defined"
 import datetime
 import json
-import inspect
 import logging # Keep logging import
 import os
 from dotenv import load_dotenv
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict
 
 import google.auth
 import vertexai
@@ -40,60 +39,81 @@ GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
 def deploy_agent_engine_app(
     project: str,
     location: str,
-    agent_object: Union[reasoning_engines.ReasoningEngine, Type[reasoning_engines.ReasoningEngine]],
+    agent_object: Any,
     display_name: str,
     labels: Dict[str, str],
-    requirements: Optional[List[str]] = None,
-    extra_packages: Optional[List[str]] = None,
+    requirements: list[str],
+    extra_packages: list[str] = [],
+    env_vars: Dict[str, str] | None = None,
     enable_tracing: bool = True,
-) -> reasoning_engines.ReasoningEngine:
-    """Deploys or updates a reasoning engine app."""
-    logging.info(f"Looking for existing agent with display name: {display_name}")
-    remote_agents = reasoning_engines.ReasoningEngine.list(
-        project=project, location=location,
-        filter=f'display_name="{display_name}"'
+) -> agent_engines.AgentEngine:
+    """Deploys or updates an ADK Agent on Vertex AI Agent Engine using AdkApp."""
+    logging.info(f"--- Preparing to deploy/update: {display_name} ---")
+
+    staging_bucket = f"gs://{project}-agent-engine"
+    create_bucket_if_not_exists(bucket_name=staging_bucket, project=project, location=location)
+    vertexai.init(project=project, location=location, staging_bucket=staging_bucket)
+
+    logging.info(f"Instantiating AdkApp for {display_name} with enable_tracing=False")
+    agent_engine = AdkApp(
+        agent=agent_object,
+        env_vars=env_vars,
+        enable_tracing=False,
     )
 
-    validated_extra_packages = []
-    if extra_packages:
-        for path in extra_packages:
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"Extra package path not found: {path}")
-            validated_extra_packages.append(path)
+    agent_config = {
+        "display_name": display_name,
+        "description": f"Agent: {display_name}",
+        "labels": labels,
+        "requirements": requirements,
+        "extra_packages": extra_packages,
+        "spec": agent_engine,
+    }
+    agent_config.pop('labels', None)
+    # ... log_config ...
 
-    if remote_agents:
-        remote_agent = remote_agents[0]
-        logging.info(f"Found existing agent: {remote_agent.name}. Updating it.")
+    try:
+        list_filter = f'display_name="{display_name}"'
+        logging.info(f"Checking for existing agent with filter: {list_filter}")
+        existing_agents = list(agent_engines.list(filter=list_filter))
 
-        # IMPORTANT: You can't update labels. They are immutable.
-        # We only update the spec and packages.
-        if inspect.isclass(agent_object):
-            remote_agent.spec = agent_object
+        if len(existing_agents) > 1:
+            logging.warning(f"Found {len(existing_agents)} agents with display_name='{display_name}'. This indicates a potential name collision. Skipping update for {display_name}.")
+            raise RuntimeError(f"Multiple agents found for display_name: {display_name}")
+        elif existing_agents:
+            remote_agent = existing_agents[0]
+            logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
+            update_payload = agent_config.copy()
+            update_payload.pop('name', None)
+            remote_agent.update(
+                **update_payload
+            )
+            logging.info(f"Agent '{display_name}' updated successfully.")
         else:
-            remote_agent.spec = type(agent_object)
+            logging.info(f"Attempting to create new agent: {display_name}")
+            remote_agent = reasoning_engines.ReasoningEngine.create(
+                **agent_config
+            )
+            logging.info(f"Agent '{display_name}' created successfully.")
 
-        if requirements:
-            remote_agent.requirements = requirements
-        if validated_extra_packages:
-            remote_agent.extra_packages = validated_extra_packages
-
-        # Call update with no arguments.
-        remote_agent.update()
-        return remote_agent
-    else:
-        logging.info("No existing agent found. Creating a new one.")
-        # IMPORTANT: Pass labels ONLY during creation.
-        create_kwargs = {
-            "display_name": display_name,
-            "labels": labels,
-            "spec": agent_object if inspect.isclass(agent_object) else type(agent_object),
+        config = {
+            "remote_agent_engine_id": remote_agent.resource_name,
+            "deployment_timestamp": datetime.datetime.now().isoformat(),
         }
-        if requirements:
-            create_kwargs["requirements"] = requirements
-        if validated_extra_packages:
-            create_kwargs["extra_packages"] = validated_extra_packages
+        config_file = "deployment_metadata.json"
 
-        return reasoning_engines.ReasoningEngine.create(**create_kwargs)
+        with open(config_file, "w") as f:
+            json.dump(config, f, indent=2)
+
+        logging.info(f"Agent Engine ID written to {config_file}")
+
+        return remote_agent
+    except google.api_core.exceptions.InvalidArgument as e:
+         logging.error(f"!!! InvalidArgument error during agent deployment for '{display_name}' ... {e}")
+         raise
+    except Exception as e:
+         logging.error(f"An unexpected error occurred during agent deployment for '{display_name}': {e}", exc_info=True)
+         raise
 
 
 if __name__ == "__main__":

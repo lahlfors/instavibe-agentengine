@@ -78,29 +78,18 @@ def deploy_agent_engine_app(
     # ... log_config ...
 
     try:
-        agent_id = labels.get("agent_id")
-        if not agent_id:
-            raise ValueError("agent_id not found in labels")
-
-        logging.info(f"Listing ALL agents in {project}/{location} to filter client-side for agent_id: {agent_id}")
-        all_agents = list(agent_engines.list()) # No filter
-
-        existing_agents = []
-        for agent in all_agents:
-            if agent.labels.get("agent_id") == agent_id:
-                existing_agents.append(agent)
-        logging.info(f"Found {len(existing_agents)} matching agents client-side.")
+        list_filter = f'display_name="{display_name}"'
+        logging.info(f"Checking for existing agent with filter: {list_filter}")
+        existing_agents = list(agent_engines.list(filter=list_filter))
 
         if len(existing_agents) > 1:
-            logging.warning(f"Found {len(existing_agents)} agents with label agent_id='{agent_id}'. This indicates a label collision. Skipping update for {display_name}.")
-            raise RuntimeError(f"Multiple agents found for agent_id: {agent_id}")
+            logging.warning(f"Found {len(existing_agents)} agents with display_name='{display_name}'. This indicates a potential name collision. Skipping update for {display_name}.")
+            raise RuntimeError(f"Multiple agents found for display_name: {display_name}")
         elif existing_agents:
             remote_agent = existing_agents[0]
             logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
-            # Update will fail if the object to update doesn't have a resource name.
-            # We should pass the name to update.
             agent_config["name"] = remote_agent.resource_name
-            remote_agent = agent_engines.update(**agent_config) # Use agent_engines.update for consistency
+            remote_agent = agent_engines.update(**agent_config)
             logging.info(f"Agent '{display_name}' updated successfully.")
         else:
             logging.info(f"Attempting to create new agent: {display_name}")

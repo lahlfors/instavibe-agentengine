@@ -277,45 +277,36 @@ def main(args):
             agent_resource_names = {}
             agents_to_deploy = [
                 {
+                    "name": "planner_agent",
                     "display_name": "Planner Agent",
-                    "agent_id": "planner_agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
-                    "init_args": {
-                        "name": "planner_agent",
-                        "model": "gemini-1.5-pro-preview-1111",
-                    },
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./app", "./agents/planner", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
+                    "name": "social_agent",
                     "display_name": "Social Agent",
-                    "agent_id": "social_agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
-                    "init_args": {
-                        "name": "social_agent",
-                        "model": "gemini-1.5-pro-preview-1111",
-                    },
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./app", "./agents/social", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
+                    "name": "platform_mcp_client_agent",
                     "display_name": "Platform MCP Client Agent",
-                    "agent_id": "platform_mcp_client_agent",
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
                     "init_args": {
-                        "name": "platform_mcp_client_agent",
-                        "model": "gemini-1.5-pro-preview-1111",
                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
+                        "name": "platform_mcp_client_agent",
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./app", "./agents/platform_mcp_client", "./a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
+                    "name": "orchestrate_agent",
                     "display_name": "Orchestrate Agent",
-                    "agent_id": "orchestrate_agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/orchestrate/requirements.txt",
@@ -323,10 +314,9 @@ def main(args):
                 },
             ]
 
-            # First, deploy all agents except the orchestrator
             for agent_conf in agents_to_deploy:
                 display_name = agent_conf["display_name"]
-                agent_id = agent_conf["agent_id"] # Use explicit agent_id
+                agent_id = agent_conf["name"]
                 logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
                 try:
                     # Dynamically import the agent
@@ -335,18 +325,14 @@ def main(args):
                     module = importlib.import_module(module_path)
                     agent_ref = getattr(module, agent_var)
 
-                    init_args = agent_conf.get("init_args", {})
-                    # Ensure mandatory base class args are included if not in init_args
-                    if not isinstance(agent_ref, type): # If it's already an instance
-                         agent_to_deploy = agent_ref
-                    else: # If it's a class
-                        base_args = {
-                            'name': init_args.get('name', display_name),
-                            'model': init_args.get('model', 'gemini-1.5-pro'),
-                            'instruction': init_args.get('instruction', 'Default instruction'),
-                        }
-                        final_args = {**base_args, **init_args}
+                    # Construct final arguments for the agent's constructor
+                    final_args = agent_conf.get("init_args", {})
+                    final_args['name'] = agent_conf['name']
+
+                    if "init_args" in agent_conf:
                         agent_to_deploy = agent_ref(**final_args)
+                    else:
+                        agent_to_deploy = agent_ref
 
                     with open(agent_conf["requirements_file"]) as f:
                         requirements = f.read().strip().split("\n")

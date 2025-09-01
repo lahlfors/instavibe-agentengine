@@ -32,11 +32,14 @@ class PlannerAgent(LlmAgent):
 
     def __call__(self, **kwargs):
         with tracer.start_as_current_span("a2a.planner.plan") as span:
+            span.set_attribute("agent.name", self.name)
+            span.set_attribute("user.prompt", kwargs.get("message", ""))
             span.set_attribute("request.data", str(kwargs))
             logger.info(f"Handling plan request: {kwargs}")
 
             try:
                 response = super().__call__(**kwargs)
+                span.set_attribute("agent.final_response", str(response))
                 span.set_attribute("response.data", str(response))
                 span.set_status(trace.StatusCode.OK)
                 return response

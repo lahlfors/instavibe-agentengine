@@ -277,22 +277,26 @@ def main(args):
 
         if not args.skip_agents:
             agent_resource_names = {}
+
+            def to_absolute_path(p):
+                return os.path.join(PROJECT_ROOT, p)
+
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
-                    "requirements_file": "./agents/planner/requirements.txt",
-                    "extra_packages": ["./app", "./agents/planner", "./a2a_common-0.1.0-py3-none-any.whl"],
+                    "requirements_file": to_absolute_path("./agents/planner/requirements.txt"),
+                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/planner"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
                 },
                 {
                     "name": "social_agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
-                    "requirements_file": "./agents/social/requirements.txt",
-                    "extra_packages": ["./app", "./agents/social", "./a2a_common-0.1.0-py3-none-any.whl"],
+                    "requirements_file": to_absolute_path("./agents/social/requirements.txt"),
+                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/social"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -303,16 +307,16 @@ def main(args):
                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                         "name": "platform_mcp_client_agent",
                     },
-                    "requirements_file": "./agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["./app", "./agents/platform_mcp_client", "./a2a_common-0.1.0-py3-none-any.whl"],
+                    "requirements_file": to_absolute_path("./agents/platform_mcp_client/requirements.txt"),
+                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/platform_mcp_client"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
                 },
                 {
                     "name": "orchestrate_agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
-                    "requirements_file": "./agents/orchestrate/requirements.txt",
-                    "extra_packages": ["./app", "./agents/orchestrate", "./a2a_common-0.1.0-py3-none-any.whl"],
+                    "requirements_file": to_absolute_path("./agents/orchestrate/requirements.txt"),
+                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/orchestrate"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
                 },
             ]
 
@@ -389,6 +393,8 @@ def main(args):
         sys.exit(1)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    setup_observability()
     parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
     parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
     parser.add_argument("--skip-gateway", action="store_true", help="Skip deploying the Cloud Run gateway.")

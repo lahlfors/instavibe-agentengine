@@ -54,11 +54,11 @@ def deploy_agent_engine_app(
     create_bucket_if_not_exists(bucket_name=staging_bucket, project=project, location=location)
     vertexai.init(project=project, location=location, staging_bucket=staging_bucket)
 
-    logging.info(f"Instantiating AdkApp for {display_name} with enable_tracing={enable_tracing}")
+    logging.info(f"Instantiating AdkApp for {display_name} with enable_tracing=False")
     agent_engine = AdkApp(
         agent=agent_object,
         env_vars=env_vars,
-        enable_tracing=enable_tracing,
+        enable_tracing=False,
     )
 
     agent_config = {
@@ -83,8 +83,13 @@ def deploy_agent_engine_app(
         elif existing_agents:
             remote_agent = existing_agents[0]
             logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
-            agent_config["name"] = remote_agent.resource_name
-            remote_agent = agent_engines.update(**agent_config)
+            update_payload = agent_config.copy()
+            update_payload.pop('name', None)
+            update_payload.pop('agent_engine', None)
+            remote_agent = agent_engines.update(
+                reasoning_engine=agent_config["agent_engine"],
+                **update_payload
+            )
             logging.info(f"Agent '{display_name}' updated successfully.")
         else:
             logging.info(f"Attempting to create new agent: {display_name}")

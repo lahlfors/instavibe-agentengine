@@ -127,6 +127,7 @@ class OrchestrateServiceAgent(Agent):
         Finds a remote agent and invokes one of its capabilities.
         """
         with tracer.start_as_current_span(f"{agent_name}.{action}") as span:
+            span.set_attribute("agent.name", self.name)
             span.set_attribute(ai_semconv.GEN_AI_OPERATION_NAME, "send_task")
             span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "send_task")
             tool_params = {
@@ -150,6 +151,7 @@ class OrchestrateServiceAgent(Agent):
 
     def query(self, input_text: str) -> str:
         with tracer.start_as_current_span("orchestrate_agent.query") as span:
+            span.set_attribute("agent.name", self.name)
             span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
             span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
             span.set_attribute(ai_semconv.INPUT_VALUE, input_text)

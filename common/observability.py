@@ -12,6 +12,7 @@ from google.auth.transport import requests as google_auth_transport_requests
 from google.auth.transport.grpc import AuthMetadataPlugin # Corrected import
 
 from opentelemetry import trace, metrics, propagate
+from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter, BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as GRPCOTLPSpanExporter

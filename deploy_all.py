@@ -4,7 +4,6 @@ import logging
 import importlib
 import argparse
 from dotenv import load_dotenv
-from opentelemetry import trace, metrics
 
 # CRITICAL: Add the project root to the path for local module imports
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
@@ -20,6 +19,13 @@ import subprocess
 # Agent deployment functions are imported locally within main() to ensure
 # dependencies are installed first.
 
+
+# ===================================================================
+# ADD THIS BLOCK FOR VERBOSE OPENTELEMETRY LOGGING
+# Set the log level for the opentelemetry logger to DEBUG
+otel_logger = logging.getLogger("opentelemetry")
+otel_logger.setLevel(logging.DEBUG)
+# ===================================================================
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -390,18 +396,6 @@ def main(args):
             )
 
         logging.info("--- Deployment script finished successfully! ---")
-        try:
-            logging.info("--- Shutting down OpenTelemetry ---")
-            tracer_provider = trace.get_tracer_provider()
-            if hasattr(tracer_provider, 'shutdown'):
-                tracer_provider.shutdown()
-
-            meter_provider = metrics.get_meter_provider()
-            if hasattr(meter_provider, 'shutdown'):
-                meter_provider.shutdown()
-            logging.info("--- OpenTelemetry shutdown complete ---")
-        except Exception as e:
-            logging.error(f"Error during OpenTelemetry shutdown: {e}")
     except (ValueError, subprocess.CalledProcessError, ApiDisabledError, DeploymentError) as e:
         logging.error(f"A critical error occurred: {e}", exc_info=False)
         logging.error("Deployment failed.")

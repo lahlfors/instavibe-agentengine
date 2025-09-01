@@ -61,17 +61,6 @@ def deploy_agent_engine_app(
         enable_tracing=False,
     )
 
-    agent_config = {
-        "display_name": display_name,
-        "description": f"Agent: {display_name}",
-        "labels": labels,
-        "requirements": requirements,
-        "extra_packages": extra_packages,
-        "spec": agent_engine,
-    }
-    agent_config.pop('labels', None)
-    # ... log_config ...
-
     try:
         list_filter = f'display_name="{display_name}"'
         logging.info(f"Checking for existing agent with filter: {list_filter}")
@@ -86,29 +75,36 @@ def deploy_agent_engine_app(
             remote_agent = existing_agents[0]
             logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
 
-            # FIX 1: Correct - Pass updated fields as kwargs to update()
-            remote_agent.update(
-                reasoning_engine=agent_engine, # Pass the AdkApp instance to update the spec
-                description=f"Agent: {display_name}",
-                requirements=requirements,
-                extra_packages=extra_packages,
-                labels=labels
-            )
+            # Modify the attributes on the instance
+            remote_agent.spec = agent_engine
+            remote_agent.description = f"Agent: {display_name}"
+            remote_agent.requirements = requirements
+            remote_agent.extra_packages = extra_packages
+            remote_agent.labels = labels
+
+            # CORRECTED UPDATE CALL: Call update() with no arguments
+            # The SDK will generate the updateMask based on changed attributes.
+            remote_agent.update()
             logging.info(f"Agent '{display_name}' updated successfully.")
 
         else:
             logging.info(f"Attempting to create new agent: {display_name}")
 
-            # FIX 2: Corrected - Pass agent_engine as the first positional argument to create()
+            # CORRECTED CREATE CALL
             remote_agent = reasoning_engines.ReasoningEngine.create(
                 agent_engine,  # The AdkApp instance
                 display_name=display_name,
                 description=f"Agent: {display_name}",
                 requirements=requirements,
-                extra_packages=extra_packages,
-                labels=labels
+                extra_packages=extra_packages
+                # Labels are added after creation
             )
-            logging.info(f"Agent '{display_name}' created successfully.")
+            logging.info(f"Agent '{display_name}' created successfully. Now setting labels...")
+
+            # Set labels on the returned instance and call update
+            remote_agent.labels = labels
+            remote_agent.update() # This will send an update request for the labels
+            logging.info(f"Labels updated for '{display_name}'.")
 
         config = {
             "remote_agent_engine_id": remote_agent.resource_name,

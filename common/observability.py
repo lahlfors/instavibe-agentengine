@@ -18,7 +18,6 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter as GRPCOTLPMetricExporter
-from opentelemetry.propagate import set_textmap
 from opentelemetry.propagators.b3 import B3MultiPropagator
 
 # Import Instrumentors
@@ -94,7 +93,7 @@ def setup_observability():
 
     # Configure Propagation
     # Using the updated set_textmap instead of the deprecated set_global_textmap_propagator
-    set_textmap(B3MultiPropagator())
+    propagate.set_global_textmap(B3MultiPropagator())
     logger.info("Global TextMap propagator set to B3MultiPropagator.")
 
     # Instrument libraries

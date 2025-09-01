@@ -245,13 +245,12 @@ def build_and_deploy_cloud_run_service(
 
 # --- Main Orchestration ---
 def main(args):
+    setup_observability()
     install_dependencies()
     try:
         config = setup_environment()
         project_id = config["project_id"]
         region = config["region"]
-
-        setup_observability()
 
         if not args.skip_spanner:
             setup_spanner(project_id, config["spanner_instance"], config["spanner_db"], region)

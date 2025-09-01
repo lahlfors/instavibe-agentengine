@@ -75,27 +75,39 @@ def deploy_agent_engine_app(
     try:
         list_filter = f'display_name="{display_name}"'
         logging.info(f"Checking for existing agent with filter: {list_filter}")
-        existing_agents = list(agent_engines.list(filter=list_filter))
+        # CORRECTED: Use reasoning_engines.ReasoningEngine.list
+        existing_agents = list(reasoning_engines.ReasoningEngine.list(filter=list_filter))
 
         if len(existing_agents) > 1:
             logging.warning(f"Found {len(existing_agents)} agents with display_name='{display_name}'. This indicates a potential name collision. Skipping update for {display_name}.")
             raise RuntimeError(f"Multiple agents found for display_name: {display_name}")
+
         elif existing_agents:
             remote_agent = existing_agents[0]
             logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
-            remote_agent.spec = agent_engine
-            remote_agent.update()
+
+            # FIX 1: Correct - Pass updated fields as kwargs to update()
+            remote_agent.update(
+                reasoning_engine=agent_engine, # Pass the AdkApp instance to update the spec
+                description=f"Agent: {display_name}",
+                requirements=requirements,
+                extra_packages=extra_packages,
+                labels=labels
+            )
             logging.info(f"Agent '{display_name}' updated successfully.")
+
         else:
             logging.info(f"Attempting to create new agent: {display_name}")
-            new_agent_config = reasoning_engines.ReasoningEngine(
+
+            # FIX 2: Corrected - Pass agent_engine as the first positional argument to create()
+            remote_agent = reasoning_engines.ReasoningEngine.create(
+                agent_engine,  # The AdkApp instance
                 display_name=display_name,
-                description=agent_config["description"],
-                spec=agent_engine,
-                requirements=agent_config["requirements"],
-                extra_packages=agent_config["extra_packages"],
+                description=f"Agent: {display_name}",
+                requirements=requirements,
+                extra_packages=extra_packages,
+                labels=labels
             )
-            remote_agent = reasoning_engines.ReasoningEngine.create(new_agent_config)
             logging.info(f"Agent '{display_name}' created successfully.")
 
         config = {
@@ -110,6 +122,7 @@ def deploy_agent_engine_app(
         logging.info(f"Agent Engine ID written to {config_file}")
 
         return remote_agent
+
     except google.api_core.exceptions.InvalidArgument as e:
          logging.error(f"!!! InvalidArgument error during agent deployment for '{display_name}' ... {e}")
          raise

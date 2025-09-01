@@ -41,6 +41,7 @@ async def create_post(author_name: str, text: str, sentiment: str, base_url: str
     """
     parent_context = extract_parent_context(headers)
     with tracer.start_as_current_span("tool.create_post", context=parent_context) as span:
+        span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "create_post")
         span.set_attribute("tool.name", "create_post")
         span.set_attribute("tool.input.author_name", author_name)
         span.set_attribute("tool.input.text", text)
@@ -92,6 +93,7 @@ async def create_event(event_name: str, description: str, event_date: str, locat
     """
     parent_context = extract_parent_context(headers)
     with tracer.start_as_current_span("tool.create_event", context=parent_context) as span:
+        span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "create_event")
         span.set_attribute("tool.name", "create_event")
         span.set_attribute("tool.input.event_name", event_name)
         span.set_attribute("tool.input.description", description)
@@ -147,6 +149,7 @@ async def get_person_id_by_name(name: str, base_url: str = BASE_URL, *, headers:
     """
     parent_context = extract_parent_context(headers)
     with tracer.start_as_current_span("tool.get_person_id_by_name", context=parent_context) as span:
+        span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_id_by_name")
         span.set_attribute("tool.name", "get_person_id_by_name")
         span.set_attribute("tool.input.name", name)
         url = f"{base_url}/api/person/by_name/{name}"
@@ -190,6 +193,7 @@ async def get_person_attended_events(person_id: str, base_url: str = BASE_URL, *
     """
     parent_context = extract_parent_context(headers)
     with tracer.start_as_current_span("tool.get_person_attended_events", context=parent_context) as span:
+        span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_attended_events")
         span.set_attribute("tool.name", "get_person_attended_events")
         span.set_attribute("tool.input.person_id", person_id)
         url = f"{base_url}/api/person/{person_id}/attended_events"
@@ -232,6 +236,7 @@ async def get_person_posts(person_id: str, base_url: str = BASE_URL, *, headers:
     """
     parent_context = extract_parent_context(headers)
     with tracer.start_as_current_span("tool.get_person_posts", context=parent_context) as span:
+        span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_posts")
         span.set_attribute("tool.name", "get_person_posts")
         span.set_attribute("tool.input.person_id", person_id)
         url = f"{base_url}/api/person/{person_id}/posts"
@@ -274,6 +279,7 @@ async def get_person_friends(person_id: str, base_url: str = BASE_URL, *, header
     """
     parent_context = extract_parent_context(headers)
     with tracer.start_as_current_span("tool.get_person_friends", context=parent_context) as span:
+        span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "get_person_friends")
         span.set_attribute("tool.name", "get_person_friends")
         span.set_attribute("tool.input.person_id", person_id)
         url = f"{base_url}/api/person/{person_id}/friends"

@@ -62,12 +62,12 @@ def deploy_agent_engine_app(
     )
 
     agent_config = {
-        "agent_engine": agent_engine,
         "display_name": display_name,
         "description": f"Agent: {display_name}",
         "labels": labels,
         "requirements": requirements,
         "extra_packages": extra_packages,
+        "spec": agent_engine,
     }
     agent_config.pop('labels', None)
     # ... log_config ...
@@ -85,19 +85,14 @@ def deploy_agent_engine_app(
             logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
             update_payload = agent_config.copy()
             update_payload.pop('name', None)
-            update_payload.pop('agent_engine', None)
-            remote_agent = agent_engines.update(
-                reasoning_engine=agent_config["agent_engine"],
+            remote_agent.update(
                 **update_payload
             )
             logging.info(f"Agent '{display_name}' updated successfully.")
         else:
             logging.info(f"Attempting to create new agent: {display_name}")
-            create_payload = agent_config.copy()
-            create_payload.pop('agent_engine', None)
-            remote_agent = agent_engines.create(
-                reasoning_engine=agent_config["agent_engine"],
-                **create_payload
+            remote_agent = reasoning_engines.ReasoningEngine.create(
+                **agent_config
             )
             logging.info(f"Agent '{display_name}' created successfully.")
 

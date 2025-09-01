@@ -83,11 +83,8 @@ def deploy_agent_engine_app(
         elif existing_agents:
             remote_agent = existing_agents[0]
             logging.info(f"Attempting to update existing agent: {display_name} ({remote_agent.resource_name})")
-            update_payload = agent_config.copy()
-            update_payload.pop('name', None)
-            remote_agent.update(
-                **update_payload
-            )
+            remote_agent.spec = agent_engine
+            remote_agent.update()
             logging.info(f"Agent '{display_name}' updated successfully.")
         else:
             logging.info(f"Attempting to create new agent: {display_name}")

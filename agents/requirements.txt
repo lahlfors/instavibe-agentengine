@@ -1,1 +1,49 @@
--r all_requirements.txt
+# Core OpenTelemetry
+opentelemetry-api==1.36.0
+opentelemetry-sdk==1.36.0
+opentelemetry-exporter-otlp-proto-grpc==1.36.0
+opentelemetry-propagator-b3==1.36.0
+
+# Google Cloud
+google-auth
+google-cloud-logging
+google-cloud-aiplatform>=1.110.0
+
+# OpenTelemetry Instrumentations
+opentelemetry-instrumentation-vertexai==0.46.2
+opentelemetry-instrumentation-requests==0.57b0
+opentelemetry-instrumentation-grpc==0.57b0
+opentelemetry-instrumentation-fastapi==0.57b0
+opentelemetry-instrumentation-logging==0.57b0
+opentelemetry-instrumentation-langchain==0.46.2
+opentelemetry-instrumentation-openai==0.46.2
+
+# Utilities
+python-dotenv>=1.0.0
+grpcio
+requests>=2.0.0
+
+# Other dependencies
+google-api-python-client
+google-cloud-spanner
+fastapi
+uvicorn
+pydantic
+starlette
+google-cloud-storage
+google-auth-oauthlib
+google-auth-httplib2
+google-api-core
+google-cloud-appengine-logging
+google-cloud-trace
+google-cloud-aiplatform[agent_engines,adk]==1.110.0
+google-adk==1.13.0
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+langchain-google-vertexai
+langchain-openai
+openai
+google-search-results
+tiktoken

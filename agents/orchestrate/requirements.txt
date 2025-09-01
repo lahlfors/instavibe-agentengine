@@ -1,1 +1,26 @@
--r all_requirements.txt
+# OpenTelemetry
+opentelemetry-api==1.36.0
+opentelemetry-sdk==1.36.0
+opentelemetry-exporter-otlp-proto-grpc==1.36.0
+opentelemetry-instrumentation-logging==0.57b0
+opentelemetry-instrumentation-requests==0.57b0
+opentelemetry-instrumentation-vertexai==0.46.2
+opentelemetry-instrumentation-grpc==0.57b0
+opentelemetry-instrumentation-aiohttp-client==0.57b0
+opentelemetry-propagator-b3==1.36.0
+
+# Google Cloud
+google-cloud-logging
+google-cloud-aiplatform[agent_engines,adk]>=1.110.0
+google-adk>=1.13.0
+
+# Other
+python-dotenv>=1.0.0
+nest_asyncio>=1.6.0
+cloudpickle>=3.0.0
+pydantic
+requests>=2.0.0
+google-auth[aiohttp]>=2.0.0
+grpcio
+grpcio-status
+aiohttp

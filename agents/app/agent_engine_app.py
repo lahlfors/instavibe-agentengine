@@ -61,12 +61,6 @@ def deploy_agent_engine_app(
         enable_tracing=enable_tracing,
     )
 
-    if enable_tracing:
-        logging.info(f"Augmenting OpenTelemetry for {display_name}")
-        setup_observability()
-    else:
-        logging.info(f"Skipping custom OpenTelemetry setup for {display_name}")
-
     agent_config = {
         "agent_engine": agent_engine,
         "display_name": display_name,
@@ -75,6 +69,7 @@ def deploy_agent_engine_app(
         "requirements": requirements,
         "extra_packages": extra_packages,
     }
+    agent_config.pop('labels', None)
     # ... log_config ...
 
     try:

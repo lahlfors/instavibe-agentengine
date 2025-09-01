@@ -12,22 +12,16 @@ from google.auth.transport import requests as google_auth_transport_requests
 from google.auth.transport.grpc import AuthMetadataPlugin # Corrected import
 
 from opentelemetry import trace, metrics, propagate
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter, BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
-from opentelemetry.sdk.trace.export import (
-    BatchSpanProcessor,
-    ConsoleSpanExporter,
-    SimpleSpanProcessor,
-)
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as GRPCOTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-# from opentelemetry.propagators.cloud_trace_propagator import CloudTraceFormatPropagator # Alternative for GCP
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter as GRPCOTLPMetricExporter
+from opentelemetry.propagate import set_textmap
+from opentelemetry.propagators.b3 import B3MultiPropagator
 
-import google.cloud.logging
-
+# Import Instrumentors
 from opentelemetry.instrumentation.vertexai import VertexAIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
@@ -44,143 +38,90 @@ GOOGLE_CLOUD_SCOPE: Final[List[str]] = [
 
 log = logging.getLogger(__name__)
 
-_OTEL_INITIALIZED = False
-
-def _get_gcp_credentials() -> Tuple[Optional[google.auth.credentials.Credentials], Optional[str]]:
-    try:
-        credentials, project_id = google.auth.default(scopes=GOOGLE_CLOUD_SCOPE)
-        if not project_id:
-            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        log.info(f"Google Cloud credentials fetched for project: {project_id}")
-        return credentials, project_id
-    except Exception as e:
-        log.warning(f"Could not fetch Google Cloud credentials: {e}. GCP-specific exporters will be skipped.")
-        return None, os.getenv("GOOGLE_CLOUD_PROJECT")
-
-def _create_grpc_channel(credentials: google.auth.credentials.Credentials, endpoint: str) -> grpc.Channel:
-    request = google.auth.transport.requests.Request()
-    auth_metadata_plugin = AuthMetadataPlugin(credentials=credentials, request=request)
-    ssl_creds = grpc.ssl_channel_credentials()
-    return grpc.secure_channel(
-        endpoint,
-        grpc.composite_channel_credentials(
-            ssl_creds,
-            grpc.metadata_call_credentials(auth_metadata_plugin),
-        ),
-    )
-
 def setup_observability():
-    """
-    Initializes a standard, centralized OpenTelemetry pipeline for Google Cloud.
+    logger.info("--- common.observability.setup_observability started ---")
 
-    This function ensures a standard SdkTracerProvider is used, configures
-    exporters for Traces (Console, OTLP to Cloud Trace) and Metrics (OTLP to
-    Cloud Monitoring), integrates with Cloud Logging, and applies common instrumentations.
-
-    It is designed to be idempotent.
-    """
-    global _OTEL_INITIALIZED
-    if _OTEL_INITIALIZED:
-        log.info("OpenTelemetry already initialized. Skipping setup.")
-        return
-
-    log.info("--- common.observability.setup_observability started ---")
-
-    credentials, project_id = _get_gcp_credentials()
-
-    # 1. Define a consistent Resource for all telemetry signals.
-    resource_attrs = {
-        "service.name": os.getenv("SERVICE_NAME", DEFAULT_SERVICE_NAME),
-    }
-    if project_id:
-        resource_attrs["gcp.project_id"] = project_id
-    else:
-         log.warning("GOOGLE_CLOUD_PROJECT not set, 'gcp.project_id' attribute will be missing.")
-
-    resource = Resource.create(resource_attrs)
-
-    # --- TRACE CONFIGURATION ---
-    current_provider = trace.get_tracer_provider()
-    if not isinstance(current_provider, SdkTracerProvider):
-        log.warning(
-            f"No standard SdkTracerProvider found (type: {type(current_provider).__name__}). "
-            "Initializing a new one. This will overwrite any non-standard provider."
-        )
-        provider = SdkTracerProvider(resource=resource)
-        trace.set_tracer_provider(provider)
-    else:
-        log.info("A standard SdkTracerProvider is already configured.")
-        provider = current_provider
-        # Note: We are not attempting to merge resources with an existing provider.
-        # The first successful initialization dictates the Resource.
-
-    # Add Span Processors (only if not already added - basic check)
-    if not hasattr(provider, '_is_ duckie_configured'):
-        # Export to the console for easy local debugging.
-        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-        log.info("ConsoleSpanExporter added to TracerProvider.")
-
-        # Export to Google Cloud Trace via OTLP
-        if credentials:
-            try:
-                grpc_channel = _create_grpc_channel(credentials, "telemetry.googleapis.com:443")
-                otlp_trace_exporter = OTLPSpanExporter(channel=grpc_channel)
-                provider.add_span_processor(BatchSpanProcessor(otlp_trace_exporter))
-                log.info("OTLPSpanExporter for Cloud Trace added to TracerProvider.")
-            except Exception as e:
-                log.error(f"Failed to setup OTLPSpanExporter for traces: {e}", exc_info=True)
-        else:
-            log.warning("Skipping OTLP Trace Exporter: No Google Cloud credentials.")
-        setattr(provider, '_is_ duckie_configured', True)
-
-    # --- METRIC CONFIGURATION ---
-    if not isinstance(metrics.get_meter_provider(), MeterProvider):
-        metric_readers = []
-        if credentials:
-            try:
-                grpc_channel_metrics = _create_grpc_channel(credentials, "telemetry.googleapis.com:443")
-                otlp_metric_exporter = OTLPMetricExporter(channel=grpc_channel_metrics)
-                metric_reader = PeriodicExportingMetricReader(otlp_metric_exporter)
-                metric_readers.append(metric_reader)
-                log.info("OTLPMetricExporter for Cloud Monitoring added.")
-            except Exception as e:
-                log.error(f"Failed to setup OTLPMetricExporter for metrics: {e}", exc_info=True)
-        else:
-            log.warning("Skipping OTLP Metric Exporter: No Google Cloud credentials.")
-
-        meter_provider = MeterProvider(resource=resource, metric_readers=metric_readers)
-        metrics.set_meter_provider(meter_provider)
-        log.info("MeterProvider configured and set as global.")
-    else:
-        log.info("A MeterProvider is already configured.")
-
-    # --- PROPAGATION ---
-    propagate.set_textmap(TraceContextTextMapPropagator())
-    # Alternate: propagate.set_textmap(CloudTraceFormatPropagator())
-    log.info("Global TextMap propagator set to TraceContextTextMapPropagator.")
-
-    # --- Google Cloud Logging Integration ---
+    # Define Resources
+    project_id = "unknown"
+    creds = None
     try:
-        if credentials and project_id:
-            logging_client = google.cloud.logging.Client(project=project_id, credentials=credentials)
-            logging_client.setup_logging(log_level=logging.INFO)
-            # Re-fetch logger to ensure it's a cloud logger
-            logging.info("Google Cloud Logging client setup complete, integrating with Python logging.")
-        else:
-            log.warning("Skipping Google Cloud Logging integration: Missing credentials or project ID.")
+        _, project_id = google.auth.default()
+        logger.info(f"Google Cloud project ID fetched: {project_id}")
+        creds = google.auth.default()[0]
     except Exception as e:
-        log.error(f"Failed to configure Google Cloud Logging: {e}", exc_info=True)
+        logger.warning(f"Could not fetch Google Cloud credentials: {e}")
 
-    # --- APPLY INSTRUMENTATION ---
-    log.info("Applying standard library instrumentations...")
-    try: RequestsInstrumentor().instrument()
-    except Exception as e: log.error(f"Failed to instrument Requests: {e}")
-    try: VertexAIInstrumentor().instrument()
-    except Exception as e: log.error(f"Failed to instrument VertexAI: {e}")
-    try: AioHttpClientInstrumentor().instrument()
-    except Exception as e: log.error(f"Failed to instrument AioHttpClient: {e}")
-    try: GrpcInstrumentorClient().instrument()
-    except Exception as e: log.error(f"Failed to instrument GrpcInstrumentorClient: {e}")
+    service_name = os.environ.get("SERVICE_NAME", "default-service")
+    resource = Resource.create({
+        "service.name": service_name,
+        "gcp.project_id": project_id,
+    })
 
-    _OTEL_INITIALIZED = True
-    log.info(f"Observability setup complete for service: {resource.attributes.get('service.name')}")
+    # Configure Tracing
+    tracer_provider = SdkTracerProvider(resource=resource)
+    trace.set_tracer_provider(tracer_provider)
+    logger.info("New OpenTelemetry SDK TracerProvider created and set globally.")
+
+    # Add Exporters to the active SdkTracerProvider
+    # Console Exporter
+    console_exporter = ConsoleSpanExporter()
+    tracer_provider.add_span_processor(SimpleSpanProcessor(console_exporter))
+    logger.info("OpenTelemetry ConsoleSpanExporter added.")
+
+    # OTLP Exporter to Google Cloud
+    try:
+        otlp_trace_exporter = GRPCOTLPSpanExporter(
+            endpoint="telemetry.googleapis.com:443",
+            credentials=creds
+        )
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_trace_exporter))
+        logger.info("OpenTelemetry OTLPSpanExporter to telemetry.googleapis.com added.")
+    except Exception as e:
+        logger.error(f"Failed to setup OTLPSpanExporter for traces: {e}")
+
+    # Configure Metrics
+    try:
+        otlp_metric_exporter = GRPCOTLPMetricExporter(
+            endpoint="telemetry.googleapis.com:443",
+            credentials=creds
+        )
+        metric_reader = PeriodicExportingMetricReader(otlp_metric_exporter)
+        meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
+        metrics.set_meter_provider(meter_provider)
+        logger.info("MeterProvider configured with OTLP Metric Reader.")
+    except Exception as e:
+        logger.error(f"Failed to setup MeterProvider: {e}")
+
+    # Configure Propagation
+    # Using the updated set_textmap instead of the deprecated set_global_textmap_propagator
+    set_textmap(B3MultiPropagator())
+    logger.info("Global TextMap propagator set to B3MultiPropagator.")
+
+    # Instrument libraries
+    logger.info("Enabling OpenTelemetry Instrumentations...")
+    try:
+        VertexAIInstrumentor().instrument()
+        logger.info("VertexAIInstrumentor enabled.")
+    except Exception as e:
+        logger.error(f"Error enabling VertexAIInstrumentor: {e}")
+    try:
+        RequestsInstrumentor().instrument()
+        logger.info("RequestsInstrumentor enabled.")
+    except Exception as e:
+        logger.error(f"Error enabling RequestsInstrumentor: {e}")
+    try:
+        AioHttpClientInstrumentor().instrument()
+        logger.info("AioHttpClientInstrumentor enabled.")
+    except Exception as e:
+        logger.error(f"Error enabling AioHttpClientInstrumentor: {e}")
+
+    try:
+        GrpcInstrumentorClient().instrument()
+        logger.info("GrpcInstrumentorClient enabled.")
+    except Exception as e:
+        logger.error(f"Error enabling GrpcInstrumentorClient: {e}")
+    logger.info(f"Custom observability setup complete for service: {service_name}")
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    setup_observability()

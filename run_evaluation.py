@@ -6,7 +6,7 @@ import os
 PROJECT_ID = "laah-genai"
 LOCATION = "us-central1"
 AGENT_ID = "social_agent_main" # Your Reasoning Engine ID
-DATASET_URI = "gs://your-bucket-name/eval_dataset.jsonl" # Path to your dataset
+DATASET_URI = "gs://your-bucket-name/eval_dataset_adk.json" # Path to your dataset
 
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 

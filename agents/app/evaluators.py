@@ -6,13 +6,18 @@ import os
 def evaluate_tool_choice(instance: dict) -> dict:
     """
     Fetches an OTel trace and evaluates if the correct tool was called.
+
+    This evaluator is designed to work with an EvalCase that has a `metadata`
+    field containing the `trace_id` and ground truth information.
     """
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "your-fallback-project-id")
-    trace_id = instance.get("trace_id")
-    expected_tool = instance.get("ground_truth_tool")
+
+    metadata = instance.get("metadata", {})
+    trace_id = metadata.get("trace_id")
+    expected_tool = metadata.get("ground_truth_tool")
 
     if not trace_id or not expected_tool:
-        return {"tool_choice_accuracy": 0.0, "explanation": "Missing trace_id or ground_truth_tool."}
+        return {"tool_choice_accuracy": 0.0, "explanation": "Missing trace_id or ground_truth_tool in metadata."}
 
     try:
         trace_client = trace_v1.TraceServiceClient()
@@ -38,7 +43,7 @@ def evaluate_tool_choice(instance: dict) -> dict:
 
         if found_span:
             # Tool was found, now check inputs if specified
-            expected_sentiment = instance.get("ground_truth_sentiment")
+            expected_sentiment = metadata.get("ground_truth_sentiment")
             if expected_sentiment:
                 actual_sentiment_attr = found_span.attributes.get("tool.input.sentiment")
                 if actual_sentiment_attr and actual_sentiment_attr.string_value == expected_sentiment:

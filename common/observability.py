@@ -38,17 +38,17 @@ GOOGLE_CLOUD_SCOPE: Final[List[str]] = [
 log = logging.getLogger(__name__)
 
 def setup_observability():
-    logger.info("--- common.observability.setup_observability started ---")
+    log.info("--- common.observability.setup_observability started ---")
 
     # Define Resources
     project_id = "unknown"
     creds = None
     try:
         _, project_id = google.auth.default()
-        logger.info(f"Google Cloud project ID fetched: {project_id}")
+        log.info(f"Google Cloud project ID fetched: {project_id}")
         creds = google.auth.default()[0]
     except Exception as e:
-        logger.warning(f"Could not fetch Google Cloud credentials: {e}")
+        log.warning(f"Could not fetch Google Cloud credentials: {e}")
 
     service_name = os.environ.get("SERVICE_NAME", "default-service")
     resource = Resource.create({
@@ -59,13 +59,13 @@ def setup_observability():
     # Configure Tracing
     tracer_provider = SdkTracerProvider(resource=resource)
     trace.set_tracer_provider(tracer_provider)
-    logger.info("New OpenTelemetry SDK TracerProvider created and set globally.")
+    log.info("New OpenTelemetry SDK TracerProvider created and set globally.")
 
     # Add Exporters to the active SdkTracerProvider
     # Console Exporter
     console_exporter = ConsoleSpanExporter()
     tracer_provider.add_span_processor(SimpleSpanProcessor(console_exporter))
-    logger.info("OpenTelemetry ConsoleSpanExporter added.")
+    log.info("OpenTelemetry ConsoleSpanExporter added.")
 
     # OTLP Exporter to Google Cloud
     try:
@@ -74,9 +74,9 @@ def setup_observability():
             credentials=creds
         )
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_trace_exporter))
-        logger.info("OpenTelemetry OTLPSpanExporter to telemetry.googleapis.com added.")
+        log.info("OpenTelemetry OTLPSpanExporter to telemetry.googleapis.com added.")
     except Exception as e:
-        logger.error(f"Failed to setup OTLPSpanExporter for traces: {e}")
+        log.error(f"Failed to setup OTLPSpanExporter for traces: {e}")
 
     # Configure Metrics
     try:
@@ -87,39 +87,39 @@ def setup_observability():
         metric_reader = PeriodicExportingMetricReader(otlp_metric_exporter)
         meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
         metrics.set_meter_provider(meter_provider)
-        logger.info("MeterProvider configured with OTLP Metric Reader.")
+        log.info("MeterProvider configured with OTLP Metric Reader.")
     except Exception as e:
-        logger.error(f"Failed to setup MeterProvider: {e}")
+        log.error(f"Failed to setup MeterProvider: {e}")
 
     # Configure Propagation
     # Using the updated set_textmap instead of the deprecated set_global_textmap_propagator
     propagate.set_global_textmap(B3MultiFormat())
-    logger.info("Global TextMap propagator set to B3MultiPropagator.")
+    log.info("Global TextMap propagator set to B3MultiPropagator.")
 
     # Instrument libraries
-    logger.info("Enabling OpenTelemetry Instrumentations...")
+    log.info("Enabling OpenTelemetry Instrumentations...")
     try:
         VertexAIInstrumentor().instrument()
-        logger.info("VertexAIInstrumentor enabled.")
+        log.info("VertexAIInstrumentor enabled.")
     except Exception as e:
-        logger.error(f"Error enabling VertexAIInstrumentor: {e}")
+        log.error(f"Error enabling VertexAIInstrumentor: {e}")
     try:
         RequestsInstrumentor().instrument()
-        logger.info("RequestsInstrumentor enabled.")
+        log.info("RequestsInstrumentor enabled.")
     except Exception as e:
-        logger.error(f"Error enabling RequestsInstrumentor: {e}")
+        log.error(f"Error enabling RequestsInstrumentor: {e}")
     try:
         AioHttpClientInstrumentor().instrument()
-        logger.info("AioHttpClientInstrumentor enabled.")
+        log.info("AioHttpClientInstrumentor enabled.")
     except Exception as e:
-        logger.error(f"Error enabling AioHttpClientInstrumentor: {e}")
+        log.error(f"Error enabling AioHttpClientInstrumentor: {e}")
 
     try:
         GrpcInstrumentorClient().instrument()
-        logger.info("GrpcInstrumentorClient enabled.")
+        log.info("GrpcInstrumentorClient enabled.")
     except Exception as e:
-        logger.error(f"Error enabling GrpcInstrumentorClient: {e}")
-    logger.info(f"Custom observability setup complete for service: {service_name}")
+        log.error(f"Error enabling GrpcInstrumentorClient: {e}")
+    log.info(f"Custom observability setup complete for service: {service_name}")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

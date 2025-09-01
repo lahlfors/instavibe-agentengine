@@ -11,15 +11,16 @@ from opentelemetry.trace import Status, StatusCode
 import sys
 sys.path.append('.')
 from common.observability import setup_observability
-from agents.app.utils.trajectory_logger import log_trajectory_to_gcs
-
-setup_observability(service_name="planner_agent")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 
 class PlannerAgent(LlmAgent):
     """An agent that helps users plan a night out."""
+
+    def set_up(self):
+        """Initializes the agent and sets up observability."""
+        setup_observability()
 
     def __init__(self, name: str = "planner_agent") -> None:
         super().__init__(
@@ -65,11 +66,8 @@ class PlannerAgent(LlmAgent):
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         with tracer.start_as_current_span("PlannerAgent.run") as span:
-            trajectory = []
-            final_output = ""
             try:
                 async for event in super()._run_async_impl(ctx):
-                    trajectory.append(event.to_dict())
                     if event.is_final_response():
                         if event.content and event.content.parts:
                             final_output = event.content.parts[0].text
@@ -86,22 +84,6 @@ class PlannerAgent(LlmAgent):
                             span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
                             span.set_attribute("gen_ai.usage.cost", cost)
                     yield event
-
-                # Log the trajectory to GCS
-                bucket_name = os.getenv("COMMON_VERTEX_STAGING_BUCKET")
-                project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-                if bucket_name and project_id:
-                    trajectory_data = {
-                        "prompt": ctx.prompt,
-                        "trajectory": trajectory,
-                    }
-                    log_trajectory_to_gcs(
-                        agent_name=self.name,
-                        trajectory_data=trajectory_data,
-                        bucket_name=bucket_name,
-                        project_id=project_id,
-                    )
-
                 span.set_status(Status(StatusCode.OK))
             except Exception as e:
                 logging.error(f"Error during PlannerAgent execution: {e}", exc_info=True)

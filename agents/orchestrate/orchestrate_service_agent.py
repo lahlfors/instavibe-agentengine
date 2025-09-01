@@ -4,6 +4,9 @@ import os
 import asyncio
 import google.auth
 import google.auth.credentials
+import json
+from opentelemetry import trace
+import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
@@ -15,6 +18,7 @@ from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
 
 logging.basicConfig(level=logging.INFO)
+tracer = trace.get_tracer(__name__)
 
 class OrchestrateServiceAgent(Agent):
     """
@@ -122,23 +126,41 @@ class OrchestrateServiceAgent(Agent):
         """
         Finds a remote agent and invokes one of its capabilities.
         """
-        try:
-            response_data = await call_agent_capability(
-                source_agent="orchestrate_agent",
-                target_agent=agent_name,
-                capability=action,
-                prompt=data
-            )
-            return response_data
-        except Exception as e:
-            return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
+        with tracer.start_as_current_span(f"{agent_name}.{action}") as span:
+            span.set_attribute(ai_semconv.GEN_AI_OPERATION_NAME, "send_task")
+            span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "send_task")
+            tool_params = {
+                "agent_name": agent_name,
+                "action": action,
+                "data": data,
+            }
+            span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
+            try:
+                response_data = await call_agent_capability(
+                    source_agent="orchestrate_agent",
+                    target_agent=agent_name,
+                    capability=action,
+                    prompt=data
+                )
+                span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response_data))
+                return response_data
+            except Exception as e:
+                span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps({"error": str(e)}))
+                return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
     def query(self, input_text: str) -> str:
-        if not self.orchestrator_agent:
-            logging.error("OrchestratorAgent not initialized. set_up() was not called.")
-            raise RuntimeError("Agent not properly initialized.")
+        with tracer.start_as_current_span("orchestrate_agent.query") as span:
+            span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
+            span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
+            span.set_attribute(ai_semconv.INPUT_VALUE, input_text)
+            if not self.orchestrator_agent:
+                logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+                raise RuntimeError("Agent not properly initialized.")
 
-        return self.orchestrator_agent.query(input_text)
+            response = self.orchestrator_agent.query(input_text)
+
+            span.set_attribute(ai_semconv.OUTPUT_VALUE, str(response))
+            return response
 
 OrchestrateServiceAgent.model_rebuild()
 

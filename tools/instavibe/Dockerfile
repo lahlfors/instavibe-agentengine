@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the shared agents directory
 COPY agents ./agents
 
+# Copy the shared common directory
+COPY common ./common
+
 # Copy the server script itself
 COPY tools/instavibe/mcp_server.py .
 

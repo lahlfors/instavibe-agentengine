@@ -31,7 +31,7 @@ log = logging.getLogger(__name__) # Added
 
 from typing import List, Optional
 
-def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None):
+def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_packages: Optional[List[str]] = None, env_vars: Optional[dict[str, str]] = None):
     """
     Deploys the Social Agent as a Vertex AI Reasoning Engine using the ADK.
 
@@ -90,6 +90,7 @@ def deploy_social_main_func(project_id: str, region: str, base_dir: str, extra_p
         "COMMON_SPANNER_DATABASE_ID": os.environ.get("COMMON_SPANNER_DATABASE_ID", ""),
         # Add any other essential env vars the agent might need at runtime
     }
+    env_vars_for_deployment.update(env_vars or {})
     # Filter out any empty values to avoid passing VAR=""
     env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v}
     print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")

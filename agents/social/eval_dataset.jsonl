@@ -1,0 +1,3 @@
+{"input_text": "What are the latest posts from my friends?", "ground_truth_tool": "get_person_posts", "trace_id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"}
+{"input_text": "Who is attending the 'Summer Music Festival'?", "ground_truth_tool": "get_person_attended_events", "trace_id": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4"}
+{"input_text": "Find the profile of 'Alex'", "ground_truth_tool": "get_person_id_by_name", "trace_id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4a1"}

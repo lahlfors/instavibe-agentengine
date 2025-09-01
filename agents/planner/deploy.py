@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 # import uuid # No longer needed for generating unique GCS filenames
 # from urllib.parse import urlparse # No longer needed for parsing staging_bucket_uri
 # import cloudpickle # Handled by ADK
@@ -8,7 +9,7 @@ import os
 
 from google.cloud import aiplatform as vertexai # Standard alias
 # from vertexai.preview import reasoning_engines # ADK for deployment - Old
-from agents.app.agent_engine_app import AgentEngineApp # For wrapping
+from vertexai.preview.reasoning_engines import AdkApp as AgentEngineApp # For wrapping
 from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
@@ -29,7 +30,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
+def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_run: bool = False, env_vars: Optional[dict[str, str]] = None):
     """
     Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK.
 
@@ -72,6 +73,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
         "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
     }
+    env_vars_for_deployment.update(env_vars or {})
     # --- END SIMPLIFICATION ---
 
     # Filter out any keys that have None or empty string values from the env_vars_for_deployment
@@ -118,6 +120,8 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         requirements_list.append(nest_asyncio_req_line)
 
 
+    if dry_run:
+        return adk_app_to_deploy
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
     print(f"  Requirements file (source): {requirements_path}") # Log original source
@@ -130,7 +134,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
         remote_agent = agent_engines.create(
-            adk_app_to_deploy, # MODIFIED: Use the potentially re-configured adk_app_to_deploy
+            local_agent_instance,
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list

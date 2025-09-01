@@ -1,34 +1,40 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import site
+
+print(f"\n--- DEBUG: Test Execution Environment ---")
+print(f"Python Executable: {sys.executable}")
+print(f"VIRTUAL_ENV: {os.environ.get('VIRTUAL_ENV')}")
+print(f"sys.path:")
+for p in sys.path:
+    print(f" - {p}")
+print(f"Site Packages: {site.getsitepackages()}")
+print("--- END DEBUG ---\n")
 import pytest
 import pytest_asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 import os
+import logging
 os.environ["COMMON_SPANNER_INSTANCE_ID"] = "test-instance"
 os.environ["COMMON_SPANNER_DATABASE_ID"] = "test-database"
 os.environ["COMMON_GOOGLE_CLOUD_PROJECT"] = "test-project"
-
 
 # Patch the spanner client at the source, before it's imported by app.py
 # This prevents the client from trying to authenticate when the module is loaded.
 patcher = patch('google.cloud.spanner.Client', autospec=True)
 patcher_ts = patch('google.cloud.spanner.COMMIT_TIMESTAMP', 'COMMIT_TIMESTAMP')
-patcher_logging = patch('google.cloud.logging.Client', autospec=True)
 
 from unittest.mock import MagicMock
+
 # Start the patches
 mock_spanner_client = patcher.start()
 mock_spanner_ts = patcher_ts.start()
-mock_logging_client = patcher_logging.start()
-mock_logging_client.return_value._handlers = MagicMock()
-mock_logging_client.return_value._handlers.add = MagicMock()
-mock_logging_client.return_value.project = "test-project"
-
 
 # Make sure to stop the patcher after tests are done
 import atexit
 atexit.register(patcher.stop)
 atexit.register(patcher_ts.stop)
-atexit.register(patcher_logging.stop)
-
 
 # Must be imported before the modules that use them for patching to work
 from flask import Flask, jsonify
@@ -37,7 +43,6 @@ from tools.instavibe import mcp_server as instavibe_tool_client
 from agents.social import instavibe as social_instavibe_data
 
 # --- 1. Tests for instavibe/app.py (Flask App API Endpoints) ---
-
 @pytest.fixture
 def app():
     """Create and configure a new app instance for each test."""
@@ -63,12 +68,12 @@ def test_get_person_id_by_name_api(mock_get_person_by_name_db, client):
     assert response.status_code == 200
     assert response.json == {"person_id": "person-123"}
 
+
     # Test case 2: Person not found
     mock_get_person_by_name_db.return_value = None
     response = client.get('/api/person/by_name/Unknown')
     assert response.status_code == 404
     assert 'error' in response.json
-
 @patch('instavibe.app.get_person_db')
 @patch('instavibe.app.get_person_attended_events_db')
 def test_get_person_attended_events_api(mock_get_events_db, mock_get_person_db, client):
@@ -102,9 +107,7 @@ def test_get_person_friends_api(mock_get_friends_db, mock_get_person_db, client)
     assert response.json == [{"person_id": "person-456", "name": "Bob"}]
     mock_get_friends_db.assert_called_with("person-123")
 
-
 # --- 2. Tests for tools/instavibe/instavibe.py (API Client) ---
-
 @pytest.mark.asyncio
 @patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_id_by_name(mock_call_http):
@@ -126,6 +129,7 @@ async def test_client_get_person_id_by_name(mock_call_http):
 @patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_attended_events(mock_call_http):
     """Test the API client function for getting attended events."""
+    mock_call_http.return_value = [{"event_id": "event-1", "name": "Test Event"}]
     tool_result = await instavibe_tool_client.get_person_attended_events.run({"person_id": "person-123"})
     assert tool_result.content[0].text is not None
     mock_call_http.assert_awaited_with(
@@ -141,6 +145,7 @@ async def test_client_get_person_attended_events(mock_call_http):
 @patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_posts(mock_call_http):
     """Test the API client function for getting person posts."""
+    mock_call_http.return_value = [{"post_id": "post-1", "text": "Hello"}]
     tool_result = await instavibe_tool_client.get_person_posts.run({"person_id": "person-123"})
     assert tool_result.content[0].text is not None
     mock_call_http.assert_awaited_with(
@@ -156,6 +161,7 @@ async def test_client_get_person_posts(mock_call_http):
 @patch('tools.instavibe.mcp_server.call_http_endpoint', new_callable=AsyncMock)
 async def test_client_get_person_friends(mock_call_http):
     """Test the API client function for getting person friends."""
+    mock_call_http.return_value = [{"person_id": "person-456", "name": "Bob"}]
     tool_result = await instavibe_tool_client.get_person_friends.run({"person_id": "person-123"})
     assert tool_result.content[0].text is not None
     mock_call_http.assert_awaited_with(
@@ -168,7 +174,6 @@ async def test_client_get_person_friends(mock_call_http):
     )
 
 # --- 3. Tests for agents/social/instavibe.py (Refactored Data Access Layer) ---
-
 @pytest.mark.asyncio
 @patch('agents.social.instavibe.instavibe_client', new_callable=MagicMock)
 async def test_social_get_person_id_by_name(mock_client):
@@ -203,32 +208,78 @@ async def test_social_get_friends(mock_client):
     mock_client.get_person_friends.assert_awaited_with(person_id="person-123")
 
 # --- 4. Tests for common/observability.py ---
-
 from common.observability import setup_observability
 from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.resources import Resource
 
-import os
-@patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
-@patch('common.observability.Traceloop')
-def test_setup_observability_enabled(mock_traceloop, mock_add_resource_labels):
-    """Test that setup_observability calls Traceloop.init when TRACELOOP_ENABLED is true."""
-    with patch.dict(os.environ, {"TRACELOOP_ENABLED": "true"}, clear=True):
-        setup_observability("test-service-enabled")
-        mock_traceloop.init.assert_called_once()
-        assert os.environ["TRACELOOP_SERVICE_NAME"] == "test-service-enabled"
+@patch('common.observability.google.auth.default', return_value=(("creds", "project-id")))
+@patch('common.observability.trace.get_tracer_provider')
+@patch('common.observability.BatchSpanProcessor')
+@patch('common.observability.ConsoleSpanExporter')
+@patch('common.observability.OTLPMetricExporter')
+@patch('common.observability.PeriodicExportingMetricReader')
+@patch('common.observability.MeterProvider')
+@patch('common.observability.propagate.set_global_textmap')
+@patch('common.observability.google.cloud.logging.Client')
+@patch('common.observability.VertexAIInstrumentor')
+@patch('common.observability.RequestsInstrumentor')
+@patch('common.observability.GrpcInstrumentorClient')
+@patch('common.observability.AioHttpClientInstrumentor')
+@patch('common.observability.AuthMetadataPlugin')
+@patch('common.observability.grpc.ssl_channel_credentials')
+@patch('common.observability.grpc.composite_channel_credentials')
+def test_setup_observability_with_existing_provider(
+    mock_composite_channel_credentials,
+    mock_ssl_channel_credentials,
+    mock_auth_metadata_plugin,
+    mock_aiohttp_instrumentor,
+    mock_grpc_client_instrumentor,
+    mock_requests_instrumentor,
+    mock_vertexai_instrumentor,
+    mock_logging_client,
+    mock_set_global_textmap,
+    mock_meter_provider,
+    mock_periodic_exporting_metric_reader,
+    mock_otlp_metric_exporter,
+    mock_console_exporter,
+    mock_batch_span_processor,
+    mock_get_tracer_provider,
+    mock_google_auth,
+):
+    """Test setup_observability when a TracerProvider already exists."""
+    # Arrange
+    mock_provider = MagicMock(spec=TracerProvider)
+    mock_provider.resource = Resource.create({"existing.attr": "value"})
+    mock_provider._span_processors = []
+    mock_get_tracer_provider.return_value = mock_provider
+    os.environ["SERVICE_NAME"] = "test_service"
 
-@patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
-@patch('common.observability.Traceloop')
-def test_setup_observability_disabled(mock_traceloop, mock_add_resource_labels):
-    """Test that setup_observability does NOT call Traceloop.init when TRACELOOP_ENABLED is false."""
-    with patch.dict(os.environ, {"TRACELOOP_ENABLED": "false"}, clear=True):
-        setup_observability("test-service-disabled")
-        mock_traceloop.init.assert_not_called()
+    # Act
+    setup_observability()
 
-@patch('google.cloud.logging_v2.handlers._monitored_resources.add_resource_labels', return_value={})
-@patch('common.observability.Traceloop')
-def test_setup_observability_default_disabled(mock_traceloop, mock_add_resource_labels):
-    """Test that setup_observability does NOT call Traceloop.init by default."""
-    with patch.dict(os.environ, {}, clear=True):
-        setup_observability("test-service-default")
-        mock_traceloop.init.assert_not_called()
+    # Assert
+    mock_google_auth.assert_called_once()
+    mock_get_tracer_provider.assert_called() # Called to get the provider
+
+    # Resource merging check
+    assert "service.name" in mock_provider._resource.attributes
+    assert mock_provider._resource.attributes["service.name"] == "test_service"
+    assert "existing.attr" in mock_provider._resource.attributes
+
+    # Console exporter check (idempotency)
+    mock_provider.add_span_processor.assert_called_once()
+    mock_console_exporter.assert_called_once()
+    mock_batch_span_processor.assert_called_once_with(mock_console_exporter.return_value)
+
+    # Metrics check
+    mock_otlp_metric_exporter.assert_called_once()
+    mock_periodic_exporting_metric_reader.assert_called_once()
+    mock_meter_provider.assert_called_once()
+
+    # Instrumentors check
+    mock_vertexai_instrumentor.return_value.instrument.assert_called_once()
+    mock_requests_instrumentor.return_value.instrument.assert_called_once()
+    mock_grpc_client_instrumentor.return_value.instrument.assert_called_once()
+    mock_aiohttp_instrumentor.return_value.instrument.assert_called_once()

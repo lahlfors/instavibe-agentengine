@@ -1,1 +1,0 @@
-{"prompt": "Plan a fun night out for me and my friends in San Francisco.", "reference_trajectory": [{"tool_name": "google_search", "tool_input": {"query": "fun activities in San Francisco for friends at night"}}]}

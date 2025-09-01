@@ -1,18 +1,24 @@
-google-cloud-aiplatform[adk,agent_engines]==1.110.0
-google-cloud-spanner>=3.57.0
-google-genai>=1.17.0,<2.0.0
-google-adk==1.13.0
+# OpenTelemetry
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-logging
+opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-vertexai
+opentelemetry-instrumentation-grpc
+opentelemetry-instrumentation-aiohttp-client
+
+# Google Cloud
+google-cloud-logging
+google-cloud-aiplatform[agent_engines,adk]>=1.110.0
+google-adk>=1.13.0
+
+# Other
 python-dotenv>=1.0.0
-fastapi>=0.115.12
-urllib3<3,>=1.21.1
-deprecated>=1.2.0
+nest_asyncio>=1.6.0
 cloudpickle>=3.0.0
 pydantic
-
-# OpenTelemetry for tracing and diagnostics
-opentelemetry-api
-opentelemetry-sdk
-opentelemetry-exporter-otlp
-traceloop-sdk
-opentelemetry-instrumentation-requests
-google-auth
+requests>=2.0.0
+google-auth[aiohttp]>=2.0.0
+grpcio
+grpcio-status
+aiohttp

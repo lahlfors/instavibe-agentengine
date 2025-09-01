@@ -1,6 +1,4 @@
 # agents/app/common/types.py
-from pydantic import BaseModel, Field
-
 class AgentCard:
     def __init__(self, name=None, description=None, url=None, address=None, version=None, defaultInputModes=None, defaultOutputModes=None, capabilities=None, skills=None): # Added address
         self.name = name
@@ -30,12 +28,4 @@ class TextPart: pass
 class DataPart: pass
 class Part: pass
 class TaskStatusUpdateEvent: pass
-
-class Evaluation(BaseModel):
-    """Data model for evaluation results."""
-    rag_type: str = Field(..., description="The type of RAG evaluation.")
-    retrieval_quality: float = Field(..., description="The retrieval quality score.")
-    quality: float = Field(..., description="The quality score.")
-    tool_code: str = Field(..., description="The tool code used for the evaluation.")
-
 print("DEBUG: common.types loaded") # Debug print

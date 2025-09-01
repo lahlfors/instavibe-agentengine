@@ -278,25 +278,24 @@ def main(args):
         if not args.skip_agents:
             agent_resource_names = {}
 
-            def to_absolute_path(p):
-                return os.path.join(PROJECT_ROOT, p)
-
+        if not args.skip_agents:
+            agent_resource_names = {}
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
-                    "requirements_file": to_absolute_path("./agents/planner/requirements.txt"),
-                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/planner"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
+                    "requirements_file": "./agents/planner/requirements.txt",
+                    "extra_packages": ["app", "agents/planner", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "social_agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
-                    "requirements_file": to_absolute_path("./agents/social/requirements.txt"),
-                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/social"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
+                    "requirements_file": "./agents/social/requirements.txt",
+                    "extra_packages": ["app", "agents/social", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -307,18 +306,27 @@ def main(args):
                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                         "name": "platform_mcp_client_agent",
                     },
-                    "requirements_file": to_absolute_path("./agents/platform_mcp_client/requirements.txt"),
-                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/platform_mcp_client"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
+                    "requirements_file": "./agents/platform_mcp_client/requirements.txt",
+                    "extra_packages": ["app", "agents/platform_mcp_client", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "orchestrate_agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
-                    "requirements_file": to_absolute_path("./agents/orchestrate/requirements.txt"),
-                    "extra_packages": [to_absolute_path("./app"), to_absolute_path("./agents/orchestrate"), to_absolute_path("./a2a_common-0.1.0-py3-none-any.whl")],
+                    "requirements_file": "./agents/orchestrate/requirements.txt",
+                    "extra_packages": ["app", "agents/orchestrate", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
             ]
+
+            def load_requirements(file_path):
+                requirements = []
+                with open(file_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            requirements.append(line)
+                return requirements
 
             for agent_conf in agents_to_deploy:
                 display_name = agent_conf["display_name"]
@@ -340,8 +348,7 @@ def main(args):
                     else:
                         agent_to_deploy = agent_ref
 
-                    with open(agent_conf["requirements_file"]) as f:
-                        requirements = f.read().strip().split("\n")
+                    requirements = load_requirements(agent_conf["requirements_file"])
 
                     agent_labels = {"agent_id": agent_id} # Use agent_id for the label
 

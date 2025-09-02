@@ -154,7 +154,7 @@ class OrchestrateServiceAgent(Agent):
             span.set_attribute("agent.name", self.name)
             span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
             span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
-            span.set_attribute(ai_semconv.INPUT_VALUE, input_text)
+            span.set_attribute(ai_semconv.GEN_AI_PROMPT, input_text)
             if not self.orchestrator_agent:
                 logging.error("OrchestratorAgent not initialized. set_up() was not called.")
                 raise RuntimeError("Agent not properly initialized.")

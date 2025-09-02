@@ -121,7 +121,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     with tracer.start_as_current_span("call_agent_for_plan") as span:
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
         span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
-        span.set_attribute(ai_semconv.INPUT_VALUE, prompt_message)
+        span.set_attribute(ai_semconv.GEN_AI_PROMPT, prompt_message)
         try:
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot query for plan.")
@@ -316,7 +316,7 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     with tracer.start_as_current_span("post_plan_event") as span:
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
         span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
-        span.set_attribute(ai_semconv.INPUT_VALUE, prompt_message)
+        span.set_attribute(ai_semconv.GEN_AI_PROMPT, prompt_message)
         try:
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot process post_plan_event.")

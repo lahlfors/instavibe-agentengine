@@ -30,7 +30,7 @@ class PlannerAgent(LlmAgent):
         logger.info("PlannerAgent setup complete.")
         return self
 
-    def __call__(self, **kwargs):
+    def query(self, **kwargs):
         with tracer.start_as_current_span("a2a.planner.plan") as span:
             span.set_attribute("agent.name", self.name)
             span.set_attribute("user.prompt", kwargs.get("message", ""))

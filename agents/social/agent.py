@@ -32,7 +32,7 @@ class SocialLlmAgent(LlmAgent):
         setup_observability()
         return self
 
-    def __call__(self, **kwargs):
+    def query(self, **kwargs):
         with tracer.start_as_current_span(f"a2a.social.{self.name}") as span:
             span.set_attribute("agent.name", self.name)
             span.set_attribute("user.prompt", kwargs.get("message", ""))
@@ -55,6 +55,10 @@ class SocialLoopAgent(LoopAgent):
             if hasattr(agent, "set_up"):
                 agent.set_up()
         return self
+
+    def query(self, **kwargs):
+        # The LoopAgent's entry point is __call__
+        return self(**kwargs)
 
 def create_agent():
     class CheckCondition(BaseAgent):
@@ -118,4 +122,4 @@ def create_agent():
     )
     return root_agent
 
-root_agent = None
+root_agent = create_agent()

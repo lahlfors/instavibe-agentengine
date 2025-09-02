@@ -74,9 +74,7 @@ def deploy_agent_engine_app(
 
             logging.info(f"Calling remote_agent.update() with keys: {update_kwargs.keys()}")
             updated_agent = remote_agent.update(**update_kwargs)
-            logging.info(f"Update operation started. Waiting for completion for {LRO_TIMEOUT} seconds...")
-            updated_agent.result(timeout=LRO_TIMEOUT)
-            logging.info(f"Engine '{display_name}' ({updated_agent.name}) update LRO finished.")
+            logging.info(f"Engine '{display_name}' ({updated_agent.name}) update operation finished.")
             updated_agent.refresh()
             logging.info(f"Engine state after update: {updated_agent.resource_state}")
             return updated_agent
@@ -94,9 +92,7 @@ def deploy_agent_engine_app(
 
             logging.info(f"Calling ReasoningEngine.create with keys: {create_kwargs.keys()}")
             new_agent = reasoning_engines.ReasoningEngine.create(**create_kwargs)
-            logging.info(f"Create operation started for {new_agent.display_name} ({new_agent.name}). Waiting for completion for {LRO_TIMEOUT} seconds...")
-            new_agent.result(timeout=LRO_TIMEOUT)
-            logging.info(f"Engine '{display_name}' create LRO finished.")
+            logging.info(f"Engine '{display_name}' create operation finished.")
             new_agent.refresh()
             logging.info(f"Engine state after create: {new_agent.resource_state}")
             return new_agent

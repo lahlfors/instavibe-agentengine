@@ -291,7 +291,7 @@ def main(args):
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
-                    "agent_variable": "PlannerAgent",
+                    "agent_variable": "root_agent",
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl"], # Changed wheel path
                 },
@@ -299,7 +299,7 @@ def main(args):
                     "name": "social_agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
-                    "agent_variable": "SocialLlmAgent",
+                    "agent_variable": "root_agent",
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl"], # Changed wheel path
                 },

@@ -101,3 +101,8 @@ class PlatformMCPClientAgent(Agent):
     def tools(self) -> List[Any]:
         """Exposes the dynamically loaded MCP tools to the ADK framework."""
         return self._mcp_tools
+
+    def query(self, **kwargs):
+        """The entry point for the reasoning engine."""
+        # The base Agent's entry point is __call__
+        return self(**kwargs)

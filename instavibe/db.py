@@ -25,7 +25,7 @@ try:
         spanner_client = spanner.Client(project=PROJECT_ID)
         instance = spanner_client.instance(INSTANCE_ID)
         database = instance.database(DATABASE_ID)
-        print(f"Attempting to connect to Spanner: {database.name}")
+        print(f"Attempting to connect to Spanner: {instance.name}/databases/{database.name}")
 
         if not database.exists():
              print(f"Error: Database '{database.name}' does not exist in instance '{instance.name}'.")

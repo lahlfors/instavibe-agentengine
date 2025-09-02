@@ -366,7 +366,6 @@ def main(args):
                         labels=agent_labels,
                         requirements=requirements,
                         extra_packages=agent_conf["extra_packages"],
-                        enable_tracing=enable_tracing,
                     )
                     agent_resource_names[agent_id] = remote_agent.name
                     logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")

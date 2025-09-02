@@ -12,12 +12,9 @@ from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter, BatchSpanProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as GRPCOTLPSpanExporter
-
-# Corrected IMPORTS for METRICS
-from opentelemetry.exporter.gcp.monitoring import CloudMonitoringMetricsExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-
+from opentelemetry.exporter.gcp.monitoring import CloudMonitoringMetricsExporter
 from opentelemetry.propagators.b3 import B3MultiFormat
 
 # Corrected IMPORTS for LOGGING
@@ -98,7 +95,6 @@ def setup_observability():
         # CloudMonitoringMetricsExporter uses creds  directly
         monitoring_exporter = CloudMonitoringMetricsExporter(
             project_id=project_id,
-            credentials=creds,
         )
         metric_reader = PeriodicExportingMetricReader(monitoring_exporter)
         meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
@@ -123,15 +119,31 @@ def setup_observability():
     propagate.set_global_textmap(B3MultiFormat())
     log.info("Global TextMap propagator set to B3MultiPropagator.")
 
-    # 6. Instrument libraries
+    # 5. Instrument libraries
     log.info("Enabling OpenTelemetry Instrumentations...")
-    try: VertexAIInstrumentor().instrument()
-    except Exception as e: log.error(f"Error enabling VertexAIInstrumentor: {e}")
-    try: RequestsInstrumentor().instrument()
-    except Exception as e: log.error(f"Error enabling RequestsInstrumentor: {e}")
-    try: AioHttpClientInstrumentor().instrument()
-    except Exception as e: log.error(f"Error enabling AioHttpClientInstrumentor: {e}")
-    try: GrpcInstrumentorClient().instrument()
-    except Exception as e: log.error(f"Error enabling GrpcInstrumentorClient: {e}")
+    try:
+        VertexAIInstrumentor().instrument()
+        log.info("VertexAIInstrumentor enabled.")
+    except Exception as e:
+        log.error(f"Error enabling VertexAIInstrumentor: {e}")
+    try:
+        RequestsInstrumentor().instrument()
+        log.info("RequestsInstrumentor enabled.")
+    except Exception as e:
+        log.error(f"Error enabling RequestsInstrumentor: {e}")
+    try:
+        AioHttpClientInstrumentor().instrument()
+        log.info("AioHttpClientInstrumentor enabled.")
+    except Exception as e:
+        log.error(f"Error enabling AioHttpClientInstrumentor: {e}")
+    try:
+        GrpcInstrumentorClient().instrument()
+        log.info("GrpcInstrumentorClient enabled.")
+    except Exception as e:
+        log.error(f"Error enabling GrpcInstrumentorClient: {e}")
 
     log.info(f"Custom observability setup complete for service: {service_name}")
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    setup_observability()

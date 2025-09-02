@@ -6,6 +6,8 @@ opentelemetry-api==1.36.0
 opentelemetry-sdk==1.36.0
 opentelemetry-exporter-otlp-proto-grpc==1.36.0
 opentelemetry-propagator-b3==1.36.0
+opentelemetry-exporter-gcp-logging
+opentelemetry-exporter-gcp-monitoring
 
 # Google Cloud
 google-auth

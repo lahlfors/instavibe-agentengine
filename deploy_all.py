@@ -286,7 +286,7 @@ def main(args):
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
                     "requirements_file": "./agents/planner/requirements.txt",
-                    "extra_packages": ["./app", "agents/planner", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "./common", "agents/planner", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "social_agent",
@@ -294,7 +294,7 @@ def main(args):
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
                     "requirements_file": "./agents/social/requirements.txt",
-                    "extra_packages": ["./app", "agents/social", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "./common", "agents/social", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -306,7 +306,7 @@ def main(args):
                         "name": "platform_mcp_client_agent",
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["./app", "agents/platform_mcp_client", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "./common", "agents/platform_mcp_client", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "orchestrate_agent",
@@ -314,7 +314,7 @@ def main(args):
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/orchestrate/requirements.txt",
-                    "extra_packages": ["./app", "agents/orchestrate", "a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "./common", "agents/orchestrate", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
             ]
 

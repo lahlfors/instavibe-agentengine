@@ -24,7 +24,7 @@ def deploy_agent_engine_app(
     location: str,
     agent_object: Any, # Your actual agent class or instance
     display_name: str,
-    labels: Dict[str, str],
+    labels: Dict[str, str], # Labels will be ignored in create/update calls
     requirements: Optional[List[str]] = None,
     extra_packages: Optional[List[str]] = None,
 ) -> reasoning_engines.ReasoningEngine:
@@ -63,14 +63,14 @@ def deploy_agent_engine_app(
                 "requirements": requirements,
                 "extra_packages": validated_extra_packages,
                 "display_name": display_name,
-                "labels": labels,
+                # "labels": labels, # --- Temporarily removed ---
             }
             # Remove keys with None values to avoid overwriting existing values unexpectedly
             update_kwargs = {k: v for k, v in update_kwargs.items() if v is not None}
 
             if not update_kwargs:
-                logging.info("No updates to apply.")
-                return remote_agent
+                 logging.info("No updates to apply.")
+                 return remote_agent
 
             logging.info(f"Calling remote_agent.update() with keys: {update_kwargs.keys()}")
             updated_agent = remote_agent.update(**update_kwargs)
@@ -85,7 +85,7 @@ def deploy_agent_engine_app(
             create_kwargs = {
                 "reasoning_engine": agent_object, # Use 'reasoning_engine' not 'spec'
                 "display_name": display_name,
-                "labels": labels,
+                # "labels": labels, # --- Temporarily removed ---
             }
             if requirements:
                 create_kwargs["requirements"] = requirements

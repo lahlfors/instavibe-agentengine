@@ -3,11 +3,13 @@ opentelemetry-api==1.36.0
 opentelemetry-sdk==1.36.0
 opentelemetry-exporter-otlp-proto-grpc==1.36.0
 opentelemetry-propagator-b3==1.36.0
+opentelemetry-exporter-gcp-logging
+opentelemetry-exporter-gcp-monitoring
 
 # Google Cloud
 google-auth
 google-cloud-logging
-google-cloud-aiplatform>=1.110.0
+google-cloud-aiplatform>=1.111.0
 
 # OpenTelemetry Instrumentations
 opentelemetry-instrumentation-vertexai==0.46.2
@@ -24,6 +26,7 @@ grpcio
 requests>=2.0.0
 
 # Other dependencies
+cloudpickle
 google-api-python-client
 google-cloud-spanner
 fastapi
@@ -36,7 +39,7 @@ google-auth-httplib2
 google-api-core
 google-cloud-appengine-logging
 google-cloud-trace
-google-cloud-aiplatform[agent_engines,adk]==1.110.0
+google-cloud-aiplatform[agent_engines,adk]>=1.111.0
 google-adk==1.13.0
 langchain
 langchain-core

@@ -20,7 +20,8 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.propagators.b3 import B3MultiFormat
 
 from opentelemetry import _logs as otel_logs
-from opentelemetry.sdk._logs import LoggerProvider, set_logger_provider
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry._logs import set_logger_provider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.exporter.gcp.logging import CloudLoggingExporter
 

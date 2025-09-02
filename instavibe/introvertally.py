@@ -207,7 +207,26 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
                     accumulated_json_str += text_to_accumulate
 
             yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, accumulated_json_str)
+
+            # Record the response as an event
+            span.add_event(
+                "gen_ai.completion",
+                {"gen_ai.completion.value": accumulated_json_str}
+            )
+
+            # Accurately count and record output tokens
+            try:
+                gemini_model = GenerativeModel("gemini-2.5-flash")
+                output_response = gemini_model.count_tokens(contents=[accumulated_json_str])
+                number_of_output_tokens = output_response.total_tokens
+            except Exception as e:
+                logging.warning(f"Could not count output tokens: {e}")
+                number_of_output_tokens = 0
+
+            span.set_attribute(
+                ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS,
+                number_of_output_tokens
+            )
 
         except Exception as e_outer:
             logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
@@ -417,7 +436,27 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
                     accumulated_response_text += text_from_chunk
 
             yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, accumulated_response_text)
+
+            # Record the response as an event
+            span.add_event(
+                "gen_ai.completion",
+                {"gen_ai.completion.value": accumulated_response_text}
+            )
+
+            # Accurately count and record output tokens
+            try:
+                gemini_model = GenerativeModel("gemini-2.5-flash")
+                output_response = gemini_model.count_tokens(contents=[accumulated_response_text])
+                number_of_output_tokens = output_response.total_tokens
+            except Exception as e:
+                logging.warning(f"Could not count output tokens: {e}")
+                number_of_output_tokens = 0
+
+            span.set_attribute(
+                ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS,
+                number_of_output_tokens
+            )
+
         except Exception as e_outer_post:
             logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)
             yield {"type": "thought", "data": f"Critical error during ADK App stream_query or iteration for posting (session: {session_id}): {str(e_outer_post)}"}

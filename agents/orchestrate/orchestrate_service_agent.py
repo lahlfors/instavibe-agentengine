@@ -182,7 +182,26 @@ class OrchestrateServiceAgent(Agent):
 
             response = self.orchestrator_agent.query(input_text)
 
-            span.set_attribute(ai_semconv.OUTPUT_VALUE, str(response))
+            # Record the response as an event
+            span.add_event(
+                "gen_ai.completion",
+                {"gen_ai.completion.value": str(response)}
+            )
+
+            # Accurately count and record output tokens
+            try:
+                gemini_model = GenerativeModel(self.orchestrator_agent.model)
+                output_response = gemini_model.count_tokens(contents=[str(response)])
+                number_of_output_tokens = output_response.total_tokens
+            except Exception as e:
+                logging.warning(f"Could not count output tokens: {e}")
+                number_of_output_tokens = 0
+
+            span.set_attribute(
+                ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS,
+                number_of_output_tokens
+            )
+
             return response
 
 OrchestrateServiceAgent.model_rebuild()

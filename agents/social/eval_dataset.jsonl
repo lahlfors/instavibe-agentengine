@@ -1,0 +1,2 @@
+{"input_text": "Create a new post for me on X about our latest product launch.", "ground_truth_tool": "create_post", "ground_truth_sentiment": "positive", "trace_id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"}
+{"input_text": "What's the weather like?", "ground_truth_tool": "weather_lookup_tool", "trace_id": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4"}

@@ -1,0 +1,62 @@
+{
+  "eval_set_id": "social_agent_tool_choice_eval_set",
+  "name": "Social Agent Tool Choice Evaluation Set",
+  "description": "An evaluation set for testing the social agent's ability to choose the correct tool, evaluated using post-run trace analysis.",
+  "eval_cases": [
+    {
+      "eval_id": "eval_case_create_post_positive",
+      "conversation": [
+        {
+          "invocation_id": "trace-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Create a new post for me on X about our latest product launch."
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {},
+          "intermediate_data": {}
+        }
+      ],
+      "session_input": {
+        "app_name": "social_agent_main",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "metadata": {
+        "trace_id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        "ground_truth_tool": "create_post",
+        "ground_truth_sentiment": "positive"
+      }
+    },
+    {
+      "eval_id": "eval_case_weather_lookup",
+      "conversation": [
+        {
+          "invocation_id": "trace-f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's the weather like?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {},
+          "intermediate_data": {}
+        }
+      ],
+      "session_input": {
+        "app_name": "social_agent_main",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "metadata": {
+        "trace_id": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4",
+        "ground_truth_tool": "weather_lookup_tool"
+      }
+    }
+  ]
+}

@@ -75,7 +75,6 @@ def deploy_agent_engine_app(
             logging.info(f"Calling remote_agent.update() with keys: {update_kwargs.keys()}")
             updated_agent = remote_agent.update(**update_kwargs)
             logging.info(f"Engine '{display_name}' ({updated_agent.name}) update operation finished.")
-            logging.info(f"Engine state after update: {updated_agent.resource_state}")
             return updated_agent
         else:
             logging.info("No existing Reasoning Engine found. Creating a new one.")
@@ -92,7 +91,6 @@ def deploy_agent_engine_app(
             logging.info(f"Calling ReasoningEngine.create with keys: {create_kwargs.keys()}")
             new_agent = reasoning_engines.ReasoningEngine.create(**create_kwargs)
             logging.info(f"Engine '{display_name}' create operation finished.")
-            logging.info(f"Engine state after create: {new_agent.resource_state}")
             return new_agent
 
     except google.api_core.exceptions.GoogleAPICallError as e:

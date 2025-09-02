@@ -245,6 +245,8 @@ def build_and_deploy_cloud_run_service(
 
 # --- Main Orchestration ---
 def main(args):
+    os.environ['GRPC_TRACE'] = 'all'
+    os.environ['GRPC_VERBOSITY'] = 'debug'
     setup_observability()
     install_dependencies()
     try:

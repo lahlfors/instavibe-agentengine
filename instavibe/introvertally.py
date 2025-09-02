@@ -7,6 +7,7 @@ import json
 import logging # Added for logging
 
 import google.cloud.aiplatform as vertexai
+from google.cloud.aiplatform.rag.utils.GenerativeModel import GenerativeModel
 from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
 from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 from opentelemetry import trace
@@ -121,7 +122,27 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     with tracer.start_as_current_span("call_agent_for_plan") as span:
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
         span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
-        span.set_attribute(ai_semconv.GEN_AI_PROMPT, prompt_message)
+
+        # Record the prompt as an event
+        span.add_event(
+            "gen_ai.prompt",
+            {"gen_ai.prompt.value": prompt_message}
+        )
+
+        # Accurately count and record input tokens
+        try:
+            gemini_model = GenerativeModel("gemini-2.5-flash")
+            response = gemini_model.count_tokens(contents=[prompt_message])
+            number_of_input_tokens = response.total_tokens
+        except Exception as e:
+            logging.warning(f"Could not count tokens: {e}")
+            number_of_input_tokens = 0 # Fallback to 0 if counting fails
+
+        span.set_attribute(
+            ai_semconv.GEN_AI_USAGE_INPUT_TOKENS,
+            number_of_input_tokens
+        )
+
         try:
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot query for plan.")
@@ -316,7 +337,27 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     with tracer.start_as_current_span("post_plan_event") as span:
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
         span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
-        span.set_attribute(ai_semconv.GEN_AI_PROMPT, prompt_message)
+
+        # Record the prompt as an event
+        span.add_event(
+            "gen_ai.prompt",
+            {"gen_ai.prompt.value": prompt_message}
+        )
+
+        # Accurately count and record input tokens
+        try:
+            gemini_model = GenerativeModel("gemini-2.5-flash")
+            response = gemini_model.count_tokens(contents=[prompt_message])
+            number_of_input_tokens = response.total_tokens
+        except Exception as e:
+            logging.warning(f"Could not count tokens: {e}")
+            number_of_input_tokens = 0 # Fallback to 0 if counting fails
+
+        span.set_attribute(
+            ai_semconv.GEN_AI_USAGE_INPUT_TOKENS,
+            number_of_input_tokens
+        )
+
         try:
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot process post_plan_event.")

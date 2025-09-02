@@ -7,6 +7,7 @@ import google.auth.credentials
 import json
 from opentelemetry import trace
 import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
+from google.cloud.aiplatform.rag.utils.GenerativeModel import GenerativeModel
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
@@ -154,7 +155,27 @@ class OrchestrateServiceAgent(Agent):
             span.set_attribute("agent.name", self.name)
             span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
             span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
-            span.set_attribute(ai_semconv.GEN_AI_PROMPT, input_text)
+
+            # Record the prompt as an event
+            span.add_event(
+                "gen_ai.prompt",
+                {"gen_ai.prompt.value": input_text}
+            )
+
+            # Accurately count and record input tokens
+            try:
+                gemini_model = GenerativeModel(self.orchestrator_agent.model)
+                response = gemini_model.count_tokens(contents=[input_text])
+                number_of_input_tokens = response.total_tokens
+            except Exception as e:
+                logging.warning(f"Could not count tokens: {e}")
+                number_of_input_tokens = 0 # Fallback to 0 if counting fails
+
+            span.set_attribute(
+                ai_semconv.GEN_AI_USAGE_INPUT_TOKENS,
+                number_of_input_tokens
+            )
+
             if not self.orchestrator_agent:
                 logging.error("OrchestratorAgent not initialized. set_up() was not called.")
                 raise RuntimeError("Agent not properly initialized.")

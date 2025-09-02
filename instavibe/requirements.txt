@@ -9,6 +9,7 @@ google-auth
 google-cloud-logging
 google-cloud-aiplatform>=1.110.0
 google-cloud-spanner
+google-cloud-opentelemetry
 
 # OpenTelemetry Instrumentations
 opentelemetry-instrumentation-vertexai==0.46.2

@@ -293,7 +293,7 @@ def main(args):
                     "module": "agents.planner.agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/planner/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl"], # Changed wheel path
+                    "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
                     "name": "social_agent",
@@ -301,7 +301,7 @@ def main(args):
                     "module": "agents.social.agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/social/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl"], # Changed wheel path
+                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -313,7 +313,7 @@ def main(args):
                         "name": "platform_mcp_client_agent",
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl"], # Changed wheel path
+                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
                     "name": "orchestrate_agent",
@@ -321,7 +321,7 @@ def main(args):
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/orchestrate/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl"], # Changed wheel path
+                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
             ]
 

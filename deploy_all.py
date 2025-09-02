@@ -245,8 +245,6 @@ def build_and_deploy_cloud_run_service(
 
 # --- Main Orchestration ---
 def main(args):
-    os.environ['GRPC_TRACE'] = 'all'
-    os.environ['GRPC_VERBOSITY'] = 'debug'
     setup_observability()
     install_dependencies()
     try:
@@ -288,7 +286,7 @@ def main(args):
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
                     "requirements_file": "./agents/planner/requirements.txt",
-                    "extra_packages": ["agents/app", "agents/planner", "agents/a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "agents/planner", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "social_agent",
@@ -296,7 +294,7 @@ def main(args):
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLlmAgent",
                     "requirements_file": "./agents/social/requirements.txt",
-                    "extra_packages": ["agents/app", "agents/social", "agents/a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "agents/social", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -308,7 +306,7 @@ def main(args):
                         "name": "platform_mcp_client_agent",
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["agents/app", "agents/platform_mcp_client", "agents/a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "agents/platform_mcp_client", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
                 {
                     "name": "orchestrate_agent",
@@ -316,7 +314,7 @@ def main(args):
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
                     "requirements_file": "./agents/orchestrate/requirements.txt",
-                    "extra_packages": ["agents/app", "agents/orchestrate", "agents/a2a_common-0.1.0-py3-none-any.whl"],
+                    "extra_packages": ["./app", "agents/orchestrate", "a2a_common-0.1.0-py3-none-any.whl"],
                 },
             ]
 

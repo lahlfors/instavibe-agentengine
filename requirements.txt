@@ -9,6 +9,7 @@ opentelemetry-instrumentation-grpc==0.57b0
 opentelemetry-instrumentation-aiohttp-client==0.57b0
 opentelemetry-propagator-b3==1.36.0
 opentelemetry-exporter-gcp-logging
+opentelemetry-exporter-gcp-monitoring
 
 # Google Cloud
 google-cloud-logging

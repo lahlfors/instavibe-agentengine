@@ -245,9 +245,16 @@ def build_and_deploy_cloud_run_service(
 
 # --- Main Orchestration ---
 def main(args):
-    setup_observability()
-    install_dependencies()
+    # Setup logging for the main script
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    tracer_provider = None
+    meter_provider = None
     try:
+        tracer_provider, meter_provider = setup_observability()
+        logging.info("Observability setup complete.")
+
+        install_dependencies()
         config = setup_environment()
         project_id = config["project_id"]
         region = config["region"]
@@ -389,14 +396,25 @@ def main(args):
             )
 
         logging.info("--- Deployment script finished successfully! ---")
-    except (ValueError, subprocess.CalledProcessError, ApiDisabledError, DeploymentError) as e:
-        logging.error(f"A critical error occurred: {e}", exc_info=False)
-        logging.error("Deployment failed.")
-        sys.exit(1)
+
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}", exc_info=True)
-        logging.error("Deployment failed.")
-        sys.exit(1)
+        logging.error(f"An error occurred in deploy_all: {e}", exc_info=True)
+    finally:
+        logging.info("--- Shutting down observability ---")
+        if hasattr(tracer_provider, 'shutdown'):
+            try:
+                tracer_provider.shutdown()
+                logging.info("TracerProvider shutdown complete.")
+            except Exception as e:
+                logging.error(f"Error shutting down TracerProvider: {e}", exc_info=True)
+
+        if hasattr(meter_provider, 'shutdown'):
+            try:
+                meter_provider.shutdown(timeout_millis=10000) # Give some time to flush
+                logging.info("MeterProvider shutdown complete.")
+            except Exception as e:
+                logging.error(f"Error shutting down MeterProvider: {e}", exc_info=True)
+        logging.info("--- Observability shutdown process finished ---")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 # import uuid # No longer needed for generating unique GCS filenames
 # from urllib.parse import urlparse # No longer needed for parsing staging_bucket_uri
 # import cloudpickle # Handled by ADK
@@ -8,7 +9,7 @@ import os
 
 from google.cloud import aiplatform as vertexai # Standard alias
 # from vertexai.preview import reasoning_engines # ADK for deployment - Old
-from vertexai.preview.reasoning_engines import AdkApp # For wrapping
+from vertexai.preview.reasoning_engines import AdkApp as AgentEngineApp # For wrapping
 from vertexai import agent_engines # For the new create method
 # from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
 # from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
@@ -18,8 +19,7 @@ from vertexai import agent_engines # For the new create method
 from dotenv import load_dotenv # For loading .env file
 import logging # Added
 
-# from agents.planner.planner_agent import PlannerAgent # No longer deploying this wrapper directly
-from agents.planner import agent as planner_main_agent_module # Import the module containing root_agent
+from agents.planner.planner_agent import PlannerAgent
 
 # Load environment variables from the root .env file
 # This ensures that any implicit environment variable reads by underlying
@@ -30,10 +30,14 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.en
 
 log = logging.getLogger(__name__) # Added
 
-def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
+def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_run: bool = False, env_vars: Optional[dict[str, str]] = None):
     """
-    Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK,
-    packaging the agent's source code and local wheel dependency.
+    Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK.
+
+    Args:
+        project_id: The Google Cloud project ID.
+        region: The Google Cloud region for deployment.
+        base_dir: The base directory of the repository (repo root).
     """
     display_name = "Planner Agent"
     description = """This agent helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions."""
@@ -44,10 +48,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # has been called, likely in a main deployment script (e.g., deploy_all.py).
     # We remove direct staging_bucket_uri parsing and GCS client instantiation here.
 
-    # local_agent_instance = PlannerAgent() # Old: Deployed the wrapper
-    local_agent_instance = planner_main_agent_module.root_agent # New: Deploy the LlmAgent
-    if local_agent_instance is None:
-        raise ValueError("Error: The root_agent in agents.planner.agent is None. Ensure it's initialized.")
+    local_agent_instance = PlannerAgent()
 
 
 
@@ -55,7 +56,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # The default VertexAiSessionService is expected to be used by the deployed agent.
     # We will ensure its necessary environment variables are set.
     log.info("Planner Agent: Configuring AdkApp to use default session service. Spanner config will be passed via environment variables.")
-    adk_app_to_deploy = AdkApp(agent=local_agent_instance)
+    adk_app_to_deploy = AgentEngineApp(agent=local_agent_instance)
 
     spanner_instance_id_for_agent = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
     spanner_database_id_for_agent = os.environ.get("COMMON_SPANNER_DATABASE_ID")
@@ -72,6 +73,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
         "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
     }
+    env_vars_for_deployment.update(env_vars or {})
     # --- END SIMPLIFICATION ---
 
     # Filter out any keys that have None or empty string values from the env_vars_for_deployment
@@ -118,25 +120,12 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
         requirements_list.append(nest_asyncio_req_line)
 
 
-    # Define paths for extra_packages relative to base_dir
-    # base_dir is the repository root.
-    # The ADK expects these paths to be directories or .whl files.
-    # The 'agents/app' and 'agents/planner' are directories containing package code.
-    # The 'agents/a2a_common-0.1.0-py3-none-any.whl' is a wheel file.
-    extra_packages = [
-        os.path.join(base_dir, "agents")
-    ]
-
-    # Verify extra_packages paths exist
-    for pkg_path in extra_packages:
-        if not os.path.exists(pkg_path):
-            raise FileNotFoundError(f"Extra package path {pkg_path} not found.")
-
+    if dry_run:
+        return adk_app_to_deploy
     print(f"Starting deployment of '{display_name}' using ADK...")
     print(f"  Project: {project_id}, Region: {region}")
     print(f"  Requirements file (source): {requirements_path}") # Log original source
     print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
-    print(f"  Extra packages: {extra_packages}")
     # env_vars_for_deployment is already prepared and filtered above.
     # The print statement for it is also already done.
 
@@ -145,11 +134,11 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str):
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
         remote_agent = agent_engines.create(
-            adk_app_to_deploy, # MODIFIED: Use the potentially re-configured adk_app_to_deploy
+            local_agent_instance,
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list
-            extra_packages=extra_packages,
+            extra_packages=[base_dir, "agents", "agents/a2a_common-0.1.0-py3-none-any.whl", "common"],
             env_vars=env_vars_for_deployment, # Changed to env_vars
             # project=project_id, # Optional: ADK uses vertexai.init() global config
             # location=region,    # Optional: ADK uses vertexai.init() global config

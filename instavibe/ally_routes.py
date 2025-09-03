@@ -2,10 +2,12 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 import json 
 import traceback 
 import logging # Added for logging
-from introvertally import call_agent_for_plan, post_plan_event
+from opentelemetry import trace
+from .introvertally import call_agent_for_plan, post_plan_event
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # It's good practice to use a Blueprint for organizing routes
 ally_bp = Blueprint('ally', __name__, template_folder='templates')
@@ -14,52 +16,47 @@ def get_all_people_for_ally_page():
     """
     Fetches all people from the Person table to be listed as friends.
     This function will be called from within a route, ensuring 'app' is loaded.
+    It relies on the run_query function to handle exceptions.
     """
-    try:
-        # Import here to avoid circular dependencies at module load time
-        # and ensure app.py's db and run_query are initialized.
-        from app import db as main_app_db, run_query as main_app_run_query
-        # param_types might be needed if run_query is called with params
-        # from google.cloud.spanner_v1 import param_types as main_app_param_types
+    # Import here to avoid circular dependencies at module load time
+    # and ensure app.py's db and run_query are initialized.
+    from instavibe.app import db as main_app_db, run_query as main_app_run_query
 
-        if not main_app_db:
-            print("Error in ally_routes.get_all_people_for_ally_page: main_app_db is not available from app.py.")
-            return [] # Return empty list if db connection failed
-
-        sql = """
-            SELECT person_id, name
-            FROM Person
-            ORDER BY name
-        """
-        fields = ["person_id", "name"]
-        # The run_query function in your app.py uses the global 'db' from app.py
-        people = main_app_run_query(sql, expected_fields=fields)
-
-        # Ensure uniqueness based on person_id
-        unique_people_list = []
-        seen_person_ids = set()
-        if people: # Ensure people is not None and is iterable
-            for person_dict in people:
-                if isinstance(person_dict, dict) and 'person_id' in person_dict:
-                    person_id = person_dict['person_id']
-                    if person_id not in seen_person_ids:
-                        seen_person_ids.add(person_id)
-                        unique_people_list.append(person_dict)
-                else:
-                    # Log or handle unexpected item structure if necessary
-                    print(f"Warning: Skipping unexpected item in people list: {person_dict}")
-
-        return unique_people_list
-    except ImportError:
-        print("ERROR in ally_routes.get_all_people_for_ally_page: Could not import db or run_query from app.py. Check app.py structure and execution.")
-        return [] # Fallback to empty list
-    except Exception as e:
-        print(f"Error fetching people in ally_routes.get_all_people_for_ally_page: {e}")
-        import traceback
-        traceback.print_exc()
+    if not main_app_db:
+        print("Error in ally_routes.get_all_people_for_ally_page: main_app_db is not available from app.py.")
+        # This case is for when the DB connection itself failed on startup.
+        # Flashing a message here might be useful if run_query can't be reached.
+        flash("Database connection is not available.", "danger")
         return []
 
+    sql = """
+        SELECT person_id, name
+        FROM Person
+        ORDER BY name
+    """
+    fields = ["person_id", "name"]
+    # The run_query function will handle exceptions, log them, flash a message,
+    # and return an empty list on error.
+    people = main_app_run_query(sql, expected_fields=fields)
+
+    # Ensure uniqueness based on person_id
+    unique_people_list = []
+    seen_person_ids = set()
+    if people: # Ensure people is not None and is iterable
+        for person_dict in people:
+            if isinstance(person_dict, dict) and 'person_id' in person_dict:
+                person_id = person_dict['person_id']
+                if person_id not in seen_person_ids:
+                    seen_person_ids.add(person_id)
+                    unique_people_list.append(person_dict)
+            else:
+                # Log or handle unexpected item structure if necessary
+                print(f"Warning: Skipping unexpected item in people list: {person_dict}")
+
+    return unique_people_list
+
 @ally_bp.route('/introvert-ally', methods=['GET'])
+@tracer.start_as_current_span("http.get /introvert-ally")
 def introvert_ally_page():
     """Renders the Introvert Ally page."""
     print("--- DEBUG: introvert_ally_page route CALLED (ally_routes.py) ---")
@@ -72,6 +69,7 @@ def introvert_ally_page():
 
 
 @ally_bp.route('/api/introvert-ally/submit', methods=['POST'])
+@tracer.start_as_current_span("http.post /api/introvert-ally/submit")
 def submit_introvert_ally_request():
     """Handles the submission of the Introvert Ally form."""
     if request.method == 'POST':
@@ -105,6 +103,7 @@ def submit_introvert_ally_request():
     return redirect(url_for('ally.introvert_ally_page')) # Fallback redirect
 
 @ally_bp.route('/introvert-ally/stream-plan')
+@tracer.start_as_current_span("http.get /introvert-ally/stream-plan")
 def stream_introvert_ally_plan():
     ally_params = session.get('ally_request_params')
     if not ally_params:
@@ -159,6 +158,7 @@ def stream_introvert_ally_plan():
     return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
 
 @ally_bp.route('/introvert-ally/review', methods=['GET'])
+@tracer.start_as_current_span("http.get /introvert-ally/review")
 def introvert_ally_review_page():
     plan_details = session.get('ally_plan_details')
     agent_thoughts = session.get('ally_agent_thoughts', [])
@@ -176,6 +176,7 @@ def introvert_ally_review_page():
                            title="Review Introvert Ally Plan")
 
 @ally_bp.route('/api/introvert-ally/confirm-plan', methods=['POST'])
+@tracer.start_as_current_span("http.post /api/introvert-ally/confirm-plan")
 def confirm_introvert_ally_plan():
     # Get plan from the hidden form field first
     confirmed_plan_json_str = request.form.get('confirmed_plan_json')
@@ -233,6 +234,7 @@ def confirm_introvert_ally_plan():
     return redirect(url_for('ally.introvert_ally_post_status_page'))
 
 @ally_bp.route('/introvert-ally/post-status', methods=['GET'])
+@tracer.start_as_current_span("http.get /introvert-ally/post-status")
 def introvert_ally_post_status_page():
     """Renders the page that will show the live status of event/post creation."""
     print(f"--- [DEBUG] Entered introvert_ally_post_status_page ---")
@@ -246,6 +248,7 @@ def introvert_ally_post_status_page():
     return render_template('introvert_ally_post_status.html', title=f"Posting Status for: {plan_name}")
 
 @ally_bp.route('/introvert-ally/stream-post-status')
+@tracer.start_as_current_span("http.get /introvert-ally/stream-post-status")
 def stream_post_status():
     post_params = session.get('ally_post_params')
     if not post_params:

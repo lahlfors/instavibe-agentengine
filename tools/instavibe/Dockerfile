@@ -1,22 +1,24 @@
-# Use an official Python runtime as a parent image
 FROM python:3.12-slim
 
-# Set the working directory in the container
 WORKDIR /app
 
-# --- Dependency Installation ---
-COPY requirements.txt /app/requirements.txt 
+# Copy the specific requirements file for this service
+COPY tools/instavibe/requirements.txt .
+
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --- Application Code ---
-COPY . /app
+# Copy the shared agents directory
+COPY agents ./agents
 
-# --- Environment ---
-ENV PYTHONPATH=/app
+# Copy the shared common directory
+COPY common ./common
 
-# Make port 8080 available to the world outside this container
-# Cloud Run uses the PORT env var, but EXPOSE is good practice.
+# Copy the server script itself
+COPY tools/instavibe/mcp_server.py .
+
+ENV PYTHONPATH="/app"
 EXPOSE 8080
 
-# --- Run the application ---
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread mcp_server:app"]
+# Run the server from the root of the WORKDIR
+CMD ["python", "mcp_server.py"]

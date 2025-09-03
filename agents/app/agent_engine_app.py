@@ -1,260 +1,105 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# mypy: disable-error-code="attr-defined"
-import copy
+# agents/app/agent_engine_app.py
 import datetime
 import json
+import inspect
 import logging # Keep logging import
 import os
 from dotenv import load_dotenv
-from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Dict, List, Optional, Type, Union
+import time
 
 import google.auth
 import vertexai
-import google.api_core.exceptions # For specific exception handling
+import google.api_core.exceptions
 from google.cloud import logging as google_cloud_logging
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider, export
-from vertexai import agent_engines
+# from vertexai import agent_engines # This seems to be for the older Agent Engine
 from vertexai.preview import reasoning_engines
-from app.utils.gcs import create_bucket_if_not_exists
-from app.utils.tracing import CloudTraceLoggingSpanExporter
-from app.utils.typing import Feedback
-from vertexai.preview.reasoning_engines import AdkApp
+from agents.app.utils.gcs import create_bucket_if_not_exists
+# from common.observability import setup_observability # Assuming this is handled elsewhere
 
-# Load environment variables from the root .env file
-# This should be among the first imports to ensure variables are available globally.
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
-GOOGLE_CLOUD_PROJECT = os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT")
-
-class AgentEngineApp(AdkApp):
-    def set_up(self) -> None:
-        """Set up logging and tracing for the agent engine app."""
-        super().set_up()
-        logging_client = google_cloud_logging.Client()
-        self.logger = logging_client.logger(__name__)
-        provider = TracerProvider()
-        processor = export.BatchSpanProcessor(
-            CloudTraceLoggingSpanExporter(
-                project_id=GOOGLE_CLOUD_PROJECT
-            )
-        )
-        provider.add_span_processor(processor)
-        trace.set_tracer_provider(provider)
-
-    def register_feedback(self, feedback: dict[str, Any]) -> None:
-        """Collect and log feedback."""
-        feedback_obj = Feedback.model_validate(feedback)
-        self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
-
-    def register_operations(self) -> Mapping[str, Sequence]:
-        """Registers the operations of the Agent.
-
-        Extends the base operations to include feedback registration functionality.
-        """
-        operations = super().register_operations()
-        operations[""] = operations[""] + ["register_feedback"]
-        return operations
-
-    def clone(self) -> "AgentEngineApp":
-        """Returns a clone of the ADK application."""
-        template_attributes = self._tmpl_attrs
-        return self.__class__(
-            agent=copy.deepcopy(template_attributes.get("agent")),
-            enable_tracing=template_attributes.get("enable_tracing"),
-            session_service_builder=template_attributes.get("session_service_builder"),
-            artifact_service_builder=template_attributes.get(
-                "artifact_service_builder"
-            ),
-            env_vars=template_attributes.get("env_vars"),
-        )
-
+LRO_TIMEOUT = 360  # Seconds to wait for LRO completion (6 minutes)
 
 def deploy_agent_engine_app(
     project: str,
     location: str,
-    agent_name: str | None = None,
-    requirements_file: str = "requirements.txt",
-    extra_packages: list[str] = ["./app","./orchestrate","a2a_common-0.1.0-py3-none-any.whl"],
-    env_vars: dict[str, str] | None = None,
-) -> agent_engines.AgentEngine:
-    """Deploy the agent engine aEngine backing LRO:pp to Vertex AI."""
+    agent_object: Any, # Your actual agent class or instance
+    display_name: str,
+    labels: Dict[str, str], # Labels will be ignored in create/update calls
+    requirements: Optional[List[str]] = None,
+    extra_packages: Optional[List[str]] = None,
+    env_vars: Optional[Dict[str, str]] = None,
+) -> reasoning_engines.ReasoningEngine:
+    """Deploys or updates a Vertex AI Reasoning Engine."""
+    logging.info(f"--- Preparing to deploy/update Reasoning Engine: {display_name} in {project}/{location} ---")
 
-    staging_bucket = f"gs://{project}-agent-engine"
+    # vertexai.init(project=project, location=location) # Usually init once at the start of deploy_all.py
 
-    create_bucket_if_not_exists(
-        bucket_name=staging_bucket, project=project, location=location
+    validated_extra_packages = []
+    if extra_packages:
+        for path in extra_packages:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Extra package path not found: {path}")
+            validated_extra_packages.append(path)
+    logging.info(f"Validated extra packages: {validated_extra_packages}")
+
+    logging.info(f"Looking for existing Reasoning Engine with display name: '{display_name}'")
+    remote_agents = reasoning_engines.ReasoningEngine.list(
+        project=project, location=location,
+        filter=f'display_name="{display_name}"'
     )
-    vertexai.init(project=project, location=location, staging_bucket=staging_bucket)
-
-    # Read requirements
-    with open(requirements_file) as f:
-        requirements = f.read().strip().split("\n")
-
-    from orchestrate.agent import root_agent
-    agent_engine = AgentEngineApp(
-        agent=root_agent,
-        env_vars=env_vars,
-    )
-
-    # Common configuration for both create and update operations
-    agent_config = {
-        "agent_engine": agent_engine,
-        "display_name": agent_name,
-        "description": "A base ReAct agent built with Google's Agent Development Kit (ADK)",
-        "extra_packages": extra_packages,
-    }
-    logging.info(f"Agent config: {agent_config}")
-    agent_config["requirements"] = requirements
-    # Log the complete configuration that will be sent
-    logging.info(
-        "Complete agent_config being used for deployment (excluding agent_engine object itself for brevity if too large, focusing on parameters):"
-    )
-    # Create a copy for logging to avoid modifying the original if we decide to remove agent_engine for logging
-    log_config = {k: v for k, v in agent_config.items() if k != "agent_engine"}
-    log_config["agent_engine_class"] = agent_config["agent_engine"].__class__.__name__
-    logging.info(json.dumps(log_config, indent=2, default=str))
+    logging.info(f"Found {len(remote_agents)} existing engines matching the display name.")
 
     try:
-        # Check if an agent with this name already exists
-        existing_agents = list(agent_engines.list(filter=f"display_name={agent_name}"))
-        if existing_agents:
-            # Update the existing agent with new configuration
-            logging.info(f"Attempting to updste existing: {agent_name} in project {project}, location {location} ")
-            remote_agent = existing_agents[0].update(**agent_config)
-            logging.info(f"Agent '{agent_name}' updated successfully.")
-        else:
-            # Create a new agent if none exists
-            logging.info(f"Attempting to create new agent: {agent_name} in project {project}, location {location}")
-            remote_agent = agent_engines.create(**agent_config)
-            logging.info(f"Agent '{agent_name}' created successfully.")
+        if remote_agents:
+            if len(remote_agents) > 1:
+                logging.warning(f"Found {len(remote_agents)} engines with display_name='{display_name}'. Skipping update.")
+                raise RuntimeError(f"Multiple engines found for display_name: {display_name}")
 
-    except google.api_core.exceptions.InvalidArgument as e:
-        logging.error(f"!!! InvalidArgument error during agent deployment for '{agent_name}' in project '{project}', location '{location}': {e}")
-        logging.error("--- Agent Configuration Sent (excluding agent_engine object for brevity) ---")
-        logging.error(json.dumps(log_config, indent=2, default=str))
-        logging.error("--- End of Agent Configuration Sent ---")
-        logging.error(
-            "ACTION REQUIRED: This 'Build failed' error indicates an issue with the agent's source code, "
-            "its requirements.txt file, or other dependencies. "
-            "For DETAILED build errors, please navigate to the Google Cloud Console:"
-        )
-        logging.error(f"1. Go to Cloud Build > History.")
-        logging.error(f"2. Ensure you are in project: '{project}'.")
-        logging.error(f"3. Filter by region if necessary (often 'global' or '{location}' for regionalized services).")
-        logging.error("4. Look for recent FAILED builds. The logs there will contain the specific reason for the build failure (e.g., pip install errors, code compilation issues).")
+            remote_agent = remote_agents[0]
+            logging.info(f"Found existing Reasoning Engine: {remote_agent.name} ({remote_agent.display_name}). Attempting to update.")
+
+            # Prepare update arguments
+            update_kwargs = {
+                "reasoning_engine": agent_object,
+                "requirements": requirements,
+                "extra_packages": validated_extra_packages,
+                "display_name": display_name,
+                # "labels": labels, # --- Temporarily removed ---
+            }
+            # Remove keys with None values to avoid overwriting existing values unexpectedly
+            update_kwargs = {k: v for k, v in update_kwargs.items() if v is not None}
+
+            if not update_kwargs:
+                 logging.info("No updates to apply.")
+                 return remote_agent
+
+            logging.info(f"Calling remote_agent.update() with keys: {update_kwargs.keys()}")
+            updated_agent = remote_agent.update(**update_kwargs)
+            logging.info(f"Engine '{display_name}' ({updated_agent.name}) update operation finished.")
+            return updated_agent
+        else:
+            logging.info("No existing Reasoning Engine found. Creating a new one.")
+            create_kwargs = {
+                "reasoning_engine": agent_object, # Use 'reasoning_engine' not 'spec'
+                "display_name": display_name,
+                # "labels": labels, # --- Temporarily removed ---
+            }
+            if requirements:
+                create_kwargs["requirements"] = requirements
+            if validated_extra_packages:
+                create_kwargs["extra_packages"] = validated_extra_packages
+
+            logging.info(f"Calling ReasoningEngine.create with keys: {create_kwargs.keys()}")
+            new_agent = reasoning_engines.ReasoningEngine.create(**create_kwargs)
+            logging.info(f"Engine '{display_name}' create operation finished.")
+            return new_agent
+
+    except google.api_core.exceptions.GoogleAPICallError as e:
+        logging.error(f"!!! API Call error during Reasoning Engine {display_name} deployment: {e}", exc_info=True)
+        raise
+    except TimeoutError:
+        logging.error(f"!!! Timeout waiting for Reasoning Engine {display_name} operation to complete after {LRO_TIMEOUT} seconds.", exc_info=True)
         raise
     except Exception as e:
-        logging.error(f"An unexpected error occurred during agent deployment for '{agent_name}' in project '{project}', location '{location}': {e}")
-        logging.error(f"Agent configuration that might be relevant (excluding agent_engine object): {json.dumps(log_config, indent=2, default=str)}")
-        import traceback
-        logging.error(traceback.format_exc())
-        raise
-
-    config = {
-        "remote_agent_engine_id": remote_agent.resource_name,
-        "deployment_timestamp": datetime.datetime.now().isoformat(),
-    }
-    config_file = "deployment_metadata.json"
-
-    with open(config_file, "w") as f:
-        json.dump(config, f, indent=2)
-
-    logging.info(f"Agent Engine ID written to {config_file}")
-
-    return remote_agent
-
-
-if __name__ == "__main__":
-    # Setup basic logging for the script execution
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
-    )
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Deploy agent engine app to Vertex AI")
-    parser.add_argument(
-        "--project",
-        default=GOOGLE_CLOUD_PROJECT, # This will now correctly use COMMON_GOOGLE_CLOUD_PROJECT from .env
-        help="GCP project ID (defaults to COMMON_GOOGLE_CLOUD_PROJECT from .env or application default credentials)",
-    )
-    parser.add_argument(
-        "--location",
-        default="us-central1",
-        help="GCP region (defaults to us-central1)",
-    )
-    parser.add_argument(
-        "--agent-name",
-        default="orchestrate-agent",
-        help="Name for the agent engine",
-    )
-    parser.add_argument(
-        "--requirements-file",
-        default="./requirements.txt",
-        help="Path to requirements.txt file",
-    )
-    parser.add_argument(
-        "--extra-packages",
-        nargs="+",
-        default=["./app","./orchestrate","./a2a_common-0.1.0-py3-none-any.whl"],
-        help="Additional packages to include",
-    )
-    parser.add_argument(
-        "--set-env-vars",
-        help="Comma-separated list of environment variables in KEY=VALUE format",
-    )
-    args = parser.parse_args()
-
-    # --- Parse and Set Environment Variables ---
-    # Parse environment variables if provided
-    env_vars = None
-    if args.set_env_vars:
-        env_vars = {}
-        for pair_raw in args.set_env_vars.split(";"): # Use semicolon as the outer delimiter
-            pair = pair_raw.strip() # Remove leading/trailing whitespace
-            if not pair: # Skip empty pairs (e.g., from double semicolons)
-                continue
-            try:
-                key, value = pair.split("=", 1)
-                env_vars[key.strip()] = value # Store with stripped key
-                # os.environ[key.strip()] = value # AgentEngineApp handles env_vars
-                logging.info(f"Parsed environment variable for agent: {key.strip()}={value}")
-            except ValueError:
-                # Warn if a pair doesn't contain '='
-                logging.warning(f"Skipping invalid environment variable pair: '{pair}'")
-    # --- End Parse and Set Environment Variables ---
-
-    if not args.project:
-        _, args.project = google.auth.default()
-
-    logging.info("""
-    ╔═══════════════════════════════════════════════════════════╗
-    ║                                                           ║
-    ║   🤖 DEPLOYING AGENT TO VERTEX AI AGENT ENGINE 🤖         ║
-    ║                                                           ║
-    ╚═══════════════════════════════════════════════════════════╝
-    """)
-
-    deploy_agent_engine_app(
-        project=args.project,
-        location=args.location,
-        agent_name=args.agent_name,
-        requirements_file=args.requirements_file,
-        extra_packages=args.extra_packages,
-        env_vars=env_vars,
-    )
+         logging.error(f"An unexpected error occurred during Reasoning Engine {display_name} deployment: {e}", exc_info=True)
+         raise

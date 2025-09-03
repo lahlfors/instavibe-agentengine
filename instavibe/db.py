@@ -2,7 +2,7 @@
 
 import os
 import traceback
-from datetime import datetime,
+from datetime import datetime
 import json # For example usage printing
 
 from google.cloud import spanner
@@ -45,6 +45,11 @@ except Exception as e:
 
 # --- Utility Function (Graph Query Specific) ---
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
+tracer = trace.get_tracer(__name__)
+
 def run_graph_query(db_instance, graph_sql, params=None, param_types=None, expected_fields=None):
     """
     Executes a Spanner Graph Query (GQL).
@@ -63,42 +68,58 @@ def run_graph_query(db_instance, graph_sql, params=None, param_types=None, expec
         print("Error: Database connection is not available.")
         return None
 
-    results_list = []
-    print(f"--- Executing Graph Query ---")
-    # print(f"GQL: {graph_sql}") # Uncomment for verbose query logging
+    with tracer.start_as_current_span("db.spanner.query") as span:
+        span.set_attribute("db.system", "Spanner")
+        span.set_attribute("db.query.text", graph_sql)
 
-    try:
-        with db_instance.snapshot() as snapshot:
-            # execute_sql handles both SQL and Graph Queries
-            results = snapshot.execute_sql(
-                graph_sql,
-                params=params,
-                param_types=param_types
-            )
+        results_list = []
+        print(f"--- Executing Graph Query ---")
+        # print(f"GQL: {graph_sql}") # Uncomment for verbose query logging
 
-            field_names = expected_fields
-            if not field_names:
-                 print("Error: expected_fields must be provided to run_graph_query.")
-                 return None
+        try:
+            with db_instance.snapshot() as snapshot:
+                # execute_sql handles both SQL and Graph Queries
+                results = snapshot.execute_sql(
+                    graph_sql,
+                    params=params,
+                    param_types=param_types
+                )
 
-            for row in results:
-                if len(field_names) != len(row):
-                     print(f"Warning: Mismatch between field names ({len(field_names)}) and row values ({len(row)}). Skipping row: {row}")
-                     continue
-                results_list.append(dict(zip(field_names, row)))
+                field_names = expected_fields
+                if not field_names:
+                     print("Error: expected_fields must be provided to run_graph_query.")
+                     return None
 
-            # print(f"Graph Query successful, fetched {len(results_list)} rows.") # Uncomment for verbose success logging
+                for row in results:
+                    if len(field_names) != len(row):
+                         print(f"Warning: Mismatch between field names ({len(field_names)}) and row values ({len(row)}). Skipping row: {row}")
+                         continue
+                    results_list.append(dict(zip(field_names, row)))
 
-    except (exceptions.NotFound, exceptions.PermissionDenied, exceptions.InvalidArgument) as spanner_err:
-        # InvalidArgument might occur if graph syntax is wrong or graph doesn't exist
-        print(f"Spanner Graph Query Error ({type(spanner_err).__name__}): {spanner_err}")
-        return None
-    except Exception as e:
-        print(f"An unexpected error occurred during graph query execution or processing: {e}")
-        traceback.print_exc()
-        return None
+                if results_list:
+                    document_ids = [row.get("event_id") or row.get("post_id") or row.get("person_id") for row in results_list]
+                    span.set_attribute("db.retrieved.document_ids", document_ids)
+                    # TODO: Investigate if relevance scores can be retrieved from Spanner Graph Queries.
+                    # Currently, the API does not seem to provide this information.
+                    span.set_attribute("db.retrieved.document_scores", [])
 
-    return results_list
+
+                # print(f"Graph Query successful, fetched {len(results_list)} rows.") # Uncomment for verbose success logging
+
+        except (exceptions.NotFound, exceptions.PermissionDenied, exceptions.InvalidArgument) as spanner_err:
+            # InvalidArgument might occur if graph syntax is wrong or graph doesn't exist
+            print(f"Spanner Graph Query Error ({type(spanner_err).__name__}): {spanner_err}")
+            span.record_exception(spanner_err)
+            span.set_status(trace.StatusCode.ERROR, f"Spanner Error: {spanner_err}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred during graph query execution or processing: {e}")
+            traceback.print_exc()
+            span.record_exception(e)
+            span.set_status(trace.StatusCode.ERROR, f"Unexpected Error: {e}")
+            return None
+
+        return results_list
 
 
 # --- Data Fetching Functions using Graph Queries ---

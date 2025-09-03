@@ -6,12 +6,15 @@ WORKDIR /app
 
 # --- Dependency Installation ---
 # Copy only the requirements file first to leverage Docker cache
-COPY requirements.txt /app/requirements.txt 
+COPY instavibe/requirements.txt /app/requirements.txt
+COPY agents/a2a_common-0.1.0-py3-none-any.whl /app/agents/a2a_common-0.1.0-py3-none-any.whl
 RUN pip install --no-cache-dir -r requirements.txt
 
 
 # --- Application Code ---
-COPY . /app
+COPY ./instavibe /app/instavibe
+COPY ./agents /app/agents
+COPY ./common /app/common
 
 # --- Environment ---
 ENV PYTHONPATH=/app
@@ -22,4 +25,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # --- Run the application ---
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread app:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread instavibe.app:app"]

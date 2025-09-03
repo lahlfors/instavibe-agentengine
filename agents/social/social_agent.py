@@ -20,6 +20,10 @@ from dotenv import load_dotenv # To load .env
 # adding it here ensures that if SocialAgent is used or tested in a context
 # where agent.py wasn't the first import, the environment is still correctly configured.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+import sys
+sys.path.append('.')
+from opentelemetry import trace
+tracer = trace.get_tracer(__name__)
 
 class SocialAgent(AgentTaskManager):
   """An agent that handles social profile analysis."""
@@ -27,26 +31,68 @@ class SocialAgent(AgentTaskManager):
   SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
 
   def __init__(self):
-    self._agent = self._build_agent()
-    self._user_id = "remote_agent"
-    self._runner = Runner(
-        app_name=self._agent.name,
-        agent=self._agent,
-        artifact_service=InMemoryArtifactService(),
-        session_service=InMemorySessionService(),
-        memory_service=InMemoryMemoryService(),
-    )
+    self._agent = None
+    self._user_id = None
+    self._runner = None
+
+  def set_up(self):
+    if self._runner:
+        return
+
+    with tracer.start_as_current_span("SocialAgent.set_up") as main_span:
+        logging.info("Starting SocialAgent.set_up")
+        main_span.add_event("Starting SocialAgent.set_up")
+        try:
+            with tracer.start_as_current_span("build_agent_and_runner"):
+                self._agent = self._build_agent()
+                self._user_id = "remote_agent"
+                self._runner = Runner(
+                    app_name=self._agent.name,
+                    agent=self._agent,
+                    artifact_service=InMemoryArtifactService(),
+                    session_service=InMemorySessionService(),
+                    memory_service=InMemoryMemoryService(),
+                )
+            logging.info("SocialAgent set up complete.")
+            main_span.set_status(trace.Status(trace.StatusCode.OK))
+        except Exception as e:
+            logging.error(f"Error during SocialAgent set_up: {e}", exc_info=True)
+            main_span.record_exception(e)
+            main_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            raise
 
   def get_processing_message(self) -> str:
       return "Processing the social profile analysis request..."
 
   def _build_agent(self) -> LoopAgent:
     """Builds the LLM agent for the social profile analysis agent."""
-    return agent.root_agent
+    return agent.create_agent()
 
-  def query(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+  def query(self, input: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        self.set_up()
         logger = logging.getLogger(__name__)
         app_name = self._agent.name
+
+        action = input.get("action")
+        data = input.get("data")
+
+        if not action:
+            return {"error": "No action specified in the input."}
+
+        # Construct a natural language query from the action and data.
+        # This is a simple implementation. A more robust solution might
+        # involve more sophisticated prompt engineering.
+        query = f"Action: {action}, Data: {data}"
+        if action == "share":
+            if isinstance(data, dict) and "message" in data:
+                query = f"Share this message: {data['message']}"
+            else:
+                query = f"Share this content: {data}"
+        elif action == "get_profile":
+            if isinstance(data, dict) and "name" in data:
+                query = f"Get the profile for user {data['name']}"
+            else:
+                query = f"Get the profile for {data}"
 
         interaction_user_id = str(kwargs.get("session_id", self._user_id))
         desired_session_id_for_service = interaction_user_id

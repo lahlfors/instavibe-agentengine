@@ -1,0 +1,68 @@
+# A reusable and authoritative cloudbuild.yaml for deploying services to Cloud Run.
+
+steps:
+  # 1. Build the container image from the specified service directory.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '--tag'
+      - '${_IMAGE_PATH}'
+      - '--file'
+      - '${_SERVICE_DIR}/Dockerfile'
+      - '.'
+
+  # 2. Push the container image to Artifact Registry.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push'
+    args: ['push', '${_IMAGE_PATH}']
+    wait_for: ['Build']
+
+  # 3. Deploy the just-pushed image to Cloud Run.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_IMAGE_PATH}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--project'
+      - '${PROJECT_ID}'
+      - '--service-account=${_SERVICE_ACCOUNT}'
+      # This delimiter allows gcloud to correctly parse a list of key=value pairs.
+      # It is constructed from all the individual substitutions below.
+      - '--set-env-vars'
+      - '^--^COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT}--COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION}--COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID}--COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID}--ORCHESTRATE_AGENT_URL=${_ORCHESTRATE_AGENT_URL}--AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL=${_AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL}--SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL}--PLANNER_AGENT_URL=${_PLANNER_AGENT_URL}--MCP_AGENT_URL=${_MCP_AGENT_URL}--INSTAVIBE_GOOGLE_MAPS_API_KEY=${_INSTAVIBE_GOOGLE_MAPS_API_KEY}'
+      - '--allow-unauthenticated' # Simplified, can be made conditional
+    wait_for: ['Push']
+
+# This section defines all placeholders the script can provide.
+# Providing default empty values makes them optional.
+substitutions:
+  _IMAGE_PATH: 'us-central1-docker.pkg.dev/your-project/your-repo/your-image:latest'
+  _SERVICE_NAME: 'default-service-name'
+  _SERVICE_DIR: '.'
+  _REGION: 'us-central1'
+  _SERVICE_ACCOUNT: ''
+
+  # Default empty values for ALL potential environment variables across ALL services
+  _COMMON_GOOGLE_CLOUD_PROJECT: ''
+  _COMMON_GOOGLE_CLOUD_LOCATION: ''
+  _COMMON_SPANNER_INSTANCE_ID: ''
+  _COMMON_SPANNER_DATABASE_ID: ''
+  _ORCHESTRATE_AGENT_URL: ''
+  _AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL: ''
+  _SOCIAL_AGENT_URL: ''
+  _PLANNER_AGENT_URL: ''
+  _MCP_AGENT_URL: ''
+  _INSTAVIBE_GOOGLE_MAPS_API_KEY: ''
+
+images:
+  - '${_IMAGE_PATH}'

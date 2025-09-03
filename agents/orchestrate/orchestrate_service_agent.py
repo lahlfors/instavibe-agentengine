@@ -1,116 +1,204 @@
-from google.adk.agents import BaseAgent
-from google.adk.runners import Runner
-from google.adk.artifacts import InMemoryArtifactService
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.sessions import InMemorySessionService # Removed SessionNotFoundError, Session
-from typing import Any, Dict, List, Optional
-import os # For path joining
-# import asyncio # Removed
-from dotenv import load_dotenv # To load .env
-from google.genai.types import Content, Part # Added import
+# In agents/orchestrate/orchestrate_service_agent.py
+import logging
+import os
+import asyncio
+import google.auth
+import google.auth.credentials
+import json
+from opentelemetry import trace
+import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
+from vertexai.generative_models import GenerativeModel
+from google.adk.agents import Agent
+from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.planners import BuiltInPlanner
+from google.adk.tools.tool_context import ToolContext
+from google.genai.types import ThinkingConfig
+from typing import Optional
+from agents.app.utils.communication import call_agent_capability
+from google.adk.memory import VertexAiMemoryBankService
+from google.adk.tools import preload_memory_tool
+from common.observability import setup_observability
 
-# Import HostAgent to create the underlying LlmAgent
-from agents.orchestrate.host_agent import HostAgent
-import logging # For logging addresses
+logging.basicConfig(level=logging.INFO)
+tracer = trace.get_tracer(__name__)
 
-# Load environment variables from the root .env file
-# This ensures that any underlying components (like HostAgent or its dependencies)
-# that might implicitly rely on environment variables (e.g., for Google Cloud clients)
-# have them loaded.
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
-log = logging.getLogger(__name__)
-
-class OrchestrateServiceAgent:
+class OrchestrateServiceAgent(Agent):
     """
-    A wrapper class for the Orchestrate LlmAgent to provide a queryable interface
-    compatible with the ADK deployment expectations. It now accepts remote agent
-    addresses at construction to configure the underlying HostAgent.
+    The main orchestrator agent, interacting with Memory Bank via REST API and delegating tasks.
     """
-    SUPPORTED_CONTENT_TYPES: List[str] = ["text", "text/plain"]
+    project: Optional[str] = None
+    location: Optional[str] = None
+    reasoning_engine_id: Optional[str] = None
+    orchestrator_agent: Optional[Agent] = None
+    memory_service: Optional[VertexAiMemoryBankService] = None
 
-    def __init__(self, remote_agent_addresses_str: str):
-        self._user_id: str = "orchestrate_service_user"
-
-        # Parse the remote_agent_addresses_str into a list
-        parsed_addresses: List[str] = [
-            addr.strip() for addr in remote_agent_addresses_str.split(',') if addr.strip()
-        ]
-        log.info(f"OrchestrateServiceAgent received remote_agent_addresses: {parsed_addresses}")
-
-        # Instantiate HostAgent and create the underlying LlmAgent
-        # Assuming HostAgent does not require a task_callback for basic agent creation
-        host_agent_logic = HostAgent(remote_agent_addresses=parsed_addresses, task_callback=None)
-        self._agent: BaseAgent = host_agent_logic.create_agent()
-
-        self._runner = Runner(
-            app_name=self._agent.name,
-            agent=self._agent,
-            artifact_service=InMemoryArtifactService(),
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
+    def __init__(self, name: str, instruction: Optional[str] = None, description: Optional[str] = None):
+        super().__init__(
+            name=name,
+            model="gemini-2.5-flash",
+            instruction=instruction or "I am an orchestrator agent with memory and task delegation capabilities.",
+            description=description or "An agent that can create/search memories and delegate tasks.",
         )
 
-    def get_processing_message(self) -> str:
-        return "Orchestrating the request..."
+    async def set_up(self):
+        """
+        Called by the Agent Engine framework after deployment.
+        """
+        os.environ["OTEL_SERVICE_NAME"] = self.name
+        setup_observability()
+        if self.orchestrator_agent:
+            return
 
-    def query(self, query: str, **kwargs: Any) -> Dict[str, Any]: # Renamed query_text back to query
-        # Using module-level 'log'
-        app_name = self._agent.name
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
 
-        interaction_user_id = str(kwargs.get("session_id", self._user_id))
-        desired_session_id_for_service = interaction_user_id
+        if not self.project or not self.location:
+            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
+        if not self.reasoning_engine_id:
+            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
+            raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
 
-        current_session_obj: Optional[Any] = None
-        try:
-            log.debug(f"Attempting to get session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-            current_session_obj = self._runner.session_service.get_session( # Synchronous
-                app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
-            )
-            if current_session_obj:
-                 log.info(f"Found existing session: {current_session_obj.id} for user {interaction_user_id}")
-            else:
-                log.info(f"Session {desired_session_id} for user {interaction_user_id} not found (get_session returned None). Will create.")
-        except Exception as e_get:
-            log.warning(f"Exception during get_session for user '{interaction_user_id}', session_id '{desired_session_id}': {e_get}. Will assume session needs creation.")
-            current_session_obj = None
+        self.memory_service = VertexAiMemoryBankService(
+            project=self.project,
+            location=self.location,
+            agent_engine_id=self.reasoning_engine_id,
+        )
+        logging.info("VertexAiMemoryBankService initialized.")
 
-        if current_session_obj is None:
+        thinking_config = ThinkingConfig(
+            include_thoughts=True,
+            thinking_budget=-1,  # Use dynamic thinking
+        )
+        planner = BuiltInPlanner(thinking_config=thinking_config)
+        all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
+
+        self.orchestrator_agent = Agent(
+            model="gemini-2.5-flash",
+            name="orchestrate_agent",
+            instruction=self.root_instruction,
+            description=(
+                "This agent orchestrates the decomposition of the user request into"
+                " tasks that can be performed by the child agents."
+            ),
+            tools=all_tools,
+            planner=planner,
+            memory=self.memory_service,
+        )
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
+
+    def root_instruction(self, context: ReadonlyContext) -> str:
+        return """
+    You are an expert AI Orchestrator for the Instavibe application. Your primary responsibility is to intelligently interpret user requests and delegate them to the most appropriate specialized remote agents by invoking their capabilities.
+
+    You have the following agents at your disposal:
+    - **planner-agent**: Helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions.
+    - **platform-mcp-client-agent**: Interacts with the Instavibe platform. It can create events, posts, and perform other platform-specific actions.
+    - **social-agent**: Interacts with social media platforms.
+
+    Core Workflow:
+    1.  **Understand User Intent:** Analyze the user's request to determine the core task.
+    2.  **Identify Action and Agent:** Determine the appropriate 'action' (capability) to call and the 'agent_name' that provides it.
+    3.  **Provide Reasoning:** After you have identified the agent and action, but before you call the tool, provide a brief summary of your reasoning for choosing a particular agent and action.
+    4.  **Delegate Task:** Use the `send_task` tool to delegate the task. Your call MUST include:
+        *   `agent_name`: The name of the target agent (e.g., 'planner-agent').
+        *   `action`: The name of the capability to invoke (e.g., 'plan', 'create_event').
+        *   `data`: A dictionary containing the payload for the action.
+
+    Examples:
+    - User Request: "Plan a fun night out for me and my friends."
+      - Your thought process: The user wants to plan an event. The 'planner-agent' is the best agent for this.
+      - Your tool call: `send_task(agent_name='planner-agent', action='plan', data={'prompt': 'Plan a fun night out for me and my friends.'})`
+    - User Request: "Create an event for the plan we just made."
+      - Your thought process: The user wants to create an event on Instavibe. The 'platform-mcp-client-agent' is the best agent for this.
+      - Your tool call: `send_task(agent_name='platform-mcp-client-agent', action='create_event', data={'event_details': ...})`
+    - User Request: "Share the event on social media."
+        - Your thought process: The user wants to share something on social media. The 'social-agent' is the best agent for this.
+        - Your tool call: `send_task(agent_name='social-agent', action='share', data={'message': 'Check out this cool event I just made on Instavibe!'})`
+
+    Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
+    """
+
+    async def send_task(
+        self,
+        agent_name: str,
+        action: str,
+        data: dict,
+        tool_context: ToolContext
+    ) -> dict:
+        """
+        Finds a remote agent and invokes one of its capabilities.
+        """
+        with tracer.start_as_current_span(f"{agent_name}.{action}") as span:
+            span.set_attribute("agent.name", self.name)
+            span.set_attribute(ai_semconv.GEN_AI_OPERATION_NAME, "send_task")
+            span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "send_task")
+            tool_params = {
+                "agent_name": agent_name,
+                "action": action,
+                "data": data,
+            }
+            span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
             try:
-                log.info(f"Creating session: app='{app_name}', user='{interaction_user_id}', session_id='{desired_session_id}'")
-                current_session_obj = self._runner.session_service.create_session( # Synchronous
-                    app_name=app_name, user_id=interaction_user_id, session_id=desired_session_id
+                response_data = await call_agent_capability(
+                    source_agent="orchestrate_agent",
+                    target_agent=agent_name,
+                    capability=action,
+                    prompt=data
                 )
-                log.info(f"Successfully created session: {current_session_obj.id} for user {interaction_user_id}.")
-            except Exception as e_create:
-                log.error(f"Failed to create session for user {interaction_user_id} with session_id {desired_session_id}: {e_create}", exc_info=True)
-                return {"error": f"Session management failure during create: {e_create}"}
+                span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response_data))
+                return response_data
+            except Exception as e:
+                span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps({"error": str(e)}))
+                return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
-        if not current_session_obj:
-            log.error(f"Critical error: Failed to obtain a session object for user {interaction_user_id}, session_id {desired_session_id}.")
-            return {"error": "Failed to get or create a session."}
+    def query(self, input_text: str) -> str:
+        with tracer.start_as_current_span("orchestrate_agent.query") as span:
+            span.set_attribute("agent.name", self.name)
+            span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
+            span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
 
-        response_event_data = None # Was agent_response before
-        try:
-            for event in self._runner.run( # Synchronous runner call
-                user_id=interaction_user_id,
-                session_id=current_session_obj.id,
-                new_message=Content(parts=[Part(text=query)], role="user") # Use query parameter
-            ):
-                response_event_data = event
-                break
-        except Exception as e_run:
-            log.error(f"Error during run for session {current_session_obj.id}: {e_run}", exc_info=True)
-            return {"error": f"Agent execution error: {e_run}"}
+            model = GenerativeModel(self.orchestrator_agent.model)
 
-        if response_event_data:
-            if isinstance(response_event_data, dict):
-                return response_event_data
-            elif hasattr(response_event_data, 'is_final_response') and response_event_data.is_final_response():
-                if response_event_data.content and response_event_data.content.parts and response_event_data.content.parts[0].text:
-                    return {"output": response_event_data.content.parts[0].text}
-            logger.warning(f"run_async returned event of type {type(response_event_data)} for session {current_session_obj.id}. Content: {str(response_event_data)[:200]}")
-            return {"error": "Unexpected or non-final event type from agent execution", "event_preview": str(response_event_data)[:100]}
-        else:
-            log.warning(f"No response event received from agent execution for session {current_session_obj.id}.")
-            return {"error": "No response event received from agent execution"}
+            # Count and set INPUT tokens
+            try:
+                prompt_tokens = model.count_tokens([input_text]).total_tokens
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, prompt_tokens)
+            except Exception as e:
+                logging.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, len(input_text) // 4)
+
+            # Add PROMPT CONTENT as an EVENT
+            span.add_event(
+                "gen_ai.prompt",
+                {"gen_ai.prompt.value": input_text}
+            )
+
+            if not self.orchestrator_agent:
+                logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+                raise RuntimeError("Agent not properly initialized.")
+
+            response_text = self.orchestrator_agent.query(input_text)
+
+            # Add COMPLETION CONTENT as an EVENT
+            span.add_event(
+                "gen_ai.completion",
+                {"gen_ai.completion.value": response_text}
+            )
+
+            # Count and set OUTPUT tokens
+            try:
+                completion_tokens = model.count_tokens([response_text]).total_tokens
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, completion_tokens)
+            except Exception as e:
+                logging.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(response_text) // 4)
+
+            return response_text
+
+OrchestrateServiceAgent.model_rebuild()
+
+root_agent = OrchestrateServiceAgent(
+    name="orchestrate_service_agent",
+)

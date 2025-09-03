@@ -1,14 +1,54 @@
-google-cloud-aiplatform[adk,agent_engines]==1.98.0
-Flask==3.1.0
-mcp[cli]>=1.8.0
-google-adk==1.4.2
-google-cloud-spanner==3.54.0
-python-dateutil==2.9.0.post0
-humanize==4.12.3
-nest_asyncio==1.6.0
-asyncclick==8.1.8.0
-google-adk[eval]==1.4.2
-build==1.2.2.post1
-google-genai>=1.17.0,<2.0.0
-deprecated==1.2.18
-python-dotenv==1.0.1
+# Core OTEL
+opentelemetry-api~=1.36.0
+opentelemetry-sdk~=1.36.0
+opentelemetry-semantic-conventions==0.57b0
+
+# AI Semantic Conventions for Traces
+opentelemetry-semantic-conventions-ai==0.4.13
+
+# OTLP Exporter for all signals
+opentelemetry-exporter-otlp-proto-grpc~=1.36.0
+
+# OTEL Instrumentation
+opentelemetry-instrumentation-vertexai
+opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-grpc
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-aiohttp-client
+opentelemetry-instrumentation-logging # To capture standard logging
+opentelemetry-instrumentation-fastapi==0.57b0
+
+# Vertex AI SDK
+google-cloud-aiplatform>=1.86.0
+google-cloud-aiplatform[agent_engines,adk]>=1.111.0
+
+# Other dependencies
+google-adk==1.13.0
+google-auth
+google-cloud-spanner
+python-dotenv>=1.0.0
+grpcio
+requests>=2.0.0
+python-dateutil
+aiohttp
+Flask==3.0.0
+humanize==4.8.0
+gunicorn
+nest_asyncio>=1.6.0
+cloudpickle>=3.0.0
+pydantic
+grpcio-status
+google-cloud-storage
+google-auth-oauthlib
+google-auth-httplib2
+google-api-core
+google-cloud-appengine-logging
+google-cloud-trace
+google-search-results
+tiktoken
+google-cloud-logging
+google-cloud-run
+google-api-python-client
+fastapi
+uvicorn
+starlette

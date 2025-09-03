@@ -1,489 +1,455 @@
-import subprocess
-import argparse
-import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__))) # Add repo root to path
+import sys
+import logging
+import importlib
+import argparse
 from dotenv import load_dotenv
+
+# CRITICAL: Add the project root to the path for local module imports
+PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from agents.app.agent_engine_app import deploy_agent_engine_app
+from common.observability import setup_observability
 from google.cloud import aiplatform as vertexai
-from google.cloud.aiplatform_v1.services import reasoning_engine_service
-from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC, DeleteReasoningEngineRequest # MODIFIED: Added DeleteReasoningEngineRequest
-from google.api_core import exceptions as api_exceptions
-import time
+from typing import Dict, List, Optional
+import subprocess
 
-# Pre-install root dependencies
-try:
-    print("Pre-installing root dependencies for import purposes...")
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--break-system-packages", "-r", "requirements.txt"],
-        check=True, text=True, capture_output=False
-    )
-    print("Root dependencies pre-installed successfully.")
-except subprocess.CalledProcessError as e:
-    print(f"ERROR: Critical error pre-installing root dependencies: {e}")
-    if e.stdout: print(f"Stdout: {e.stdout}")
-    if e.stderr: print(f"Stderr: {e.stderr}")
-    raise
+# Agent deployment functions are imported locally within main() to ensure
+# dependencies are installed first.
 
-from agents.planner.deploy import deploy_planner_main_func
-from agents.social.deploy import deploy_social_main_func
-from agents.orchestrate.deploy import deploy_orchestrate_main_func
-from agents.platform_mcp_client.deploy import deploy_platform_mcp_client_main_func
 
-class ApiDisabledError(Exception): pass
+# --- Configuration ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+GCLOUD_COMMON_ARGS = [] # Will be populated in setup_environment
 
-def sanitize_env_var_value(value: str | None) -> str:
+class ApiDisabledError(Exception):
+    """Custom exception for when a required GCP API is not enabled."""
+    pass
+
+class DeploymentError(Exception):
+    """Custom exception for deployment failures."""
+    pass
+
+# --- Helper Functions ---
+
+def install_dependencies():
+    """Installs dependencies from requirements.txt."""
+    logging.info("--- Installing/Updating Dependencies from requirements.txt ---")
+    req_path = os.path.join(PROJECT_ROOT, 'requirements.txt')
+    if not os.path.exists(req_path):
+        logging.warning(f"Root requirements.txt not found at {req_path}. Skipping dependency installation.")
+        return
+    try:
+        # Use the already defined run_command to get logging and error handling
+        # We set capture_output to False to see pip's progress in real-time.
+        run_command([sys.executable, "-m", "pip", "install", "--upgrade", "-r", req_path], check=True, capture_output=False)
+        logging.info("--- Dependencies are up to date. ---")
+    except subprocess.CalledProcessError as e:
+        raise DeploymentError("Failed to install dependencies from requirements.txt.") from e
+
+def run_command(command: List[str], check: bool = True, capture_output: bool = True, text: bool = True, timeout: Optional[int] = None, input_str: Optional[str] = None) -> subprocess.CompletedProcess:
+    """
+    Executes a shell command and logs its execution and output.
+    Raises CalledProcessError on failure if check is True.
+    """
+    cmd_str = ' '.join(command)
+    logging.info(f"Executing command: {cmd_str}")
+
+    try:
+        result = subprocess.run(command, check=check, capture_output=capture_output, text=text, timeout=timeout, input=input_str)
+        if result.returncode != 0 and not check:
+             logging.warning(f"Command failed with code {result.returncode}: {cmd_str}")
+             if capture_output:
+                 logging.warning(f"STDERR: {result.stderr.strip()}")
+                 logging.warning(f"STDOUT: {result.stdout.strip()}")
+        return result
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Command failed with exit code {e.returncode}: {' '.join(e.cmd)}")
+        if capture_output:
+            logging.error(f"STDERR: {e.stderr.strip()}")
+            logging.error(f"STDOUT: {e.stdout.strip()}")
+        if check:
+            raise
+        else:
+            return subprocess.CompletedProcess(e.args, e.returncode, e.stdout, e.stderr)
+    except FileNotFoundError:
+        logging.error(f"Command not found: {command[0]}. Ensure gcloud SDK is installed and in your PATH.")
+        raise
+    except subprocess.TimeoutExpired as e:
+        logging.error(f"Command timed out after {timeout} seconds: {cmd_str}")
+        if e.stdout: logging.error(f"STDOUT: {e.stdout}")
+        if e.stderr: logging.error(f"STDERR: {e.stderr}")
+        raise
+
+def sanitize_env_var(value: Optional[str]) -> str:
+    """Sanitizes an environment variable value."""
     if value is None:
         return ''
     return value.split('#', 1)[0].strip().strip('"').strip("'")
 
-def check_reasoning_engine_exists(gapic_client: reasoning_engine_service.ReasoningEngineServiceClient, parent_path: str, display_name: str) -> ReasoningEngineGAPIC | None:
-    """Checks if a reasoning engine with the given display name exists. Returns the engine object if found, else None."""
-    try:
-        engines = gapic_client.list_reasoning_engines(parent=parent_path)
-        for engine in engines:
-            if engine.display_name == display_name:
-                print(f"Reasoning Engine '{display_name}' already exists with resource name: {engine.name}")
-                return engine
-        print(f"Reasoning Engine '{display_name}' not found.")
-        return None
-    except api_exceptions.Forbidden as e:
-        error_message = str(e).lower()
-        if ("api has not been used" in error_message or
-            "service is disabled" in error_message or
-            "enable it by visiting" in error_message or
-            'reason: "service_disabled"' in error_message):
-            print(f"ERROR: Vertex AI API is disabled for project {parent_path.split('/')[1]}. Full error: {e}")
-            raise ApiDisabledError(f"Vertex AI API disabled for {parent_path.split('/')[1]}")
-        else:
-            print(f"Warning: Received a Forbidden error while checking for Reasoning Engine '{display_name}': {e}. Assuming it does not exist.")
-            return None
-    except Exception as e:
-        print(f"Warning: Error checking for Reasoning Engine '{display_name}': {e}. Assuming it does not exist.")
-        return None
-
-def delete_reasoning_engine_if_exists(gapic_client: reasoning_engine_service.ReasoningEngineServiceClient, parent_path: str, display_name: str):
-    """Deletes the reasoning engine if it exists."""
-    existing_engine = check_reasoning_engine_exists(gapic_client, parent_path, display_name)
-    if existing_engine:
-        print(f"Attempting to delete existing Reasoning Engine '{display_name}' ({existing_engine.name}) with force=True...")
-        try:
-            # MODIFIED: Use DeleteReasoningEngineRequest to pass force=True
-            request = DeleteReasoningEngineRequest(name=existing_engine.name, force=True)
-            delete_operation = gapic_client.delete_reasoning_engine(request=request)
-            print(f"Force deletion initiated for {existing_engine.name}. Waiting up to 180s for completion...")
-            delete_operation.result(timeout=180)
-            print(f"Successfully force-deleted existing Reasoning Engine '{existing_engine.name}'.")
-            # Add a small delay to allow backend to fully process deletion
-            time.sleep(10)
-        except Exception as del_e:
-            print(f"ERROR: Failed to force-delete existing Reasoning Engine '{existing_engine.name}': {del_e}. Manual deletion might be required.")
-            raise # Re-raise to halt further deployment of this specific agent
-
-def check_cloud_run_service_exists(service_name: str, project_id: str, region: str) -> bool:
-    try:
-        result = subprocess.run(
-            ["gcloud", "run", "services", "describe", service_name, "--project", project_id, "--region", region, "--format", "value(service.name)"],
-            check=True, capture_output=True, text=True,
-        )
-        if result.stdout.strip():
-            print(f"Cloud Run service '{service_name}' already exists in project '{project_id}' region '{region}'.")
-            return True
-        return False
-    except subprocess.CalledProcessError:
-        print(f"Cloud Run service '{service_name}' not found or error describing.")
-        return False
-    except Exception as e:
-        print(f"Unexpected error checking for Cloud Run service '{service_name}': {e}. Assuming it does not exist.")
-        return False
-
-def deploy_agent_with_forced_update(
-    project_id: str, region: str, agent_display_name: str,
-    deploy_main_func, # The specific deploy_xxx_main_func from agent's deploy.py
-    base_dir_for_deploy_func: str = ".",
-    additional_deploy_args=None # Dictionary for extra args like dynamic_remote_agent_addresses
-):
-    """Generic function to deploy an agent, forcing deletion if it already exists."""
-    print(f"Starting deployment process for {agent_display_name} in project {project_id} region {region}...")
-    if additional_deploy_args and "dynamic_remote_agent_addresses" in additional_deploy_args:
-        print(f"  with remote agent addresses: {additional_deploy_args['dynamic_remote_agent_addresses'] if additional_deploy_args['dynamic_remote_agent_addresses'] else 'NONE'}")
-
-    client_options = {"api_endpoint": f"{region}-aiplatform.googleapis.com"}
-    try:
-        gapic_client = reasoning_engine_service.ReasoningEngineServiceClient(client_options=client_options)
-    except Exception as e:
-        print(f"ERROR: Failed to create GAPIC client: {e}. Skipping deployment of {agent_display_name}.")
-        return None # Return None to indicate failure
-
-    parent_path = f"projects/{project_id}/locations/{region}"
-    try:
-        delete_reasoning_engine_if_exists(gapic_client, parent_path, agent_display_name)
-        print(f"Proceeding with fresh deployment of {agent_display_name}.")
-    except ApiDisabledError:
-        print(f"Halting deployment of {agent_display_name} due to Vertex AI API being disabled.")
-        return None
-    except Exception as e:
-        print(f"Failed during pre-deployment delete for {agent_display_name} due to an error: {e}. Skipping deployment.")
-        return None
-
-    try:
-        deploy_args = {
-            "project_id": project_id,
-            "region": region,
-            "base_dir": base_dir_for_deploy_func
-        }
-        if additional_deploy_args:
-            deploy_args.update(additional_deploy_args)
-
-        deployed_agent_resource = deploy_main_func(**deploy_args)
-
-        if deployed_agent_resource and hasattr(deployed_agent_resource, 'name') and deployed_agent_resource.name:
-            raw_name_from_sdk = deployed_agent_resource.name
-            if callable(raw_name_from_sdk): # Should not happen for .name attribute but defensive
-                print(f"WARNING: {agent_display_name} - deployed_agent_resource.name is callable. Calling it.")
-                raw_name_from_sdk = raw_name_from_sdk()
-
-            # Ensure raw_name_from_sdk is a string before doing string operations
-            if not isinstance(raw_name_from_sdk, str):
-                print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is not a string (type: {type(raw_name_from_sdk)}). Value: {raw_name_from_sdk}")
-                name_to_return = None # Cannot form full name
-            elif raw_name_from_sdk.startswith("projects/"):
-                print(f"{agent_display_name} deployment returned full resource name: {raw_name_from_sdk}")
-                name_to_return = raw_name_from_sdk
-            elif raw_name_from_sdk.isdigit(): # It's likely just the ID
-                print(f"{agent_display_name} deployment returned ID: {raw_name_from_sdk}. Constructing full resource name.")
-                name_to_return = f"projects/{project_id}/locations/{region}/reasoningEngines/{raw_name_from_sdk}"
-                print(f"{agent_display_name} - Constructed full resource name: {name_to_return}")
-            else: # Unexpected format
-                print(f"ERROR: {agent_display_name} - deployed_agent_resource.name is in an unexpected format: '{raw_name_from_sdk}'. Cannot determine full resource name.")
-                name_to_return = None # Cannot form full name
-
-            if name_to_return:
-                print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: '{name_to_return}' (type: {type(name_to_return)})")
-                return name_to_return
-            else: # Fall through if name_to_return ended up being None due to errors above
-                print(f"{agent_display_name} deployment process resulted in an invalid name. See previous ERRORs.")
-                # No change needed for the DIAGNOSTIC_TRACE lines below as they will explain the None return
-        # This else block handles cases where deployed_agent_resource is None or .name is missing/empty initially
-        print(f"{agent_display_name} deployment process completed, but resource or its '.name' attribute is invalid/empty initially.")
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} - deployed_agent_resource: {deployed_agent_resource}") # DIAGNOSTIC_TRACE
-        if deployed_agent_resource:
-            print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource attributes: {dir(deployed_agent_resource)}") # DIAGNOSTIC_TRACE
-            if not hasattr(deployed_agent_resource, 'name'):
-                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource exists but has no 'name' attribute.") # DIAGNOSTIC_TRACE
-            elif not deployed_agent_resource.name: # Check if .name is empty or None
-                print(f"DIAGNOSTIC_TRACE: {agent_display_name} - deployed_agent_resource has an empty or None 'name' attribute: '{deployed_agent_resource.name}'") # DIAGNOSTIC_TRACE
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} IS RETURNING: None") # DIAGNOSTIC_TRACE
-        return None # Explicitly returning None
-    except Exception as e:
-        print(f"Error deploying {agent_display_name}: {e}")
-        print(f"DIAGNOSTIC_TRACE: deploy_agent_with_forced_update for {agent_display_name} re-raising exception, WILL RETURN None implicitly if not caught by caller.") # DIAGNOSTIC_TRACE
-        # Re-raise to indicate failure to the main script
-        raise
-    # This final return None should be unreachable if the try/except logic is exhaustive.
-    # If it's reached, it means an unexpected control flow.
-    print(f"DEBUG: deploy_agent_with_forced_update for {agent_display_name} reached unexpected final return None.") # DIAGNOSTIC
-    return None
-
-# Specific deployment functions using the generic helper
-def deploy_planner_agent(project_id: str, region: str):
-    return deploy_agent_with_forced_update(project_id, region, "Planner Agent", deploy_planner_main_func)
-
-def deploy_social_agent(project_id: str, region: str):
-    return deploy_agent_with_forced_update(project_id, region, "Social Agent", deploy_social_main_func)
-
-def deploy_orchestrate_agent(project_id: str, region: str, remote_addresses_str: str):
-    additional_args = {"dynamic_remote_agent_addresses": remote_addresses_str}
-    return deploy_agent_with_forced_update(project_id, region, "Orchestrate Agent", deploy_orchestrate_main_func, additional_deploy_args=additional_args)
-
-def deploy_platform_mcp_client(project_id: str, region: str):
-    return deploy_agent_with_forced_update(project_id, region, "Platform MCP Client Agent", deploy_platform_mcp_client_main_func)
-
-
-def deploy_instavibe_app(project_id: str, region: str, image_name_param: str = "instavibe-app", env_vars_string: str | None = None): # Renamed image_name to image_name_param for clarity
-    """Deploys the Instavibe app to Cloud Run, attempting to enable Kaniko and using --no-cache."""
-    print(f"--- Deploying Instavibe App ({image_name_param}) ---")
-
-    # 1. Set the gcloud configuration to use the Kaniko cache.
-    print("Step 1: Attempting to enable Kaniko cache for Google Cloud Build...")
-    try:
-        subprocess.run(
-            ["gcloud", "config", "set", "builds/use_kaniko", "True", "--project", project_id],
-            check=True, capture_output=True, text=True
-        )
-        print("Kaniko cache enabled successfully for project.")
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: Could not enable Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
-
-    # 2. Build the Docker image with --no-cache
-    # Construct the full image tag
-    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
-    print(f"\nStep 2: Building Instavibe App Docker image {image_tag} with a clean build...")
-    try:
-        build_command = [
-            "gcloud", "builds", "submit", "instavibe", # Source path from repo root
-            "--tag", image_tag,
-            "--project", project_id,
-            "--no-cache"
-        ]
-        subprocess.run(
-            build_command,
-            check=True, capture_output=True, text=True
-            # cwd is not needed as "instavibe" is specified as source for gcloud builds submit
-        )
-        print(f"Successfully built image: {image_tag}")
-    except subprocess.CalledProcessError as e:
-        print(f"Error building Instavibe App image: {e.stderr}")
-        # print full error details
-        print(f"Stdout: {e.stdout}")
-        raise
-
-    # 3. Deploy the newly built image to Cloud Run
-    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
-    try:
-        deploy_command = [
-            "gcloud", "run", "deploy", image_name_param, # Service name
-            "--image", image_tag, # Full image path
-            "--platform", "managed",
-            "--region", region,
-            "--project", project_id,
-            "--allow-unauthenticated",
-        ]
-        if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
-
-        print(f"Deploying Instavibe App to Cloud Run in {region} with env vars: {env_vars_string if env_vars_string else 'Defaults from Dockerfile/service'}")
-        subprocess.run(deploy_command, check=True, capture_output=True, text=True)
-        print(f"Instavibe App {image_name_param} deployed successfully to Cloud Run in {region}.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error deploying Instavibe App to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-        raise
-
-def deploy_mcp_tool_server(project_id: str, region: str, image_name_param: str = "mcp-tool-server", env_vars_string: str | None = None):
-    """Deploys the MCP Tool Server to Cloud Run, attempting to enable Kaniko and using --no-cache."""
-    print(f"--- Deploying MCP Tool Server ({image_name_param}) ---")
-
-    # 1. Attempt to set the gcloud configuration to use the Kaniko cache (harmless if already set).
-    print("Step 1: Ensuring Kaniko cache is enabled for Google Cloud Build...")
-    try:
-        subprocess.run(
-            ["gcloud", "config", "set", "builds/use_kaniko", "True", "--project", project_id],
-            check=True, capture_output=True, text=True
-        )
-        print("Kaniko cache configuration check/set complete for project.")
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: Could not set Kaniko cache (or it was already set). This is usually fine. Error: {e.stderr}")
-
-    # 2. Build the Docker image with --no-cache
-    image_tag = f"us-central1-docker.pkg.dev/{project_id}/instavibe-images/{image_name_param}"
-    print(f"\nStep 2: Building MCP Tool Server Docker image {image_tag} with a clean build...")
-    try:
-        build_command = [
-            "gcloud", "builds", "submit", "tools/instavibe", # Source path from repo root
-            "--tag", image_tag,
-            "--project", project_id,
-            "--no-cache"
-        ]
-        subprocess.run(
-            build_command,
-            check=True, capture_output=True, text=True
-            # cwd is not needed as "tools/instavibe" is the source path argument
-        )
-        print(f"Successfully built image: {image_tag}")
-    except subprocess.CalledProcessError as e:
-        print(f"Error building MCP Tool Server image: {e.stderr}")
-        print(f"Stdout: {e.stdout}") # Also print stdout for more context
-        raise
-
-    # 3. Deploy the newly built image to Cloud Run
-    print(f"\nStep 3: Deploying the new image {image_tag} to Cloud Run service {image_name_param}...")
-    try:
-        deploy_command = [
-            "gcloud", "run", "deploy", image_name_param,
-            "--image", image_tag,
-            "--platform", "managed", "--region", region, "--project", project_id, "--allow-unauthenticated",
-        ]
-        if env_vars_string: deploy_command.extend(["--set-env-vars", env_vars_string])
-
-        print(f"Deploying MCP Tool Server to Cloud Run in {region} {'with env vars: ' + env_vars_string if env_vars_string else 'without specific env vars for --set-env-vars'}")
-        subprocess.run(deploy_command, check=True, capture_output=True, text=True)
-        print(f"MCP Tool Server {image_name_param} deployed successfully to Cloud Run in {region}.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error deploying MCP Tool Server to Cloud Run: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-        raise
-
-def main(argv=None):
+def setup_environment() -> Dict[str, str]:
+    """Loads and validates required environment variables."""
     load_dotenv()
-    project_id = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_PROJECT"))
-    region = sanitize_env_var_value(os.environ.get("COMMON_GOOGLE_CLOUD_LOCATION"))
-    staging_bucket_uri = sanitize_env_var_value(os.environ.get("COMMON_VERTEX_STAGING_BUCKET"))
-    spanner_instance_id = sanitize_env_var_value(os.environ.get("COMMON_SPANNER_INSTANCE_ID"))
-    spanner_database_id = sanitize_env_var_value(os.environ.get("COMMON_SPANNER_DATABASE_ID"))
+    required_vars = {
+        "project_id": "COMMON_GOOGLE_CLOUD_PROJECT",
+        "region": "COMMON_GOOGLE_CLOUD_LOCATION",
+        "staging_bucket": "COMMON_VERTEX_STAGING_BUCKET",
+        "spanner_instance": "COMMON_SPANNER_INSTANCE_ID",
+        "spanner_db": "COMMON_SPANNER_DATABASE_ID",
+    }
+    optional_vars = {
+        "service_account": "SERVICE_ACCOUNT_EMAIL",
+    }
 
-    if not all([project_id, region, staging_bucket_uri, spanner_instance_id, spanner_database_id]):
-        missing_vars = [var for var, val in {
-            "COMMON_GOOGLE_CLOUD_PROJECT": project_id, "COMMON_GOOGLE_CLOUD_LOCATION": region,
-            "COMMON_VERTEX_STAGING_BUCKET": staging_bucket_uri, "COMMON_SPANNER_INSTANCE_ID": spanner_instance_id,
-            "COMMON_SPANNER_DATABASE_ID": spanner_database_id
-        }.items() if not val]
-        raise ValueError(f"Missing critical environment variables in .env file: {', '.join(missing_vars)}")
+    env_config = {key: sanitize_env_var(os.environ.get(var_name)) for key, var_name in required_vars.items()}
 
-    print("Starting Spanner setup...")
-    instance_exists = False
+    for key, var_name in optional_vars.items():
+        env_config[key] = sanitize_env_var(os.environ.get(var_name))
+
+    missing = [var_name for key, var_name in required_vars.items() if not env_config[key]]
+    if missing:
+        raise ValueError(f"Missing critical environment variables: {', '.join(missing)}")
+
+    global GCLOUD_COMMON_ARGS
+    GCLOUD_COMMON_ARGS = ['--project', env_config["project_id"]]
+
     try:
-        print(f"Checking if Spanner instance '{spanner_instance_id}' exists in project '{project_id}'...")
-        describe_command = ['gcloud', 'spanner', 'instances', 'describe', spanner_instance_id, '--project', project_id]
-        result = subprocess.run(describe_command, capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            print(f"Spanner instance '{spanner_instance_id}' already exists.")
-            instance_exists = True
-        elif "NOT_FOUND" in result.stderr or "failed to find" in result.stderr.lower():
-            print(f"Spanner instance '{spanner_instance_id}' does not exist. Will attempt to create it.")
-            instance_exists = False
-        else:
-            print(f"Error describing Spanner instance '{spanner_instance_id}': {result.stderr}\nStdout: {result.stdout}")
-            raise subprocess.CalledProcessError(result.returncode, describe_command, output=result.stdout, stderr=result.stderr)
-    except subprocess.CalledProcessError as e:
-        print(f"Halting Spanner setup due to an issue checking instance existence: {e}")
-        raise
+        vertexai.init(project=env_config["project_id"], location=env_config["region"], staging_bucket=env_config["staging_bucket"])
+        logging.info(f"Vertex AI initialized for project '{env_config['project_id']}' in '{env_config['region']}'.")
     except Exception as e:
-        print(f"Unexpected error while checking Spanner instance: {e}. Halting setup.")
-        raise
-
-    if not instance_exists:
-        try:
-            print(f"Creating Spanner instance '{spanner_instance_id}'...")
-            subprocess.run(
-                ["gcloud", "spanner", "instances", "create", spanner_instance_id, "--config=regional-us-central1",
-                 "--description=GraphDB Instance InstaVibe", "--processing-units=100", "--edition=ENTERPRISE", "--project", project_id],
-                check=True, capture_output=True, text=True
-            )
-            print(f"Spanner instance '{spanner_instance_id}' created successfully.")
-        except subprocess.CalledProcessError as e:
-            if "ALREADY_EXISTS" in e.stderr:
-                print(f"Spanner instance '{spanner_instance_id}' already exists (detected during create attempt).")
-            else:
-                print(f"Error creating Spanner instance: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-                raise
+        raise DeploymentError(f"Failed to initialize Vertex AI: {e}")
 
     try:
-        subprocess.run(
-            ["gcloud", "spanner", "databases", "create", spanner_database_id, f"--instance={spanner_instance_id}",
-             "--database-dialect=GOOGLE_STANDARD_SQL", "--project", project_id],
-            check=True, capture_output=True, text=True
-        )
-        print(f"Spanner database {spanner_database_id} created successfully or already exists.")
-    except subprocess.CalledProcessError as e:
-        if "ALREADY_EXISTS" in e.stderr:
-            print(f"Spanner database {spanner_database_id} on instance {spanner_instance_id} already exists.")
-        else:
-            print(f"Error creating Spanner database: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-            raise
+        run_command(['gcloud', 'auth', 'print-access-token'] + GCLOUD_COMMON_ARGS, capture_output=True, text=True, check=True)
+        logging.info("gcloud authentication seems fine.")
+    except subprocess.CalledProcessError:
+        raise DeploymentError("gcloud not authenticated. Please run 'gcloud auth login'.")
+    os.environ['GRPC_DNS_RESOLVER'] = 'native'
+    logging.info("Set GRPC_DNS_RESOLVER=native")
 
+    return env_config
+
+# --- Spanner Setup ---
+def setup_spanner(project_id: str, instance_id: str, db_id: str, region: str):
+    """Ensures the Spanner instance and database exist."""
+    logging.info("--- Starting Spanner Setup ---")
+    instance_check_cmd = ['gcloud', 'spanner', 'instances', 'describe', instance_id] + GCLOUD_COMMON_ARGS
+    instance_result = run_command(instance_check_cmd, check=False)
+    if instance_result.returncode != 0:
+        if "NOT_FOUND" in instance_result.stderr:
+            logging.info(f"Spanner instance '{instance_id}' not found. Creating...")
+            run_command([
+                "gcloud", "spanner", "instances", "create", instance_id,
+                f"--config=regional-{region}", f"--description=Spanner for {project_id}",
+                "--processing-units=100"
+            ] + GCLOUD_COMMON_ARGS, check=True)
+            logging.info(f"Spanner instance '{instance_id}' created.")
+        else:
+            raise DeploymentError(f"Failed to check for Spanner instance '{instance_id}'.")
+    db_check_cmd = ['gcloud', 'spanner', 'databases', 'describe', db_id, f'--instance={instance_id}'] + GCLOUD_COMMON_ARGS
+    db_result = run_command(db_check_cmd, check=False)
+    if db_result.returncode != 0:
+        if "NOT_FOUND" in db_result.stderr:
+            logging.info(f"Spanner database '{db_id}' not found. Creating...")
+            run_command([
+                'gcloud', 'spanner', 'databases', 'create', db_id,
+                f'--instance={instance_id}'
+            ] + GCLOUD_COMMON_ARGS, check=True)
+            logging.info(f"Spanner database '{db_id}' created.")
+        else:
+            raise DeploymentError(f"Failed to check for Spanner database '{db_id}'.")
     original_cwd = os.getcwd()
     try:
-        print("Changing directory to 'instavibe' to run setup.py...")
         os.chdir("instavibe")
-        subprocess.run([sys.executable, "setup.py"], check=True, capture_output=True, text=True)
-        print("instavibe/setup.py executed successfully.")
-    except FileNotFoundError:
-        print("Error: 'instavibe' directory not found or setup.py not in it.")
-        os.chdir(original_cwd)
-        raise
-    except subprocess.CalledProcessError as e:
-        print(f"Error running instavibe/setup.py: {e}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-        os.chdir(original_cwd)
-        raise
+        if os.path.exists("setup.py"):
+            run_command([sys.executable, "setup.py"], check=True)
+            logging.info("Successfully executed instavibe/setup.py.")
+        else:
+            logging.warning("instavibe/setup.py not found, skipping schema setup.")
     finally:
         os.chdir(original_cwd)
-        print(f"Changed directory back to {original_cwd}.")
-    print("Spanner setup completed.")
+    logging.info("--- Spanner Setup Complete ---")
 
-    parser = argparse.ArgumentParser(description="Deploy all components of the instavibe app.")
-    parser.add_argument("--skip_agents", action="store_true", help="Skip deploying the agents.")
-    parser.add_argument("--skip_app", action="store_true", help="Skip deploying the Instavibe app.")
-    parser.add_argument("--skip_platform_mcp_client", action="store_true", help="Skip deploying the Platform MCP Client.")
-    parser.add_argument("--skip_mcp_tool_server", action="store_true", help="Skip deploying the MCP Tool Server.")
-    args = parser.parse_args(argv)
+# --- Cloud Run Service Deployment (REFACTORED) ---
+def build_and_deploy_cloud_run_service(
+    project_id: str,
+    region: str,
+    service_name: str,
+    source_path: str,
+    env_vars: Optional[Dict[str, str]] = None,
+    allow_unauthenticated: bool = True,
+    service_account: Optional[str] = None
+) -> Optional[str]:
+    """
+    Builds and deploys a Cloud Run service using a cloudbuild.yaml that
+    accepts individual substitutions for each environment variable.
+    """
+    logging.info(f"--- Deploying Cloud Run Service: {service_name} from path {source_path} ---")
+    if not os.path.isdir(source_path):
+        raise DeploymentError(f"Source path not found: {source_path}")
 
-    print(f"Initializing Vertex AI with project: {project_id}, region: {region}, staging bucket: {staging_bucket_uri}")
+    image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
+
+    # Start with base substitutions
+    substitutions = {
+        "_IMAGE_PATH": image_path,
+        "_SERVICE_NAME": service_name,
+        "_SERVICE_DIR": source_path,
+        "_REGION": region,
+        "_SERVICE_ACCOUNT": service_account or "",
+    }
+
+    # Add environment variables directly into the substitutions dictionary.
+    # The key is prefixed with an underscore to match the placeholder in cloudbuild.yaml.
+    if env_vars:
+        for k, v in env_vars.items():
+            if v is not None:
+                substitutions[f"_{k}"] = str(v)
+
+    # Convert the dictionary to a single, comma-separated string for the --substitutions flag.
+    # This is now safe because none of the values contain commas.
+    substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
+
+    build_submit_cmd = [
+        "gcloud", "builds", "submit", ".",
+        "--config", "cloudbuild.yaml",
+        f"--substitutions={substitutions_string}",
+        "--project", project_id,
+    ]
+
     try:
-        vertexai.init(project=project_id, location=region, staging_bucket=staging_bucket_uri)
-        print("Vertex AI initialized successfully.")
+        logging.info(f"Submitting build and deploy for {service_name}...")
+        run_command(build_submit_cmd, timeout=900, check=True)
+    except subprocess.CalledProcessError as e:
+        raise DeploymentError(f"Cloud Build submission failed for {service_name}") from e
+
+    # After successful deployment, get the service URL
+    url_cmd = [
+        "gcloud", "run", "services", "describe", service_name,
+        "--platform", "managed", "--region", region, "--project", project_id,
+        "--format=value(status.url)"
+    ]
+    try:
+        result = run_command(url_cmd, check=True)
+        service_url = result.stdout.strip()
+        if not service_url:
+            raise DeploymentError(f"Failed to get URL for Cloud Run service {service_name}")
+        logging.info(f"Successfully deployed '{service_name}' to {service_url}")
+        return service_url
+    except (subprocess.CalledProcessError, DeploymentError) as e:
+        logging.warning(f"Could not retrieve service URL for {service_name} after deployment. This might be okay. Error: {e}")
+        return None
+
+
+# --- Main Orchestration ---
+def main(args):
+    # Setup logging for the main script
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    try:
+        setup_observability()
+        logging.info("Observability setup complete.")
+
+        install_dependencies()
+        config = setup_environment()
+        project_id = config["project_id"]
+        region = config["region"]
+
+        if not args.skip_spanner:
+            setup_spanner(project_id, config["spanner_instance"], config["spanner_db"], region)
+        else: logging.info("Skipping Spanner setup.")
+
+        if not args.skip_collector:
+            otel_collector_url = build_and_deploy_cloud_run_service(
+                project_id,
+                region,
+                "otel-collector",
+                "./otel-collector",
+                env_vars={"GOOGLE_CLOUD_PROJECT": project_id},
+                allow_unauthenticated=False, # Internal service
+                service_account=config.get("service_account"),
+            )
+            if otel_collector_url:
+                os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{otel_collector_url}:4317"
+        else:
+            logging.info("Skipping OpenTelemetry Collector deployment.")
+
+        mcp_tool_server_url = None
+        if not args.skip_mcp_server:
+            mcp_tool_server_url = build_and_deploy_cloud_run_service(
+                project_id,
+                region,
+                "mcp-tool-server",
+                "./tools/instavibe",
+                env_vars={
+                    "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+                    "SERVICE_NAME": "mcp-tool-server",
+                    "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
+                },
+                allow_unauthenticated=False, # Internal tool, requires auth
+            )
+            if mcp_tool_server_url:
+                logging.info(f"Setting MCP_SERVER_URL for agent deployment: {mcp_tool_server_url}")
+                os.environ["MCP_SERVER_URL"] = mcp_tool_server_url
+            else:
+                logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
+
+        enable_tracing = not args.deploy_orchestrate_only
+
+        if not args.skip_agents:
+            agent_resource_names = {}
+            otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
+            agents_to_deploy = [
+                {
+                    "name": "planner_agent",
+                    "display_name": "Planner Agent",
+                    "module": "agents.planner.agent",
+                    "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
+                    "requirements_file": "./agents/planner/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+                {
+                    "name": "social_agent",
+                    "display_name": "Social Agent",
+                    "module": "agents.social.agent",
+                    "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
+                    "requirements_file": "./agents/social/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+                {
+                    "name": "platform_mcp_client_agent",
+                    "display_name": "Platform MCP Client Agent",
+                    "module": "agents.platform_mcp_client.agent",
+                    "agent_variable": "PlatformMCPClientAgent",
+                    "init_args": {
+                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
+                        "name": "platform_mcp_client_agent",
+                        "otel_collector_endpoint": otel_collector_endpoint,
+                    },
+                    "requirements_file": "./agents/platform_mcp_client/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+                {
+                    "name": "orchestrate_agent",
+                    "display_name": "Orchestrate Agent",
+                    "module": "agents.orchestrate.orchestrate_service_agent",
+                    "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
+                    "requirements_file": "./agents/orchestrate/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+            ]
+
+            def load_requirements(file_path):
+                requirements = []
+                with open(file_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            requirements.append(line)
+                return requirements
+
+            for agent_conf in agents_to_deploy:
+                display_name = agent_conf["display_name"]
+                agent_id = agent_conf["name"]
+                logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
+                try:
+                    # Dynamically import the agent
+                    module_path = agent_conf["module"]
+                    agent_var = agent_conf["agent_variable"]
+                    module = importlib.import_module(module_path)
+                    agent_ref = getattr(module, agent_var)
+
+                    # Construct final arguments for the agent's constructor
+                    final_args = agent_conf.get("init_args", {})
+                    final_args['name'] = agent_conf['name']
+
+                    if "init_args" in agent_conf:
+                        agent_to_deploy = agent_ref(**final_args)
+                    else:
+                        agent_to_deploy = agent_ref
+
+                    requirements = load_requirements(agent_conf["requirements_file"])
+
+                    agent_labels = {"agent_id": agent_id} # Use agent_id for the label
+
+                    remote_agent = deploy_agent_engine_app(
+                        project=project_id,
+                        location=region,
+                        agent_object=agent_to_deploy,
+                        display_name=display_name,
+                        labels=agent_labels,
+                        requirements=requirements,
+                        extra_packages=agent_conf["extra_packages"],
+                    )
+                    agent_resource_names[agent_id] = remote_agent.name
+                    logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")
+                except Exception as e:
+                    logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
+
+        else:
+            logging.info("Skipping all agent deployments.")
+
+        if not args.skip_app:
+            app_env_vars = {
+                "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+                "COMMON_GOOGLE_CLOUD_LOCATION": region,
+                "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
+                "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
+                "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate_agent')}:predict" if agent_resource_names.get('orchestrate_agent') else "",
+                "SERVICE_NAME": "instavibe-app",
+                "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
+            }
+            build_and_deploy_cloud_run_service(
+                project_id,
+                region,
+                "instavibe-app",
+                "./instavibe",
+                env_vars={k:v for k,v in app_env_vars.items() if v},
+                allow_unauthenticated=True, # Public-facing web app
+                service_account=config.get("service_account"),
+            )
+
+        logging.info("--- Deployment script finished successfully! ---")
+
+    except ValueError as e:
+        logging.error(f"Configuration error: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"Error initializing Vertex AI: {e}")
-        raise
-
-    planner_resource_name, social_resource_name, platform_mcp_client_resource_name, orchestrate_resource_name = None, None, None, None
-
-    if not args.skip_agents:
-        print("--- Deploying Individual Agents (Planner, Social) ---")
-        planner_resource_name = deploy_planner_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - planner_resource_name: '{planner_resource_name}' (type: {type(planner_resource_name)})") # DIAGNOSTIC_TRACE
-        social_resource_name = deploy_social_agent(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - social_resource_name: '{social_resource_name}' (type: {type(social_resource_name)})") # DIAGNOSTIC_TRACE
-    else:
-        print("Skipping Planner and Social agent deployments due to --skip_agents flag.")
-
-    if not args.skip_platform_mcp_client: # Not skipped by --skip_agents, has its own flag
-        print("--- Deploying Platform MCP Client Agent ---")
-        platform_mcp_client_resource_name = deploy_platform_mcp_client(project_id, region)
-        print(f"DIAGNOSTIC_TRACE: main() - platform_mcp_client_resource_name: '{platform_mcp_client_resource_name}' (type: {type(platform_mcp_client_resource_name)})") # DIAGNOSTIC_TRACE
-    else:
-        print("Skipping Platform MCP Client agent deployment due to --skip_platform_mcp_client flag.")
-
-    # DIAGNOSTIC_TRACE: Log contents of valid_remote_agent_names before join
-    temp_remote_names_for_debug = [planner_resource_name, social_resource_name, platform_mcp_client_resource_name]
-    print(f"DIAGNOSTIC_TRACE: main() - Names for orchestrator_dynamic_addresses before filtering: {temp_remote_names_for_debug}")
-    valid_remote_agent_names = [name for name in temp_remote_names_for_debug if name]
-    print(f"DIAGNOSTIC_TRACE: main() - Valid names for orchestrator_dynamic_addresses after filtering: {valid_remote_agent_names}")
-    orchestrator_dynamic_addresses = ",".join(valid_remote_agent_names)
-    print(f"DIAGNOSTIC_TRACE: main() - orchestrator_dynamic_addresses: '{orchestrator_dynamic_addresses}'") # DIAGNOSTIC_TRACE
-
-
-    if not args.skip_agents: # Orchestrator is skipped if all agents are skipped
-        print("--- Deploying Orchestrate Agent ---")
-        orchestrate_resource_name = deploy_orchestrate_agent(project_id, region, remote_addresses_str=orchestrator_dynamic_addresses)
-        print(f"DIAGNOSTIC_TRACE: main() - orchestrate_resource_name: '{orchestrate_resource_name}' (type: {type(orchestrate_resource_name)})") # DIAGNOSTIC_TRACE
-    else:
-        print("Skipping Orchestrate agent deployment due to --skip_agents flag.")
-
-    if not args.skip_app:
-        instavibe_env_vars_list = [
-            f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
-            f"COMMON_SPANNER_INSTANCE_ID={spanner_instance_id}",
-            f"COMMON_SPANNER_DATABASE_ID={spanner_database_id}",
-            f"INSTAVIBE_FLASK_SECRET_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_FLASK_SECRET_KEY', 'defaultSecretKey'))}", # Added default
-            f"INSTAVIBE_APP_HOST={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_HOST', '0.0.0.0'))}",
-            f"INSTAVIBE_APP_PORT={sanitize_env_var_value(os.environ.get('INSTAVIBE_APP_PORT', '8080'))}",
-            f"INSTAVIBE_GOOGLE_MAPS_API_KEY={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_API_KEY', ''))}",
-            f"INSTAVIBE_GOOGLE_MAPS_MAP_ID={sanitize_env_var_value(os.environ.get('INSTAVIBE_GOOGLE_MAPS_MAP_ID', ''))}",
-            f"COMMON_GOOGLE_CLOUD_LOCATION={region}"
-        ]
-        if planner_resource_name: instavibe_env_vars_list.append(f"AGENTS_PLANNER_RESOURCE_NAME={planner_resource_name}")
-        if social_resource_name: instavibe_env_vars_list.append(f"AGENTS_SOCIAL_RESOURCE_NAME={social_resource_name}")
-        if platform_mcp_client_resource_name: instavibe_env_vars_list.append(f"AGENTS_PLATFORM_MCP_CLIENT_RESOURCE_NAME={platform_mcp_client_resource_name}")
-        if orchestrate_resource_name: instavibe_env_vars_list.append(f"AGENTS_ORCHESTRATE_RESOURCE_NAME={orchestrate_resource_name}")
-
-        instavibe_env_vars_string = ",".join(var for var in instavibe_env_vars_list if var.split('=', 1)[1]) # Ensure value is not empty
-        print(f"DEBUG: instavibe_env_vars_string for instavibe-app: '{instavibe_env_vars_string}'") # ADDED FOR DEBUGGING
-        deploy_instavibe_app(project_id, region, env_vars_string=instavibe_env_vars_string)
-    else:
-        print("Skipping Instavibe app deployment.")
-
-    if not args.skip_mcp_tool_server:
-        mcp_tool_server_env_vars_list = [
-            f"COMMON_GOOGLE_CLOUD_PROJECT={project_id}",
-            f"TOOLS_INSTAVIBE_BASE_URL={sanitize_env_var_value(os.environ.get('TOOLS_INSTAVIBE_BASE_URL', ''))}",
-            f"TOOLS_GOOGLE_GENAI_USE_VERTEXAI={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_GENAI_USE_VERTEXAI', 'True'))}", # Default to True
-            f"TOOLS_GOOGLE_CLOUD_LOCATION={region}",
-            f"TOOLS_GOOGLE_API_KEY={sanitize_env_var_value(os.environ.get('TOOLS_GOOGLE_API_KEY', ''))}"
-        ]
-        mcp_tool_server_env_vars_string = ",".join(var for var in mcp_tool_server_env_vars_list if var.split('=', 1)[1])
-        print(f"DEBUG: mcp_tool_server_env_vars_string for mcp-tool-server: '{mcp_tool_server_env_vars_string}'") # ADDED FOR DEBUGGING
-        deploy_mcp_tool_server(project_id, region, env_vars_string=mcp_tool_server_env_vars_string if mcp_tool_server_env_vars_string else None)
-    else:
-        print("Skipping MCP Tool Server deployment.")
-
-    print("All selected components deployed.")
+        logging.error(f"An unexpected error occurred in deploy_all: {e}", exc_info=True)
+        sys.exit(1)
+    finally:
+        from opentelemetry import trace, metrics
+        logging.info("--- Shutting down observability ---")
+        tracer_provider = trace.get_tracer_provider()
+        if hasattr(tracer_provider, 'shutdown'):
+            try:
+                tracer_provider.shutdown()
+                logging.info("TracerProvider shutdown complete.")
+            except Exception as e:
+                logging.error(f"Error shutting down TracerProvider: {e}", exc_info=True)
+        meter_provider = metrics.get_meter_provider()
+        if hasattr(meter_provider, 'shutdown'):
+            try:
+                meter_provider.shutdown(timeout_millis=10000) # Give some time to flush
+                logging.info("MeterProvider shutdown complete.")
+            except Exception as e:
+                logging.error(f"Error shutting down MeterProvider: {e}", exc_info=True)
+        logging.info("--- Observability shutdown process finished ---")
 
 if __name__ == "__main__":
-    main()
+    logging.basicConfig(level=logging.INFO)
+    parser = argparse.ArgumentParser(description="Deploy all components of the InstaVibe system.")
+    parser.add_argument("--skip-agents", action="store_true", help="Skip deploying all reasoning engine agents.")
+    parser.add_argument("--skip-gateway", action="store_true", help="Skip deploying the Cloud Run gateway.")
+    parser.add_argument("--skip-mcp-server", action="store_true", help="Skip deploying the MCP Tool Server.")
+    parser.add_argument("--skip-app", action="store_true", help="Skip deploying the main InstaVibe web app.")
+    parser.add_argument("--skip-spanner", action="store_true", help="Skip Spanner setup.")
+    parser.add_argument("--skip-collector", action="store_true", help="Skip deploying the OpenTelemetry Collector.")
+    parser.add_argument("--deploy-orchestrate-only", action="store_true", help="Deploy only the orchestrate agent.")
+    args = parser.parse_args()
+    main(args)

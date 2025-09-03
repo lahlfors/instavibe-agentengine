@@ -1,117 +1,203 @@
-# adk_mcp_server.py
-import asyncio
-import json
-import uvicorn
 import os
+import logging
 from dotenv import load_dotenv
+import json
+import aiohttp
+from opentelemetry import trace, propagate
+from common.observability import setup_observability
+from agents.app.utils.communication import call_http_endpoint
+from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_headers
+import functools
 
-from mcp import types as mcp_types 
-from mcp.server.lowlevel import Server
+load_dotenv()
+os.environ["SERVICE_NAME"] = os.environ.get("SERVICE_NAME", "mcp-tool-server")
+setup_observability()
 
-from mcp.server.sse import SseServerTransport
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
+port = int(os.environ.get("PORT", 8080))
+host = "0.0.0.0"
 
-from google.adk.tools.function_tool import FunctionTool
+BASE_URL = os.environ.get("TOOLS_INSTAVIBE_BASE_URL")
 
+mcp_server = FastMCP(name="mcp-tool-server")
+logger.info("FastMCP server initialized.")
 
-from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
+def extract_parent_context(headers: dict):
+    """Helper to extract trace context from FastMCP request headers."""
+    if headers:
+        try:
+            return propagate.extract(headers)
+        except Exception as e:
+            logger.debug(f"Could not extract parent context from headers: {e}")
+    return None
 
-from instavibe import create_event,create_post
+def instrument_tool(tool_name: str):
+    """
+    A decorator that wraps a tool function with OpenTelemetry span creation,
+    attribute recording, and exception handling.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            headers = kwargs.get("headers", {})
+            parent_context = extract_parent_context(headers)
 
-# Load environment variables from the root .env file
-# This ensures that any underlying libraries (ADK, Google Cloud clients)
-# or imported tool functions (from instavibe.py) can access necessary
-# configurations like project IDs, API keys, or specific base URLs.
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+            with tracer.start_as_current_span(f"tool.{tool_name}", context=parent_context) as span:
+                span.set_attribute("tool.name", tool_name)
+                # Log input arguments automatically
+                for key, value in kwargs.items():
+                    if key != "headers": # Don't log headers
+                        if isinstance(value, (list, dict)):
+                            span.set_attribute(f"tool.input.{key}", json.dumps(value))
+                        else:
+                            span.set_attribute(f"tool.input.{key}", str(value))
 
-APP_HOST = os.environ.get("APP_HOST", "0.0.0.0") # Remains unprefixed as per current understanding
-APP_PORT = int(os.environ.get("APP_PORT", 8080)) # Remains unprefixed, ensure port is int
+                try:
+                    # Execute the actual tool logic
+                    result = await func(*args, **kwargs)
 
+                    # On success
+                    span.set_attribute("tool.output", json.dumps(result))
+                    span.set_attribute("tool.execution.status", "success")
+                    span.set_status(trace.Status(trace.StatusCode.OK))
+                    return result
+                except Exception as e:
+                    # On any failure
+                    logger.error(f"Error in tool '{tool_name}': {e}", exc_info=True)
+                    span.record_exception(e)
+                    span.set_attribute("tool.execution.status", "failed")
+                    span.set_status(trace.Status(trace.StatusCode.ERROR, description=str(e)))
+                    return None
+        return wrapper
+    return decorator
 
-event_tool = FunctionTool(create_event)
-post_tool = FunctionTool(create_post)
-
-available_tools = {
-    event_tool.name: event_tool,
-    post_tool.name: post_tool,
-}
-
-# Create a named MCP Server instance
-app = Server("adk-tool-mcp-server")
-sse = SseServerTransport("/messages/")
-
-
-@app.list_tools()
-async def list_tools() -> list[mcp_types.Tool]:
-  """MCP handler to list available tools."""
-  # Convert the ADK tool's definition to MCP format
-  mcp_tool_schema_event = adk_to_mcp_tool_type(event_tool)
-  mcp_tool_schema_post = adk_to_mcp_tool_type(post_tool)
-  print(f"MCP Server: Received list_tools request. \n MCP Server: Advertising tool: {mcp_tool_schema_event.name} and {mcp_tool_schema_post}")
-  return [mcp_tool_schema_event,mcp_tool_schema_post]
-
-@app.call_tool()
-async def call_tool(
-    name: str, arguments: dict
-) -> list[mcp_types.TextContent | mcp_types.ImageContent | mcp_types.EmbeddedResource]:
-  """MCP handler to execute a tool call."""
-  print(f"MCP Server: Received call_tool request for '{name}' with args: {arguments}")
-
-  # Look up the tool by name in our dictionary
-  tool_to_call = available_tools.get(name)
-  if tool_to_call:
-    try:
-      adk_response = await tool_to_call.run_async(
-          args=arguments,
-          tool_context=None,
-      )
-      print(f"MCP Server: ADK tool '{name}' executed successfully.")
-
-      response_text = json.dumps(adk_response, indent=2)
-      return [mcp_types.TextContent(type="text", text=response_text)]
-
-    except Exception as e:
-      print(f"MCP Server: Error executing ADK tool '{name}': {e}")
-      # Creating a proper MCP error response might be more robust
-      error_text = json.dumps({"error": f"Failed to execute tool '{name}': {str(e)}"})
-      return [mcp_types.TextContent(type="text", text=error_text)]
-  else:
-      # Handle calls to unknown tools
-      print(f"MCP Server: Tool '{name}' not found.")
-      error_text = json.dumps({"error": f"Tool '{name}' not implemented."})
-      return [mcp_types.TextContent(type="text", text=error_text)]
-
-# --- MCP Remote Server ---
-async def handle_sse(request):
-  """Runs the MCP server over standard input/output."""
-  # Use the stdio_server context manager from the MCP library
-  async with sse.connect_sse(
-    request.scope, request.receive, request._send
-  ) as streams:
-    await app.run(
-        streams[0], streams[1], app.create_initialization_options()
+@mcp_server.tool()
+@instrument_tool("create_post")
+async def create_post(author_name: str, text: str, sentiment: str, base_url: str = BASE_URL, *, headers: dict = get_http_headers()):
+    """
+    Sends a POST request to the /posts endpoint to create a new post.
+    (Instrumentation is handled by the decorator).
+    """
+    url = f"{base_url}/posts"
+    http_headers = {"Content-Type": "application/json"}
+    payload = {
+        "author_name": author_name,
+        "text": text,
+        "sentiment": sentiment
+    }
+    response = await call_http_endpoint(
+        source_agent="instavibe_tool",
+        target_service="instavibe_app",
+        http_method="POST",
+        url=url,
+        headers=http_headers,
+        json=payload
     )
+    logger.info(f"Successfully created post for {author_name}.")
+    return response
 
-starlette_app = Starlette(
- debug=True,
-    routes=[
-        Route("/sse", endpoint=handle_sse),
-        Mount("/messages/", app=sse.handle_post_message),
-    ],
-)
+@mcp_server.tool()
+@instrument_tool("create_event")
+async def create_event(event_name: str, description: str, event_date: str, locations: list, attendee_names: list[str], base_url: str = BASE_URL, *, headers: dict = get_http_headers()):
+    """
+    Sends a POST request to the /events endpoint to create a new event registration.
+    (Instrumentation is handled by the decorator).
+    """
+    url = f"{base_url}/events"
+    http_headers = {"Content-Type": "application/json"}
+    payload = {
+        "event_name": event_name,
+        "description": description,
+        "event_date": event_date,
+        "locations": locations,
+        "attendee_names": attendee_names,
+    }
+    response = await call_http_endpoint(
+        source_agent="instavibe_tool",
+        target_service="instavibe_app",
+        http_method="POST",
+        url=url,
+        headers=http_headers,
+        json=payload
+    )
+    logger.info(f"Successfully created event registration for {event_name}.")
+    return response
+
+@mcp_server.tool()
+@instrument_tool("get_person_id_by_name")
+async def get_person_id_by_name(name: str, base_url: str = BASE_URL, *, headers: dict = get_http_headers()):
+    """
+    Fetches a person's info by their name by calling the API. Returns the full JSON response.
+    (Instrumentation is handled by the decorator).
+    """
+    url = f"{base_url}/api/person/by_name/{name}"
+    response = await call_http_endpoint(
+        source_agent="instavibe_tool",
+        target_service="instavibe_app",
+        http_method="GET",
+        url=url,
+        headers={},
+        json={}
+    )
+    return response
+
+@mcp_server.tool()
+@instrument_tool("get_person_attended_events")
+async def get_person_attended_events(person_id: str, base_url: str = BASE_URL, *, headers: dict = get_http_headers()):
+    """
+    Fetches events attended by a person by calling the API.
+    (Instrumentation is handled by the decorator).
+    """
+    url = f"{base_url}/api/person/{person_id}/attended_events"
+    response = await call_http_endpoint(
+        source_agent="instavibe_tool",
+        target_service="instavibe_app",
+        http_method="GET",
+        url=url,
+        headers={},
+        json={}
+    )
+    return response
+
+@mcp_server.tool()
+@instrument_tool("get_person_posts")
+async def get_person_posts(person_id: str, base_url: str = BASE_URL, *, headers: dict = get_http_headers()):
+    """
+    Fetches posts by a person by calling the API.
+    (Instrumentation is handled by the decorator).
+    """
+    url = f"{base_url}/api/person/{person_id}/posts"
+    response = await call_http_endpoint(
+        source_agent="instavibe_tool",
+        target_service="instavibe_app",
+        http_method="GET",
+        url=url,
+        headers={},
+        json={}
+    )
+    return response
+
+@mcp_server.tool()
+@instrument_tool("get_person_friends")
+async def get_person_friends(person_id: str, base_url: str = BASE_URL, *, headers: dict = get_http_headers()):
+    """
+    Fetches friends of a person by calling the API.
+    (Instrumentation is handled by the decorator).
+    """
+    url = f"{base_url}/api/person/{person_id}/friends"
+    response = await call_http_endpoint(
+        source_agent="instavibe_tool",
+        target_service="instavibe_app",
+        http_method="GET",
+        url=url,
+        headers={},
+        json={}
+    )
+    return response
 
 if __name__ == "__main__":
-  print("Launching MCP Server exposing ADK tools...")
-  try:
-    # Ensure APP_PORT is an integer for uvicorn
-    uvicorn_port = APP_PORT if isinstance(APP_PORT, int) else int(str(APP_PORT))
-    asyncio.run(uvicorn.run(starlette_app, host=APP_HOST, port=uvicorn_port))
-  except KeyboardInterrupt:
-    print("\nMCP Server stopped by user.")
-  except Exception as e:
-    print(f"MCP Server encountered an error: {e}")
-  finally:
-    print("MCP Server process exiting.")
-# --- End MCP Server ---
+    logger.info(f"--- MCP Server '{mcp_server.name}' starting on {host}:{port} ---")
+    mcp_server.run(transport="http", host=host, port=port)

@@ -1,11 +1,6 @@
-# instavibe-observability
+# instavibe-bootstrap
 
-This repository provides a comprehensive observability solution for the Instavibe application and its associated microservices. It leverages OpenTelemetry to provide end-to-end distributed tracing, metrics, and logging, offering deep insights into the application's performance and behavior.
-
-The key components of this observability solution are:
-- **Instrumented Services**: The Instavibe application, along with its AI-powered agents, are instrumented using the OpenTelemetry SDK.
-- **OpenTelemetry Collector**: A central collector service that receives telemetry data from all services and exports it to Google Cloud's operations suite (Cloud Trace, Cloud Logging, and Cloud Monitoring).
-- **Evaluation Suite**: An instrumented evaluation script that allows for performance testing and debugging of the agents, with all evaluation runs being fully traceable.
+This repository contains the necessary scripts and configurations to deploy the Instavibe application and its associated agents and services.
 
 ## Initial Environment Setup
 
@@ -178,38 +173,3 @@ Or, since the test script `test_deploy_all.py` includes the standard `if __name_
 python test_deploy_all.py
 ```
 The tests will run, and you should see output indicating the number of tests run and their status (e.g., "OK" if all pass, or details of failures).
-
-## Observability with OpenTelemetry
-
-This project is instrumented with OpenTelemetry to provide end-to-end observability, including distributed traces, metrics, and logs. All components (the Instavibe app, agents, and evaluation scripts) are configured to send telemetry data to a central OpenTelemetry Collector.
-
-### OpenTelemetry Collector
-
-The `otel-collector/` directory contains the configuration and `Dockerfile` for the OpenTelemetry Collector service. This service is designed to be deployed to Google Cloud Run. It receives telemetry data from all other services and exports it to Google Cloud operations suite (Cloud Trace, Cloud Logging, Cloud Monitoring).
-
-Before running the application or evaluation suite, you should deploy the collector and configure the necessary environment variables. See the [Environment Variable Setup Guide](./ENVIRONMENT_SETUP_GUIDE.md) for details on setting `OTEL_COLLECTOR_ENDPOINT`.
-
-## Running the Evaluation Suite
-
-The `run_evaluation.py` script is provided to run the agent against a dataset of prompts and generate telemetry data for analysis. This is the first step in the evaluation process.
-
-### Prerequisites
-
-1.  **Complete Environment Setup**: Ensure you have a populated `.env` file and have sourced it (`source ./set_env.sh`).
-2.  **Deploy the OpenTelemetry Collector**: The collector must be running and accessible.
-3.  **Set `OTEL_COLLECTOR_ENDPOINT`**: This environment variable must be set in your shell to point to your deployed collector's gRPC endpoint (e.g., `http://my-collector-service-abc-uc.a.run.app:4317`). See the setup guide for more details.
-4.  **Install Test Dependencies**: The evaluation script requires packages listed in `tests/requirements.txt`. Install them using:
-    ```bash
-    pip install -r tests/requirements.txt
-    ```
-5.  **Evaluation Dataset**: You need an evaluation dataset in JSONL format uploaded to a GCS bucket. Each line in the file should be a JSON object with a `"prompt"` key. Update the `DATASET_URI` variable in `run_evaluation.py` to point to your file.
-
-### Usage
-
-With the prerequisites met, you can run the evaluation script from the root directory:
-
-```bash
-python run_evaluation.py
-```
-
-The script will iterate through the dataset, call the Social Agent for each prompt, and generate detailed traces for each interaction. You can view these traces in Google Cloud Trace to analyze the agent's behavior.

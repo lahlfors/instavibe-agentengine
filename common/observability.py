@@ -7,8 +7,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.sdk.logs import LoggerProvider, set_logger_provider
-from opentelemetry.sdk.logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk._logs import LoggerProvider, set_logger_provider
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource, get_aggregated_resources
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
@@ -100,5 +100,27 @@ def setup_observability(service_name_suffix="service"):
         log.info(f"OpenTelemetry fully configured for service: {service_name}")
 
 def get_trace_context():
-    # ... same as before
-# ... get_meter ...
+    """
+    Returns a dictionary with the current trace and span ID for log correlation.
+    To be used as `logging.info("...", extra=get_trace_context())`.
+    """
+    span = trace.get_current_span()
+    if not span.is_recording():
+        return {}
+    span_context = span.get_span_context()
+    trace_id = span_context.trace_id
+    span_id = span_context.span_id
+
+    # Return empty dict if trace_id or span_id are invalid
+    if trace_id == 0 or span_id == 0:
+        return {}
+
+    project_id = _get_project_id()
+    return {
+        "logging.googleapis.com/trace": f"projects/{project_id}/traces/{trace.format_trace_id(trace_id)}",
+        "logging.googleapis.com/spanId": trace.format_span_id(span_id),
+    }
+
+def get_meter(name):
+    """Returns a meter from the global meter provider."""
+    return metrics.get_meter(name)

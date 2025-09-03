@@ -7,7 +7,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.sdk._logs import LoggerProvider, set_logger_provider
+from opentelemetry import logs
+from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource, get_aggregated_resources
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -91,7 +92,7 @@ def setup_observability(service_name_suffix="service"):
 
         # --- LOGS ---
         logger_provider = LoggerProvider(resource=resource)
-        set_logger_provider(logger_provider)
+        logs.set_logger_provider(logger_provider)
         otlp_log_exporter = OTLPLogExporter(endpoint=OTEL_COLLECTOR_ENDPOINT, insecure=True)
         logger_provider.add_log_record_processor(BatchLogRecordProcessor(otlp_log_exporter))
         LoggingInstrumentor().instrument(set_logging_format=True, logger_provider=logger_provider)

@@ -306,8 +306,8 @@ def main(args):
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
-                    "agent_variable": "root_agent",
-                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
+                    "agent_variable": "create_agent",
+                    "init_args": {},
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -315,8 +315,8 @@ def main(args):
                     "name": "social_agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
-                    "agent_variable": "root_agent",
-                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
+                    "agent_variable": "create_agent",
+                    "init_args": {},
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -328,7 +328,6 @@ def main(args):
                     "init_args": {
                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                         "name": "platform_mcp_client_agent",
-                        "otel_collector_endpoint": otel_collector_endpoint,
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
@@ -337,8 +336,8 @@ def main(args):
                     "name": "orchestrate_agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
-                    "agent_variable": "root_agent",
-                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
+                    "agent_variable": "OrchestrateServiceAgent",
+                    "init_args": {},
                     "requirements_file": "./agents/orchestrate/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -366,12 +365,16 @@ def main(args):
 
                     # Construct final arguments for the agent's constructor
                     final_args = agent_conf.get("init_args", {})
-                    final_args['name'] = agent_conf['name']
+                    if 'name' not in final_args:
+                        final_args['name'] = agent_conf['name']
 
-                    if "init_args" in agent_conf:
-                        agent_to_deploy = agent_ref(**final_args)
+
+                    # If the agent variable is a factory function like create_agent()
+                    if agent_conf['agent_variable'] == 'create_agent':
+                        agent_to_deploy = agent_ref()
+                    # If it's a class to be instantiated
                     else:
-                        agent_to_deploy = agent_ref
+                        agent_to_deploy = agent_ref(**final_args)
 
                     requirements = load_requirements(agent_conf["requirements_file"])
 

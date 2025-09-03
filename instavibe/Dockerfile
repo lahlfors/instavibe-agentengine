@@ -6,15 +6,16 @@ WORKDIR /app
 
 # --- Dependency Installation ---
 # Copy only the requirements file first to leverage Docker cache
-COPY instavibe/requirements.txt /app/requirements.txt
-COPY agents/a2a_common-0.1.0-py3-none-any.whl /app/agents/a2a_common-0.1.0-py3-none-any.whl
-RUN pip install --no-cache-dir -r requirements.txt
+COPY ./requirements.txt /app/requirements.txt
+COPY ./agents/a2a_common-0.1.0-py3-none-any.whl /app/a2a_common-0.1.0-py3-none-any.whl
+RUN pip install --no-cache-dir -r /app/requirements.txt /app/a2a_common-0.1.0-py3-none-any.whl
 
 
 # --- Application Code ---
-COPY ./instavibe /app/instavibe
-COPY ./agents /app/agents
-COPY ./common /app/common
+# Copy application code from the context into the container
+COPY ./instavibe/ /app/instavibe/
+COPY ./agents/ /app/agents/
+COPY ./common/ /app/common/
 
 # --- Environment ---
 ENV PYTHONPATH=/app

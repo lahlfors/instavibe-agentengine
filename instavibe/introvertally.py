@@ -7,7 +7,7 @@ import json
 import logging # Added for logging
 
 import google.cloud.aiplatform as vertexai
-from google.cloud.aiplatform.rag.utils.GenerativeModel import GenerativeModel
+from vertexai.generative_models import GenerativeModel
 from google.cloud.aiplatform_v1.services.reasoning_engine_service import ReasoningEngineServiceClient
 from vertexai.preview import reasoning_engines # Added for direct RE instantiation
 from opentelemetry import trace
@@ -120,27 +120,24 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     accumulated_json_str = ""
 
     with tracer.start_as_current_span("call_agent_for_plan") as span:
+        model_name = "gemini-1.5-flash-001"
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
-        span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
+        span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, model_name)
 
-        # Record the prompt as an event
+        model = GenerativeModel(model_name)
+
+        # Count and set INPUT tokens
+        try:
+            prompt_tokens = model.count_tokens([prompt_message]).total_tokens
+            span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, prompt_tokens)
+        except Exception as e:
+            logging.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
+            span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, len(prompt_message) // 4)
+
+        # Add PROMPT CONTENT as an EVENT
         span.add_event(
             "gen_ai.prompt",
             {"gen_ai.prompt.value": prompt_message}
-        )
-
-        # Accurately count and record input tokens
-        try:
-            gemini_model = GenerativeModel("gemini-2.5-flash")
-            response = gemini_model.count_tokens(contents=[prompt_message])
-            number_of_input_tokens = response.total_tokens
-        except Exception as e:
-            logging.warning(f"Could not count tokens: {e}")
-            number_of_input_tokens = 0 # Fallback to 0 if counting fails
-
-        span.set_attribute(
-            ai_semconv.GEN_AI_USAGE_INPUT_TOKENS,
-            number_of_input_tokens
         )
 
         try:
@@ -208,25 +205,19 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
 
             yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
 
-            # Record the response as an event
+            # Add COMPLETION CONTENT as an EVENT
             span.add_event(
                 "gen_ai.completion",
                 {"gen_ai.completion.value": accumulated_json_str}
             )
 
-            # Accurately count and record output tokens
+            # Count and set OUTPUT tokens
             try:
-                gemini_model = GenerativeModel("gemini-2.5-flash")
-                output_response = gemini_model.count_tokens(contents=[accumulated_json_str])
-                number_of_output_tokens = output_response.total_tokens
+                completion_tokens = model.count_tokens([accumulated_json_str]).total_tokens
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, completion_tokens)
             except Exception as e:
-                logging.warning(f"Could not count output tokens: {e}")
-                number_of_output_tokens = 0
-
-            span.set_attribute(
-                ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS,
-                number_of_output_tokens
-            )
+                logging.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(accumulated_json_str) // 4)
 
         except Exception as e_outer:
             logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
@@ -354,27 +345,24 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
     
     accumulated_response_text = "" # Used to capture text for error reporting if needed
     with tracer.start_as_current_span("post_plan_event") as span:
+        model_name = "gemini-1.5-flash-001"
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
-        span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, "gemini-2.5-flash")
+        span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, model_name)
 
-        # Record the prompt as an event
+        model = GenerativeModel(model_name)
+
+        # Count and set INPUT tokens
+        try:
+            prompt_tokens = model.count_tokens([prompt_message]).total_tokens
+            span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, prompt_tokens)
+        except Exception as e:
+            logging.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
+            span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, len(prompt_message) // 4)
+
+        # Add PROMPT CONTENT as an EVENT
         span.add_event(
             "gen_ai.prompt",
             {"gen_ai.prompt.value": prompt_message}
-        )
-
-        # Accurately count and record input tokens
-        try:
-            gemini_model = GenerativeModel("gemini-2.5-flash")
-            response = gemini_model.count_tokens(contents=[prompt_message])
-            number_of_input_tokens = response.total_tokens
-        except Exception as e:
-            logging.warning(f"Could not count tokens: {e}")
-            number_of_input_tokens = 0 # Fallback to 0 if counting fails
-
-        span.set_attribute(
-            ai_semconv.GEN_AI_USAGE_INPUT_TOKENS,
-            number_of_input_tokens
         )
 
         try:
@@ -437,25 +425,19 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
 
             yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting (session: {session_id}) ---"}
 
-            # Record the response as an event
+            # Add COMPLETION CONTENT as an EVENT
             span.add_event(
                 "gen_ai.completion",
                 {"gen_ai.completion.value": accumulated_response_text}
             )
 
-            # Accurately count and record output tokens
+            # Count and set OUTPUT tokens
             try:
-                gemini_model = GenerativeModel("gemini-2.5-flash")
-                output_response = gemini_model.count_tokens(contents=[accumulated_response_text])
-                number_of_output_tokens = output_response.total_tokens
+                completion_tokens = model.count_tokens([accumulated_response_text]).total_tokens
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, completion_tokens)
             except Exception as e:
-                logging.warning(f"Could not count output tokens: {e}")
-                number_of_output_tokens = 0
-
-            span.set_attribute(
-                ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS,
-                number_of_output_tokens
-            )
+                logging.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(accumulated_response_text) // 4)
 
         except Exception as e_outer_post:
             logger.error(f"Error during ADK App interaction for posting (user: {adk_user_id}, session: {session_id}): {e_outer_post}", exc_info=True)

@@ -7,7 +7,7 @@ import google.auth.credentials
 import json
 from opentelemetry import trace
 import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
-from google.cloud.aiplatform.rag.utils.GenerativeModel import GenerativeModel
+from vertexai.generative_models import GenerativeModel
 from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
@@ -156,53 +156,43 @@ class OrchestrateServiceAgent(Agent):
             span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
             span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
 
-            # Record the prompt as an event
+            model = GenerativeModel(self.orchestrator_agent.model)
+
+            # Count and set INPUT tokens
+            try:
+                prompt_tokens = model.count_tokens([input_text]).total_tokens
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, prompt_tokens)
+            except Exception as e:
+                logging.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, len(input_text) // 4)
+
+            # Add PROMPT CONTENT as an EVENT
             span.add_event(
                 "gen_ai.prompt",
                 {"gen_ai.prompt.value": input_text}
-            )
-
-            # Accurately count and record input tokens
-            try:
-                gemini_model = GenerativeModel(self.orchestrator_agent.model)
-                response = gemini_model.count_tokens(contents=[input_text])
-                number_of_input_tokens = response.total_tokens
-            except Exception as e:
-                logging.warning(f"Could not count tokens: {e}")
-                number_of_input_tokens = 0 # Fallback to 0 if counting fails
-
-            span.set_attribute(
-                ai_semconv.GEN_AI_USAGE_INPUT_TOKENS,
-                number_of_input_tokens
             )
 
             if not self.orchestrator_agent:
                 logging.error("OrchestratorAgent not initialized. set_up() was not called.")
                 raise RuntimeError("Agent not properly initialized.")
 
-            response = self.orchestrator_agent.query(input_text)
+            response_text = self.orchestrator_agent.query(input_text)
 
-            # Record the response as an event
+            # Add COMPLETION CONTENT as an EVENT
             span.add_event(
                 "gen_ai.completion",
-                {"gen_ai.completion.value": str(response)}
+                {"gen_ai.completion.value": response_text}
             )
 
-            # Accurately count and record output tokens
+            # Count and set OUTPUT tokens
             try:
-                gemini_model = GenerativeModel(self.orchestrator_agent.model)
-                output_response = gemini_model.count_tokens(contents=[str(response)])
-                number_of_output_tokens = output_response.total_tokens
+                completion_tokens = model.count_tokens([response_text]).total_tokens
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, completion_tokens)
             except Exception as e:
-                logging.warning(f"Could not count output tokens: {e}")
-                number_of_output_tokens = 0
+                logging.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
+                span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(response_text) // 4)
 
-            span.set_attribute(
-                ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS,
-                number_of_output_tokens
-            )
-
-            return response
+            return response_text
 
 OrchestrateServiceAgent.model_rebuild()
 

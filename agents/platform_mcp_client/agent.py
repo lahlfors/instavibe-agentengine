@@ -33,6 +33,9 @@ class PlatformMCPClientAgent(Agent):
     api_key_secret: Optional[str] = None
     _mcp_tools: List[Any] = PrivateAttr(default_factory=list)
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     def __getstate__(self):
         return {
             "name": self.name,
@@ -59,6 +62,9 @@ class PlatformMCPClientAgent(Agent):
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
     async def set_up(self):
+        os.environ["OTEL_SERVICE_NAME"] = self.name
+        from common.observability import setup_observability
+        setup_observability()
         if self._mcp_tools:
             log.info("MCP Tools already loaded.")
             return

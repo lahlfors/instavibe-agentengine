@@ -17,6 +17,7 @@ class TestObservabilityRefactor(unittest.TestCase):
         """Reset the global tracer provider after each test."""
         trace.set_tracer_provider(trace.ProxyTracerProvider())
 
+    @patch.dict(os.environ, {"OTEL_COLLECTOR_ENDPOINT": "localhost:4317"})
     @patch("common.observability.trace.set_tracer_provider")
     @patch("common.observability.trace.get_tracer_provider")
     def test_setup_replaces_non_sdk_provider(
@@ -39,6 +40,7 @@ class TestObservabilityRefactor(unittest.TestCase):
         args, _ = mock_set_provider.call_args
         self.assertIsInstance(args[0], SdkTracerProvider)
 
+    @patch.dict(os.environ, {"OTEL_COLLECTOR_ENDPOINT": "localhost:4317"})
     @patch("common.observability.trace.set_tracer_provider")
     @patch("common.observability.trace.get_tracer_provider")
     def test_setup_does_not_replace_sdk_provider(

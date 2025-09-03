@@ -1,135 +1,104 @@
 # common/observability.py
 import os
 import logging
-import google.auth
-import google.auth.transport.grpc
-import google.auth.transport.requests
-from google.auth.transport.grpc import AuthMetadataPlugin
-import grpc
-
-from opentelemetry import trace, metrics, propagate
-from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter, BatchSpanProcessor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as GRPCOTLPSpanExporter
-
-from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
+import threading
+from opentelemetry import trace, metrics
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-
-from opentelemetry.propagators.b3 import B3MultiFormat
-
-from opentelemetry import _logs as otel_logs
-from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry._logs import set_logger_provider
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.exporter.cloud_logging import CloudLoggingExporter
-
-from opentelemetry.instrumentation.vertexai import VertexAIInstrumentor
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
-from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient
+from opentelemetry.sdk.logs import LoggerProvider, set_logger_provider
+from opentelemetry.sdk.logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.resources import Resource, get_aggregated_resources
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.grpc.log_exporter import OTLPLogExporter
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.semconv.resource import ResourceAttributes
+import google.auth
+from google.cloud import run_v2
 
 log = logging.getLogger(__name__)
 
-def setup_observability():
-    log.info("--- common.observability.setup_observability started ---")
-    # ... (all the setup code as in the previous version) ...
-    # 1. Define Resources
-    project_id = "laah-genai"
-    creds = None
-    try:
-        scopes = [
-            'https://www.googleapis.com/auth/cloud-platform',
-            'https://www.googleapis.com/auth/trace.append',
-            'https://www.googleapis.com/auth/monitoring.write',
-            'https://www.googleapis.com/auth/logging.write'
-        ]
-        credentials, project_id = google.auth.default(scopes=scopes)
-        log.info(f"Google Cloud project ID fetched: {project_id}")
+_is_otel_initialized = False
+_lock = threading.Lock()
 
-        scoped_credentials = credentials.with_quota_project(project_id)
-        log.info(f"Set quota project to: {scoped_credentials.quota_project_id}")
-        creds = scoped_credentials
+def _get_project_id():
+    try:
+        _, project_id = google.auth.default()
+        return project_id
+    except google.auth.exceptions.DefaultCredentialsError:
+        return os.getenv("COMMON_GOOGLE_CLOUD_PROJECT", "unknown")
+
+def get_otel_collector_endpoint(project_id, location, collector_service_name="otel-collector"):
+    try:
+        client = run_v2.ServicesClient()
+        service_path = client.service_path(project_id, location, collector_service_name)
+        response = client.get_service(name=service_path)
+        if response.uri:
+            # Remove https:// and append gRPC port
+            return response.uri.replace("https://", "") + ":4317"
+        log.error(f"Cloud Run service '{collector_service_name}' found, but URI is empty.")
+        return None
     except Exception as e:
-        log.warning(f"Could not fetch Google Cloud credentials: {e}", exc_info=True)
-        return None, None # Return None if setup fails
+        log.error(f"Failed to get URL for Cloud Run service '{collector_service_name}' in {location}: {e}", exc_info=False)
+        return None
 
-    service_name = os.environ.get("SERVICE_NAME", "default-service")
-    resource = Resource.create({
-        "service.name": service_name,
-        "gcp.project_id": project_id,
-    })
+def setup_observability(service_name_suffix="service"):
+    global _is_otel_initialized
+    with _lock:
+        if _is_otel_initialized:
+            log.info("OpenTelemetry already initialized.")
+            return
+        log.info("Initializing OpenTelemetry...")
 
-    # Create gRPC channel credentials for OTLP Traces
-    channel_creds = None
-    if creds:
-        try:
-            request_creds = google.auth.transport.requests.Request()
-            auth_metadata_plugin = AuthMetadataPlugin(
-                credentials=creds, request=request_creds
-            )
-            channel_creds = grpc.composite_channel_credentials(
-                grpc.ssl_channel_credentials(),
-                grpc.metadata_call_credentials(auth_metadata_plugin),
-            )
-            log.info("gRPC channel credentials created.")
-        except Exception as e:
-            log.error(f"Failed to create gRPC channel credentials: {e}", exc_info=True)
+        project_id = _get_project_id()
+        location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION", "us-central1")
+        service_name = os.getenv("OTEL_SERVICE_NAME", f"instavibe-{service_name_suffix}")
 
-    # 2. Configure Tracing
-    tracer_provider = SdkTracerProvider(resource=resource)
-    trace.set_tracer_provider(tracer_provider)
-    tracer_provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-    if channel_creds:
-        try:
-            otlp_trace_exporter = GRPCOTLPSpanExporter(
-                endpoint="telemetry.googleapis.com:443",
-                credentials=channel_creds
-            )
-            tracer_provider.add_span_processor(BatchSpanProcessor(otlp_trace_exporter))
-            log.info("OpenTelemetry OTLPSpanExporter to telemetry.googleapis.com added for traces.")
-        except Exception as e:
-            log.error(f"Failed to setup OTLPSpanExporter for traces: {e}", exc_info=True)
+        OTEL_COLLECTOR_ENDPOINT = os.getenv("OTEL_COLLECTOR_ENDPOINT")
+        if not OTEL_COLLECTOR_ENDPOINT:
+            log.info("OTEL_COLLECTOR_ENDPOINT not set, attempting to discover from Cloud Run...")
+            OTEL_COLLECTOR_ENDPOINT = get_otel_collector_endpoint(project_id, location)
 
-    # 3. Configure Metrics
-    meter_provider = MeterProvider(resource=resource)
-    try:
-        monitoring_exporter = CloudMonitoringMetricsExporter(project_id=project_id)
-        metric_reader = PeriodicExportingMetricReader(monitoring_exporter)
-        # Recreate MeterProvider with the reader
+        if not OTEL_COLLECTOR_ENDPOINT:
+            log.error("Failed to determine OTEL_COLLECTOR_ENDPOINT. OTEL Exporters will not be configured.")
+            logging.basicConfig(level=logging.INFO)
+            return
+
+        log.info(f"Using OTEL_COLLECTOR_ENDPOINT: {OTEL_COLLECTOR_ENDPOINT}")
+
+        resource = get_aggregated_resources([
+            Resource({
+                ResourceAttributes.SERVICE_NAME: service_name,
+                ResourceAttributes.CLOUD_REGION: location,
+                ResourceAttributes.CLOUD_PROVIDER: "gcp",
+                ResourceAttributes.CLOUD_ACCOUNT_ID: project_id,
+            })
+        ])
+
+        # --- TRACES ---
+        tracer_provider = TracerProvider(resource=resource)
+        trace.set_tracer_provider(tracer_provider)
+        otlp_span_exporter = OTLPSpanExporter(endpoint=OTEL_COLLECTOR_ENDPOINT, insecure=True)
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_span_exporter))
+
+        # --- METRICS ---
+        otlp_metric_exporter = OTLPMetricExporter(endpoint=OTEL_COLLECTOR_ENDPOINT, insecure=True)
+        metric_reader = PeriodicExportingMetricReader(otlp_metric_exporter)
         meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
         metrics.set_meter_provider(meter_provider)
-        log.info("MeterProvider configured with CloudMonitoringMetricsExporter.")
-    except Exception as e:
-        log.error(f"Failed to setup MeterProvider with CloudMonitoringMetricsExporter: {e}", exc_info=True)
-        metrics.set_meter_provider(meter_provider) # Set base provider even if exporter fails
 
-    # 4. Configure Logging
-    try:
+        # --- LOGS ---
         logger_provider = LoggerProvider(resource=resource)
         set_logger_provider(logger_provider)
-        gcp_logging_exporter = CloudLoggingExporter()
-        logger_provider.add_log_record_processor(
-            BatchLogRecordProcessor(gcp_logging_exporter)
-        )
-        log.info("OpenTelemetry CloudLoggingExporter added.")
-    except Exception as e:
-        log.error(f"Failed to setup CloudLoggingExporter: {e}", exc_info=True)
+        otlp_log_exporter = OTLPLogExporter(endpoint=OTEL_COLLECTOR_ENDPOINT, insecure=True)
+        logger_provider.add_log_record_processor(BatchLogRecordProcessor(otlp_log_exporter))
+        LoggingInstrumentor().instrument(set_logging_format=True, logger_provider=logger_provider)
 
-    # ... (Propagation and Instrumentors) ...
-    propagate.set_global_textmap(B3MultiFormat())
-    log.info("Enabling OpenTelemetry Instrumentations...")
-    try: VertexAIInstrumentor().instrument()
-    except Exception as e: log.error(f"Error enabling VertexAIInstrumentor: {e}")
-    try: RequestsInstrumentor().instrument()
-    except Exception as e: log.error(f"Error enabling RequestsInstrumentor: {e}")
-    try: AioHttpClientInstrumentor().instrument()
-    except Exception as e: log.error(f"Error enabling AioHttpClientInstrumentor: {e}")
-    try: GrpcInstrumentorClient().instrument()
-    except Exception as e: log.error(f"Error enabling GrpcInstrumentorClient: {e}")
+        _is_otel_initialized = True
+        log.info(f"OpenTelemetry fully configured for service: {service_name}")
 
-    log.info(f"Custom observability setup complete for service: {service_name}")
-
-    # --- RETURN THE PROVIDERS ---
-    return trace.get_tracer_provider(), metrics.get_meter_provider()
+def get_trace_context():
+    # ... same as before
+# ... get_meter ...

@@ -17,6 +17,7 @@ from typing import Optional
 from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
+from common.observability import setup_observability
 
 logging.basicConfig(level=logging.INFO)
 tracer = trace.get_tracer(__name__)
@@ -43,6 +44,8 @@ class OrchestrateServiceAgent(Agent):
         """
         Called by the Agent Engine framework after deployment.
         """
+        os.environ["OTEL_SERVICE_NAME"] = self.name
+        setup_observability()
         if self.orchestrator_agent:
             return
 

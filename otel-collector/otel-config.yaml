@@ -1,0 +1,54 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+extensions:
+  health_check:
+processors:
+  batch:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+  # Optional: attributes processor to add common attributes
+  resource:
+    attributes:
+    - key: environment
+      value: "production"
+      action: upsert
+
+exporters:
+  googlecloud:
+    project: "${GOOGLE_CLOUD_PROJECT}"
+    trace:
+      endpoint: "dns:///cloudtrace.googleapis.com:443"
+  googlecloudlogging:
+    project: "${GOOGLE_CLOUD_PROJECT}"
+  googlecloudmonitoring:
+    project: "${GOOGLE_CLOUD_PROJECT}"
+    metric:
+        service_resource_labels: false # Avoids duplicate labels if resource is set in SDK
+  debug:
+    verbosity: detailed
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, memory_limiter, resource]
+      exporters: [googlecloud, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch, memory_limiter, resource]
+      exporters: [googlecloudmonitoring, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch, memory_limiter, resource]
+      exporters: [googlecloudlogging, debug]
+  telemetry:
+    logs:
+      level: "debug"

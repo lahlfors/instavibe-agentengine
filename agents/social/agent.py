@@ -28,7 +28,11 @@ tracer = trace.get_tracer(__name__)
 log = logging.getLogger(__name__)
 
 class SocialLlmAgent(LlmAgent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     def set_up(self):
+        os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         return self
 
@@ -49,7 +53,11 @@ class SocialLlmAgent(LlmAgent):
                 raise
 
 class SocialLoopAgent(LoopAgent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     def set_up(self):
+        os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         for agent in self.sub_agents:
             if hasattr(agent, "set_up"):

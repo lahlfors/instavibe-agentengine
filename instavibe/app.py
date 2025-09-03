@@ -16,6 +16,7 @@ from opentelemetry import trace
 tracer = trace.get_tracer(__name__)
 
 app = Flask(__name__)
+os.environ["OTEL_SERVICE_NAME"] = os.getenv("K_SERVICE", "instavibe-cloud-run")
 setup_observability()
 # Load environment variables from root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))

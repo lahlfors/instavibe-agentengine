@@ -89,6 +89,7 @@ class TestDeployAllScript(unittest.TestCase):
             skip_mcp_server=False,
             skip_app=False,
             skip_spanner=False,
+            skip_collector=True,
             deploy_orchestrate_only=False,
         )
         with patch('builtins.open', unittest.mock.mock_open(read_data='requirement1\nrequirement2')):
@@ -127,6 +128,7 @@ class TestDeployAllScript(unittest.TestCase):
             skip_mcp_server=True,
             skip_app=True,
             skip_spanner=True,
+            skip_collector=True,
             deploy_orchestrate_only=False,
         )
         deploy_all.main(mock_args)

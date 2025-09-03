@@ -27,6 +27,7 @@ def deploy_agent_engine_app(
     labels: Dict[str, str], # Labels will be ignored in create/update calls
     requirements: Optional[List[str]] = None,
     extra_packages: Optional[List[str]] = None,
+    env_vars: Optional[Dict[str, str]] = None,
 ) -> reasoning_engines.ReasoningEngine:
     """Deploys or updates a Vertex AI Reasoning Engine."""
     logging.info(f"--- Preparing to deploy/update Reasoning Engine: {display_name} in {project}/{location} ---")

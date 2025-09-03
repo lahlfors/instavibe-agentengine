@@ -25,7 +25,7 @@ class PlannerAgent(LlmAgent):
         super().__init__(**kwargs)
 
     def set_up(self):
-        logger.info("Initializing PlannerAgent and Observability...")
+        os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         logger.info("PlannerAgent setup complete.")
         return self

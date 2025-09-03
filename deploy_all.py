@@ -248,10 +248,8 @@ def main(args):
     # Setup logging for the main script
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    tracer_provider = None
-    meter_provider = None
     try:
-        tracer_provider, meter_provider = setup_observability()
+        setup_observability()
         logging.info("Observability setup complete.")
 
         install_dependencies()
@@ -263,6 +261,21 @@ def main(args):
             setup_spanner(project_id, config["spanner_instance"], config["spanner_db"], region)
         else: logging.info("Skipping Spanner setup.")
 
+        if not args.skip_collector:
+            otel_collector_url = build_and_deploy_cloud_run_service(
+                project_id,
+                region,
+                "otel-collector",
+                "./otel-collector",
+                env_vars={"GOOGLE_CLOUD_PROJECT": project_id},
+                allow_unauthenticated=False, # Internal service
+                service_account=config.get("service_account"),
+            )
+            if otel_collector_url:
+                os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{otel_collector_url}:4317"
+        else:
+            logging.info("Skipping OpenTelemetry Collector deployment.")
+
         mcp_tool_server_url = None
         if not args.skip_mcp_server:
             mcp_tool_server_url = build_and_deploy_cloud_run_service(
@@ -270,7 +283,11 @@ def main(args):
                 region,
                 "mcp-tool-server",
                 "./tools/instavibe",
-                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id, "SERVICE_NAME": "mcp-tool-server"},
+                env_vars={
+                    "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+                    "SERVICE_NAME": "mcp-tool-server",
+                    "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
+                },
                 allow_unauthenticated=False, # Internal tool, requires auth
             )
             if mcp_tool_server_url:
@@ -283,15 +300,14 @@ def main(args):
 
         if not args.skip_agents:
             agent_resource_names = {}
-
-        if not args.skip_agents:
-            agent_resource_names = {}
+            otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -300,6 +316,7 @@ def main(args):
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -311,6 +328,7 @@ def main(args):
                     "init_args": {
                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                         "name": "platform_mcp_client_agent",
+                        "otel_collector_endpoint": otel_collector_endpoint,
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
@@ -320,6 +338,7 @@ def main(args):
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/orchestrate/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -383,6 +402,7 @@ def main(args):
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
                 "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate_agent')}:predict" if agent_resource_names.get('orchestrate_agent') else "",
                 "SERVICE_NAME": "instavibe-app",
+                "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
             }
             build_and_deploy_cloud_run_service(
                 project_id,
@@ -396,17 +416,23 @@ def main(args):
 
         logging.info("--- Deployment script finished successfully! ---")
 
+    except ValueError as e:
+        logging.error(f"Configuration error: {e}")
+        sys.exit(1)
     except Exception as e:
-        logging.error(f"An error occurred in deploy_all: {e}", exc_info=True)
+        logging.error(f"An unexpected error occurred in deploy_all: {e}", exc_info=True)
+        sys.exit(1)
     finally:
+        from opentelemetry import trace, metrics
         logging.info("--- Shutting down observability ---")
+        tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, 'shutdown'):
             try:
                 tracer_provider.shutdown()
                 logging.info("TracerProvider shutdown complete.")
             except Exception as e:
                 logging.error(f"Error shutting down TracerProvider: {e}", exc_info=True)
-
+        meter_provider = metrics.get_meter_provider()
         if hasattr(meter_provider, 'shutdown'):
             try:
                 meter_provider.shutdown(timeout_millis=10000) # Give some time to flush
@@ -423,6 +449,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-mcp-server", action="store_true", help="Skip deploying the MCP Tool Server.")
     parser.add_argument("--skip-app", action="store_true", help="Skip deploying the main InstaVibe web app.")
     parser.add_argument("--skip-spanner", action="store_true", help="Skip Spanner setup.")
+    parser.add_argument("--skip-collector", action="store_true", help="Skip deploying the OpenTelemetry Collector.")
     parser.add_argument("--deploy-orchestrate-only", action="store_true", help="Deploy only the orchestrate agent.")
     args = parser.parse_args()
     main(args)

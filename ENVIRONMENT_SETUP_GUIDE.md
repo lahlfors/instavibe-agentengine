@@ -68,6 +68,21 @@ These variables are shared across multiple components of the application and **m
 
 ---
 
+## Observability Configuration
+
+This variable is used to configure the OpenTelemetry integration across all services.
+
+### `OTEL_COLLECTOR_ENDPOINT`
+*   **Purpose**: The gRPC endpoint of your deployed OpenTelemetry Collector service. All instrumented services (Instavibe App, Agents, Evaluation Suite) will send their telemetry data to this address.
+*   **How to obtain**:
+    1.  Deploy the OpenTelemetry Collector located in the `otel-collector/` directory. The `README.md` in that directory provides instructions. We recommend deploying it as a Google Cloud Run service.
+    2.  Once deployed, get the URL of the Cloud Run service.
+    3.  The endpoint should be the service URL with the gRPC port `4317`.
+*   **Example**: `http://otel-collector-service-abc12def-uc.a.run.app:4317`
+*   **Important**: This variable must be set in your `.env` file and sourced into your shell (`source ./set_env.sh`) before running any application, agent, or the evaluation script to ensure telemetry is correctly exported.
+
+---
+
 ## Instavibe Application (`instavibe/app.py`)
 
 These variables are primarily for the Instavibe web application and **should be manually configured by you in your `.env` file.**

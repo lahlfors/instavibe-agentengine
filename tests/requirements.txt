@@ -9,6 +9,7 @@ google-cloud-aiplatform[agent_engines,adk]>=1.110.0
 google-cloud-aiplatform>=1.110.0
 google-cloud-logging
 google-cloud-spanner
+google-cloud-storage
 grpcio
 grpcio-status
 humanize==4.8.0

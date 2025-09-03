@@ -267,7 +267,7 @@ def main(args):
                 region,
                 "otel-collector",
                 "./otel-collector",
-                env_vars={"GOOGLE_CLOUD_PROJECT": project_id},
+                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": project_id},
                 allow_unauthenticated=False, # Internal service
                 service_account=config.get("service_account"),
             )

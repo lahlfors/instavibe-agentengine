@@ -33,17 +33,17 @@ class SocialLlmAgent(LlmAgent):
         super().__init__(**kwargs)
 
     def set_up(self, **kwargs):
-        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        # Synchronous entry point for the Reasoning Engine
+        print(f"Sync set_up called for {self.__class__.__name__}, running async setup...")
         try:
-            # Even though setup is not async, we use this pattern for consistency
-            asyncio.run(self._async_setup_logic(**kwargs))
-            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+            asyncio.run(self._async_set_up(**kwargs))
+            print(f"Async set_up for {self.__class__.__name__} completed.")
         except Exception as e:
-            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            print(f"Error during async set_up for {self.__class__.__name__}: {e}")
             raise
 
-    async def _async_setup_logic(self, **kwargs):
-        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
+    async def _async_set_up(self, **kwargs):
+        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
@@ -66,25 +66,26 @@ class SocialLlmAgent(LlmAgent):
                 raise
 
 class SocialLoopAgent(LoopAgent):
+    otel_collector_endpoint: Optional[str] = None
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def set_up(self, **kwargs):
-        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        # Synchronous entry point for the Reasoning Engine
+        print(f"Sync set_up called for {self.__class__.__name__}, running async setup...")
         try:
-            # Even though setup is not async, we use this pattern for consistency
-            asyncio.run(self._async_setup_logic(**kwargs))
-            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+            asyncio.run(self._async_set_up(**kwargs))
+            print(f"Async set_up for {self.__class__.__name__} completed.")
         except Exception as e:
-            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            print(f"Error during async set_up for {self.__class__.__name__}: {e}")
             raise
 
         for agent in self.sub_agents:
             if hasattr(agent, "set_up"):
                 agent.set_up()
 
-    async def _async_setup_logic(self, **kwargs):
-        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
+    async def _async_set_up(self, **kwargs):
+        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")

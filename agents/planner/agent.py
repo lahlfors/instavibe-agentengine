@@ -7,6 +7,7 @@ from google.adk.tools import google_search
 from opentelemetry import trace
 from common.observability import setup_observability
 import logging
+from typing import Optional
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -14,21 +15,22 @@ tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
 class PlannerAgent(LlmAgent):
+    otel_collector_endpoint: Optional[str] = None
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def set_up(self, **kwargs):
-        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        # Synchronous entry point for the Reasoning Engine
+        print(f"Sync set_up called for {self.__class__.__name__}, running async setup...")
         try:
-            # Even though setup is not async, we use this pattern for consistency
-            asyncio.run(self._async_setup_logic(**kwargs))
-            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+            asyncio.run(self._async_set_up(**kwargs))
+            print(f"Async set_up for {self.__class__.__name__} completed.")
         except Exception as e:
-            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            print(f"Error during async set_up for {self.__class__.__name__}: {e}")
             raise
 
-    async def _async_setup_logic(self, **kwargs):
-        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
+    async def _async_set_up(self, **kwargs):
+        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         logger.info("PlannerAgent setup complete.")

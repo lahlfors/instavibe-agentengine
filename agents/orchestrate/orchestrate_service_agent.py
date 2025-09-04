@@ -31,6 +31,7 @@ class OrchestrateServiceAgent(Agent):
     reasoning_engine_id: Optional[str] = None
     orchestrator_agent: Optional[Agent] = None
     memory_service: Optional[VertexAiMemoryBankService] = None
+    otel_collector_endpoint: Optional[str] = None
 
     def __init__(self, name: str, instruction: Optional[str] = None, description: Optional[str] = None):
         super().__init__(
@@ -41,20 +42,18 @@ class OrchestrateServiceAgent(Agent):
         )
 
     def set_up(self, **kwargs):
-        """
-        Called by the Agent Engine framework after deployment.
-        """
-        print("--- OrchestrateServiceAgent set_up called (sync) ---")
+        # Synchronous entry point for the Reasoning Engine
+        print(f"Sync set_up called for {self.__class__.__name__}, running async setup...")
         try:
-            asyncio.run(self._async_setup_logic(**kwargs))
-            print("--- OrchestrateServiceAgent async_setup_logic completed ---")
+            asyncio.run(self._async_set_up(**kwargs))
+            print(f"Async set_up for {self.__class__.__name__} completed.")
         except Exception as e:
-            print(f"Error running async_setup_logic: {e}")
+            print(f"Error during async set_up for {self.__class__.__name__}: {e}")
             raise
 
-    async def _async_setup_logic(self, **kwargs):
+    async def _async_set_up(self, **kwargs):
         # All your original async logic can go here
-        print("--- Running _async_setup_logic ---")
+        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         if self.orchestrator_agent:

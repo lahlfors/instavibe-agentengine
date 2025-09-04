@@ -249,7 +249,7 @@ def main(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     try:
-        setup_observability()
+        setup_observability(disable_export=True)
         logging.info("Observability setup complete.")
 
         install_dependencies()

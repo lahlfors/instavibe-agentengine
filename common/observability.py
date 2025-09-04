@@ -42,13 +42,20 @@ def get_otel_collector_endpoint(project_id, location, collector_service_name="ot
         log.error(f"Failed to get URL for Cloud Run service '{collector_service_name}' in {location}: {e}", exc_info=False)
         return None
 
-def setup_observability(service_name_suffix="service"):
+def setup_observability(service_name_suffix="service", disable_export=False):
     """
     Configures OpenTelemetry for traces, metrics, and logs.
 
     This function is idempotent. It checks if the providers are already
     configured before attempting to set them up.
     """
+    if disable_export:
+        log.info("Telemetry export is disabled for this run.")
+        # Configure basic logging without exporters.
+        # This ensures that logging still works for the script itself.
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        return
+
     project_id = _get_project_id()
     location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION", "us-central1")
     service_name = os.getenv("OTEL_SERVICE_NAME", f"instavibe-{service_name_suffix}")

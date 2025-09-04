@@ -2,9 +2,6 @@
 import logging
 import os
 import asyncio
-import sys
-import subprocess
-import google.cloud
 import google.auth
 import google.auth.credentials
 import json

@@ -79,13 +79,14 @@ class SocialLoopAgent(LoopAgent):
             print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
             raise
 
+        for agent in self.sub_agents:
+            if hasattr(agent, "set_up"):
+                agent.set_up()
+
     async def _async_setup_logic(self, **kwargs):
         print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
-        for agent in self.sub_agents:
-            if hasattr(agent, "set_up"):
-                agent.set_up()
         print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
         return self
 

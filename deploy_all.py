@@ -11,7 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from agents.app.agent_engine_app import deploy_agent_engine_app
-from common.observability import setup_local_script_logging
+from common.observability import setup_observability
 from google.cloud import aiplatform as vertexai
 from typing import Dict, List, Optional
 import subprocess
@@ -246,9 +246,12 @@ def build_and_deploy_cloud_run_service(
 # --- Main Orchestration ---
 def main(args):
     # Setup logging for the main script
-    setup_local_script_logging()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     try:
+        setup_observability()
+        logging.info("Observability setup complete.")
+
         install_dependencies()
         config = setup_environment()
         project_id = config["project_id"]
@@ -303,8 +306,8 @@ def main(args):
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
-                    "agent_variable": "create_agent",
-                    "init_args": {},
+                    "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -312,8 +315,8 @@ def main(args):
                     "name": "social_agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
-                    "agent_variable": "create_agent",
-                    "init_args": {},
+                    "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -325,6 +328,7 @@ def main(args):
                     "init_args": {
                         "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
                         "name": "platform_mcp_client_agent",
+                        "otel_collector_endpoint": otel_collector_endpoint,
                     },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
@@ -333,8 +337,8 @@ def main(args):
                     "name": "orchestrate_agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
-                    "agent_variable": "OrchestrateServiceAgent",
-                    "init_args": {},
+                    "agent_variable": "root_agent",
+                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/orchestrate/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
@@ -362,16 +366,12 @@ def main(args):
 
                     # Construct final arguments for the agent's constructor
                     final_args = agent_conf.get("init_args", {})
-                    if 'name' not in final_args:
-                        final_args['name'] = agent_conf['name']
+                    final_args['name'] = agent_conf['name']
 
-
-                    # If the agent variable is a factory function like create_agent()
-                    if agent_conf['agent_variable'] == 'create_agent':
-                        agent_to_deploy = agent_ref()
-                    # If it's a class to be instantiated
-                    else:
+                    if "init_args" in agent_conf:
                         agent_to_deploy = agent_ref(**final_args)
+                    else:
+                        agent_to_deploy = agent_ref
 
                     requirements = load_requirements(agent_conf["requirements_file"])
 
@@ -422,6 +422,24 @@ def main(args):
     except Exception as e:
         logging.error(f"An unexpected error occurred in deploy_all: {e}", exc_info=True)
         sys.exit(1)
+    finally:
+        from opentelemetry import trace, metrics
+        logging.info("--- Shutting down observability ---")
+        tracer_provider = trace.get_tracer_provider()
+        if hasattr(tracer_provider, 'shutdown'):
+            try:
+                tracer_provider.shutdown()
+                logging.info("TracerProvider shutdown complete.")
+            except Exception as e:
+                logging.error(f"Error shutting down TracerProvider: {e}", exc_info=True)
+        meter_provider = metrics.get_meter_provider()
+        if hasattr(meter_provider, 'shutdown'):
+            try:
+                meter_provider.shutdown(timeout_millis=10000) # Give some time to flush
+                logging.info("MeterProvider shutdown complete.")
+            except Exception as e:
+                logging.error(f"Error shutting down MeterProvider: {e}", exc_info=True)
+        logging.info("--- Observability shutdown process finished ---")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

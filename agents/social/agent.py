@@ -6,6 +6,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+import asyncio
 import datetime
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
@@ -31,9 +32,21 @@ class SocialLlmAgent(LlmAgent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def set_up(self):
+    def set_up(self, **kwargs):
+        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        try:
+            # Even though setup is not async, we use this pattern for consistency
+            asyncio.run(self._async_setup_logic(**kwargs))
+            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+        except Exception as e:
+            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            raise
+
+    async def _async_setup_logic(self, **kwargs):
+        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
+        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
         return self
 
     def query(self, **kwargs):
@@ -56,12 +69,24 @@ class SocialLoopAgent(LoopAgent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def set_up(self):
+    def set_up(self, **kwargs):
+        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        try:
+            # Even though setup is not async, we use this pattern for consistency
+            asyncio.run(self._async_setup_logic(**kwargs))
+            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+        except Exception as e:
+            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            raise
+
+    async def _async_setup_logic(self, **kwargs):
+        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         for agent in self.sub_agents:
             if hasattr(agent, "set_up"):
                 agent.set_up()
+        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
         return self
 
     def query(self, **kwargs):

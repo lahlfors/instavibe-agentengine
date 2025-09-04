@@ -2,6 +2,9 @@
 import logging
 import os
 import asyncio
+import sys
+import subprocess
+import google.cloud
 import google.auth
 import google.auth.credentials
 import json
@@ -40,10 +43,21 @@ class OrchestrateServiceAgent(Agent):
             description=description or "An agent that can create/search memories and delegate tasks.",
         )
 
-    async def set_up(self):
+    def set_up(self, **kwargs):
         """
         Called by the Agent Engine framework after deployment.
         """
+        print("--- OrchestrateServiceAgent set_up called (sync) ---")
+        try:
+            asyncio.run(self._async_setup_logic(**kwargs))
+            print("--- OrchestrateServiceAgent async_setup_logic completed ---")
+        except Exception as e:
+            print(f"Error running async_setup_logic: {e}")
+            raise
+
+    async def _async_setup_logic(self, **kwargs):
+        # All your original async logic can go here
+        print("--- Running _async_setup_logic ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         if self.orchestrator_agent:
@@ -87,9 +101,11 @@ class OrchestrateServiceAgent(Agent):
             memory=self.memory_service,
         )
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
+        print("--- _async_setup_logic complete ---")
+
 
     def root_instruction(self, context: ReadonlyContext) -> str:
-        return """
+        return '''
     You are an expert AI Orchestrator for the Instavibe application. Your primary responsibility is to intelligently interpret user requests and delegate them to the most appropriate specialized remote agents by invoking their capabilities.
 
     You have the following agents at your disposal:
@@ -118,7 +134,7 @@ class OrchestrateServiceAgent(Agent):
         - Your tool call: `send_task(agent_name='social-agent', action='share', data={'message': 'Check out this cool event I just made on Instavibe!'})`
 
     Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
-    """
+    '''
 
     async def send_task(
         self,

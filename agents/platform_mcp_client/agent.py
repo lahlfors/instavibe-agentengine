@@ -61,7 +61,17 @@ class PlatformMCPClientAgent(Agent):
         log.info(f"Fetching API key from secret: {secret_name}")
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
-    async def set_up(self):
+    def set_up(self, **kwargs):
+        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        try:
+            asyncio.run(self._async_setup_logic(**kwargs))
+            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+        except Exception as e:
+            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            raise
+
+    async def _async_setup_logic(self, **kwargs):
+        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         from common.observability import setup_observability
         setup_observability()
@@ -102,6 +112,7 @@ class PlatformMCPClientAgent(Agent):
                 main_span.set_status(Status(StatusCode.ERROR, str(e)))
                 self._mcp_tools = []
                 log.warning("MCP Tools initialization failed, agent will have no tools from this source.")
+        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
 
     @property
     def tools(self) -> List[Any]:

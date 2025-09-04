@@ -1,19 +1,12 @@
 import os
 import sys
+import asyncio
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from opentelemetry import trace
 from common.observability import setup_observability
 import logging
-
-# --- START: Agent Environment Debugging Code ---
-# This code will run when the agent container starts on Vertex AI.
-print("--- AGENT SERVER-SIDE ENVIRONMENT CHECK ---")
-print(f"Python Version Used by Agent: {sys.version}")
-# print(f"Agent's google-cloud-aiplatform SDK Version: {google.cloud.aiplatform.__version__}")
-print("--- AGENT INITIALIZATION CONTINUING ---")
-# --- END: Agent Environment Debugging Code ---
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -24,10 +17,22 @@ class PlannerAgent(LlmAgent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def set_up(self):
+    def set_up(self, **kwargs):
+        print(f"--- {self.__class__.__name__} set_up called (sync) ---")
+        try:
+            # Even though setup is not async, we use this pattern for consistency
+            asyncio.run(self._async_setup_logic(**kwargs))
+            print(f"--- {self.__class__.__name__} async_setup_logic completed ---")
+        except Exception as e:
+            print(f"Error running async_setup_logic in {self.__class__.__name__}: {e}")
+            raise
+
+    async def _async_setup_logic(self, **kwargs):
+        print(f"--- Running _async_setup_logic for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         logger.info("PlannerAgent setup complete.")
+        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
         return self
 
     def query(self, **kwargs):
@@ -51,7 +56,7 @@ class PlannerAgent(LlmAgent):
 def create_agent():
     MODEL_NAME = "gemini-1.5-flash"
     AGENT_NAME = "planner_agent"
-    AGENT_INSTRUCTION = """
+    AGENT_INSTRUCTION = '''
 
             You are a specialized AI assistant tasked with generating creative and fun plan suggestions.
 
@@ -84,7 +89,7 @@ def create_agent():
               ]
             }
 
-        """
+        '''
 
     return PlannerAgent(
         name=AGENT_NAME,

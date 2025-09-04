@@ -353,6 +353,10 @@ def main(args):
                             requirements.append(line)
                 return requirements
 
+            if args.deploy_orchestrate_only:
+                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
+                logging.info("--- Deploying only the orchestrate_agent as requested. ---")
+
             for agent_conf in agents_to_deploy:
                 display_name = agent_conf["display_name"]
                 agent_id = agent_conf["name"]

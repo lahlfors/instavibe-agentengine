@@ -11,7 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from agents.app.agent_engine_app import deploy_agent_engine_app
-from common.observability import setup_observability
+from common.observability import setup_local_script_logging
 from google.cloud import aiplatform as vertexai
 from typing import Dict, List, Optional
 import subprocess
@@ -246,12 +246,9 @@ def build_and_deploy_cloud_run_service(
 # --- Main Orchestration ---
 def main(args):
     # Setup logging for the main script
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    setup_local_script_logging()
 
     try:
-        setup_observability()
-        logging.info("Observability setup complete.")
-
         install_dependencies()
         config = setup_environment()
         project_id = config["project_id"]
@@ -425,24 +422,6 @@ def main(args):
     except Exception as e:
         logging.error(f"An unexpected error occurred in deploy_all: {e}", exc_info=True)
         sys.exit(1)
-    finally:
-        from opentelemetry import trace, metrics
-        logging.info("--- Shutting down observability ---")
-        tracer_provider = trace.get_tracer_provider()
-        if hasattr(tracer_provider, 'shutdown'):
-            try:
-                tracer_provider.shutdown()
-                logging.info("TracerProvider shutdown complete.")
-            except Exception as e:
-                logging.error(f"Error shutting down TracerProvider: {e}", exc_info=True)
-        meter_provider = metrics.get_meter_provider()
-        if hasattr(meter_provider, 'shutdown'):
-            try:
-                meter_provider.shutdown(timeout_millis=10000) # Give some time to flush
-                logging.info("MeterProvider shutdown complete.")
-            except Exception as e:
-                logging.error(f"Error shutting down MeterProvider: {e}", exc_info=True)
-        logging.info("--- Observability shutdown process finished ---")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

@@ -134,3 +134,12 @@ def get_trace_context():
 def get_meter(name):
     """Returns a meter from the global meter provider."""
     return metrics.get_meter(name)
+
+def setup_local_script_logging():
+    """Configures basic logging to the console for local scripts."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logging.info("Initialized basic console logging for local script.")

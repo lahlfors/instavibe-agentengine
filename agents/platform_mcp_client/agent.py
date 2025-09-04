@@ -31,6 +31,7 @@ class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server by dynamically loading tools."""
     mcp_server_address: str
     api_key_secret: Optional[str] = None
+    otel_collector_endpoint: Optional[str] = None
     _mcp_tools: List[Any] = PrivateAttr(default_factory=list)
 
     def __init__(self, **kwargs):

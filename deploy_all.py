@@ -344,15 +344,6 @@ def main(args):
                 },
             ]
 
-            def load_requirements(file_path):
-                requirements = []
-                with open(file_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            requirements.append(line)
-                return requirements
-
             if args.deploy_orchestrate_only:
                 agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
                 logging.info("--- Deploying only the orchestrate_agent as requested. ---")
@@ -371,23 +362,19 @@ def main(args):
                     # Construct final arguments for the agent's constructor
                     final_args = agent_conf.get("init_args", {})
                     final_args['name'] = agent_conf['name']
+                    final_args['display_name'] = display_name
 
                     if "init_args" in agent_conf:
                         agent_to_deploy = agent_ref(**final_args)
                     else:
                         agent_to_deploy = agent_ref
 
-                    requirements = load_requirements(agent_conf["requirements_file"])
-
-                    agent_labels = {"agent_id": agent_id} # Use agent_id for the label
-
                     remote_agent = deploy_agent_engine_app(
+                        agent_ref=agent_to_deploy,
+                        agent_id=agent_id,
                         project=project_id,
                         location=region,
-                        agent_object=agent_to_deploy,
-                        display_name=display_name,
-                        labels=agent_labels,
-                        requirements=requirements,
+                        requirements_path=agent_conf["requirements_file"],
                         extra_packages=agent_conf["extra_packages"],
                     )
                     agent_resource_names[agent_id] = remote_agent.name

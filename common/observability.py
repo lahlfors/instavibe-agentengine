@@ -1,4 +1,17 @@
 # common/observability.py
+import sys
+import os
+import subprocess
+import logging
+import importlib
+
+# --- VERY TOP LEVEL DEBUG ---
+print("--- COMMON OBSERVABILITY TOP LEVEL START ---")
+print(f"Python version: {sys.version}")
+print(f"sys.path: {sys.path}")
+print(f"os.getcwd(): {os.getcwd()}")
+# --- COMMON OBSERVABILITY TOP LEVEL END ---
+
 import os
 import logging
 import threading
@@ -12,7 +25,18 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.semconv.resource import ResourceAttributes
 import google.auth
-from google.cloud import run_v2
+
+# ---- CORE IMPORT THAT FAILS ----
+print("--- PRE-IMPORT: from google.cloud import run_v2 ---")
+try:
+    from google.cloud import run_v2
+    print(f"--- POST-IMPORT: from google.cloud import run_v2 --- SUCCESS: {run_v2}")
+except ImportError as e:
+    print(f"--- POST-IMPORT: from google.cloud import run_v2 --- FAILED: {e}")
+except Exception as e:
+    print(f"--- POST-IMPORT: OTHER EXCEPTION for run_v2: {e}")
+# ---- END CORE IMPORT THAT FAILS ----
+
 
 # Corrected imports for logging, using the private _logs module structure
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler

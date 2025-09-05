@@ -7,12 +7,13 @@ from google.adk.tools import google_search
 from opentelemetry import trace
 from common.observability import setup_observability
 import logging
-from typing import Optional
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
+
+from typing import Optional
 
 class PlannerAgent(LlmAgent):
     otel_collector_endpoint: Optional[str] = None

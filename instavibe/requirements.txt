@@ -1,12 +1,7 @@
-# Flask Application Dependencies
 Flask==3.0.0
-gunicorn==23.0.0
+gunicorn
 python-dotenv>=1.0.0
-
-# Database access (since db.py is present)
-google-cloud-spanner==3.57.0
-
-# Other packages
-google-cloud-logging
-python-dateutil
+google-cloud-spanner
 humanize==4.8.0
+python-dateutil
+opentelemetry-api

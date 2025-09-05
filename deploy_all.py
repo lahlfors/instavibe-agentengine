@@ -374,8 +374,7 @@ def main(args):
 
                     # Deploy the agent
                     remote_agent = deploy_agent_engine_app(
-                        agent_ref=agent_to_deploy,
-                        agent_id=agent_id,
+                        agent_object=agent_to_deploy,
                         project=project_id,
                         location=region,
                         requirements_path=requirements_path,

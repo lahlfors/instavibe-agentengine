@@ -304,39 +304,41 @@ def main(args):
 
             agents_to_deploy = [
                 {
-                    "name": "planner_agent",
+                    "name": "planner_agent",  # <<-- Use underscores
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
-                    "init_args": {},
-                    "requirements_file": "agents/planner/requirements.txt",
+                    "init_args": {}, # Add otel endpoint in the loop
+                    "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "social_agent", # Match directory name
+                    "name": "social_agent",  # <<-- Use underscores
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLoopAgent",
                     "init_args": {},
-                    "requirements_file": "agents/social/requirements.txt",
+                    "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "platform_mcp_client_agent",
+                    "name": "platform_mcp_client_agent",  # <<-- Use underscores
                     "display_name": "Platform MCP Client Agent",
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
-                    "init_args": {"mcp_server_address": os.environ.get("MCP_SERVER_URL")},
-                    "requirements_file": "agents/platform_mcp_client/requirements.txt",
+                    "init_args": {
+                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
+                    },
+                    "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "orchestrate_agent",
+                    "name": "orchestrate_agent",  # <<-- Use underscores
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "OrchestrateServiceAgent",
                     "init_args": {},
-                    "requirements_file": "agents/orchestrate/requirements.txt",
+                    "requirements_file": "./agents/orchestrate/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
             ]
@@ -369,7 +371,8 @@ def main(args):
 
                     # Deploy the agent
                     remote_agent = deploy_agent_engine_app(
-                        agent_object=agent_to_deploy,
+                        agent_ref=agent_to_deploy,
+                        agent_id=agent_id,
                         project=project_id,
                         location=region,
                         requirements_path=requirements_path,

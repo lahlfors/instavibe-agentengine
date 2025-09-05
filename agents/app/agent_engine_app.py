@@ -6,7 +6,8 @@ from vertexai.preview import reasoning_engines
 logger = logging.getLogger(__name__)
 
 def deploy_agent_engine_app(
-    agent_object,
+    agent_ref,
+    agent_id: str,
     project: str,
     location: str,
     requirements_path: str,
@@ -17,11 +18,7 @@ def deploy_agent_engine_app(
     with open(requirements_path, "r") as f:
         requirements = [line.strip() for line in f if line.strip()]
 
-    agent_id = agent_object.name
-    display_name = agent_object.display_name
-
-    agent_id = agent_object.name
-    display_name = agent_object.display_name
+    display_name = agent_ref.display_name
 
     logger.info(f"--- DIAGNOSTICS for {agent_id} ---")
     logger.info(f"Project: '{project}' (Type: {type(project)})")
@@ -33,7 +30,7 @@ def deploy_agent_engine_app(
 
     # ... eng_kwargs setup ...
     eng_kwargs = {
-        "reasoning_engine": agent_object,
+        "reasoning_engine": agent_ref,
         "requirements": requirements,
         "extra_packages": extra_packages,
         "display_name": display_name,

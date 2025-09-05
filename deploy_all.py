@@ -20,6 +20,9 @@ import subprocess
 # dependencies are installed first.
 
 
+# --- Logger Initialization ---
+logger = logging.getLogger(__name__) # <--- ADD THIS LINE
+
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 GCLOUD_COMMON_ARGS = [] # Will be populated in setup_environment

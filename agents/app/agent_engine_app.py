@@ -20,11 +20,8 @@ def deploy_agent_engine_app(
 
     display_name = agent_ref.display_name
 
-    logger.info(f"--- DIAGNOSTICS for {agent_id} ---")
-    logger.info(f"Project: '{project}' (Type: {type(project)})")
-    logger.info(f"Location: '{location}' (Type: {type(location)})")
-    logger.info(f"Agent ID: '{agent_id}' (Type: {type(agent_id)})")
-
+    logger.info(f"--- PRE-LOOKUP DIAGNOSTICS ---")
+    logger.info(f"Component REPRs: project={repr(project)}, location={repr(location)}, agent_id={repr(agent_id)}")
     full_resource_name = f"projects/{project}/locations/{location}/reasoningEngines/{agent_id}"
     logger.info(f"Constructed full_resource_name: '{full_resource_name}'")
 

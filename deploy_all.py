@@ -306,7 +306,7 @@ def main(args):
                     "name": "planner_agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
-                    "agent_variable": "PlannerAgent",
+                    "agent_variable": "root_agent",
                     "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
@@ -315,7 +315,7 @@ def main(args):
                     "name": "social_agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
-                    "agent_variable": "SocialLoopAgent",
+                    "agent_variable": "root_agent",
                     "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/social/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
@@ -337,12 +337,21 @@ def main(args):
                     "name": "orchestrate_agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
-                    "agent_variable": "OrchestrateServiceAgent",
+                    "agent_variable": "root_agent",
                     "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
                     "requirements_file": "./agents/orchestrate/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
             ]
+
+            def load_requirements(file_path):
+                requirements = []
+                with open(file_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            requirements.append(line)
+                return requirements
 
             if args.deploy_orchestrate_only:
                 agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
@@ -353,33 +362,18 @@ def main(args):
                 agent_id = agent_conf["name"]
                 logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
                 try:
-                    module_path = agent_conf["module"]
-                    agent_var = agent_conf["agent_variable"]
-                    module = importlib.import_module(module_path)
-                    agent_ref = getattr(module, agent_var)
+                    module = importlib.import_module(agent_conf["module"])
+                    agent_ref = getattr(module, agent_conf["agent_variable"])
+
 
                     final_args = agent_conf.get("init_args", {}).copy()
                     final_args['name'] = agent_id
-                    final_args['display_name'] = display_name # Now safe for all agents
+                    final_args['display_name'] = display_name
 
                     if otel_collector_endpoint:
-                         # Pass only if the class can handle it. Assuming base classes do not,
-                         # but OrchestrateServiceAgent's **kwargs will catch it.
-                         if agent_var == "OrchestrateServiceAgent":
-                             final_args['otel_collector_endpoint'] = otel_collector_endpoint
-                         elif agent_var in ["PlannerAgent", "SocialLoopAgent", "PlatformMCPClientAgent"]:
-                             # Optional: If you want to set the class attribute *after* init
-                             # pass for init, and set separately.
-                             pass
-
+                        final_args['otel_collector_endpoint'] = otel_collector_endpoint
 
                     agent_to_deploy = agent_ref(**final_args)
-
-                    # If otel_collector_endpoint is a class attribute but not an init arg for some:
-                    if otel_collector_endpoint and hasattr(agent_to_deploy, 'otel_collector_endpoint') and getattr(agent_to_deploy, 'otel_collector_endpoint') is None:
-                         if agent_var != "OrchestrateServiceAgent": # Already handled in init
-                             setattr(agent_to_deploy, 'otel_collector_endpoint', otel_collector_endpoint)
-                             logging.info(f"Set otel_collector_endpoint on {display_name}")
 
                     remote_agent = deploy_agent_engine_app(
                         agent_ref=agent_to_deploy,

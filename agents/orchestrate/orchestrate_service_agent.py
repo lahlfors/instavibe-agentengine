@@ -35,34 +35,93 @@ class OrchestrateServiceAgent(Agent):
     otel_collector_endpoint: Optional[str] = None
 
     def __init__(self, **kwargs):
-        self.display_name = kwargs.pop("display_name", kwargs.get("name"))
-        name = kwargs.pop("name", "default_orchestrate_name")
-        instruction = kwargs.pop("instruction", "I am an orchestrator agent...")
-        description = kwargs.pop("description", self.display_name)
-        model = kwargs.pop("model", "gemini-1.5-flash")
-        self.otel_collector_endpoint = kwargs.pop("otel_collector_endpoint", None)
+        name = kwargs.get("name", "default_orchestrate_name")
+        display_name = kwargs.get("display_name", name)
+        instruction = kwargs.get("instruction", "I am an orchestrator agent...")
+        description = kwargs.get("description", display_name)
+        model = kwargs.get("model", "gemini-1.5-flash")
+        otel_collector_endpoint = kwargs.get("otel_collector_endpoint")
 
-        super().__init__(
-            name=name,
-            model=model,
-            instruction=instruction,
-            description=description,
-            **kwargs  # Pass any remaining kwargs to the base class
-        )
+        # Prepare args for super().__init__
+        super_args = {
+            "name": name,
+            "display_name": display_name,
+            "model": model,
+            "instruction": instruction,
+            "description": description,
+            "otel_collector_endpoint": otel_collector_endpoint,
+        }
+        # Add any other kwargs that the base class might expect
+        super_args.update(kwargs)
 
-    def set_up(self, **kwargs):
-        # Synchronous entry point for the Reasoning Engine
-        print(f"Sync set_up called for {self.__class__.__name__}, running async setup...")
-        try:
-            asyncio.run(self._async_set_up(**kwargs))
-            print(f"Async set_up for {self.__class__.__name__} completed.")
-        except Exception as e:
-            print(f"Error during async set_up for {self.__class__.__name__}: {e}")
-            raise
+        # Call super().__init__ FIRST
+        super().__init__(**super_args)
+
+        # Initialize other attributes specific to OrchestrateServiceAgent *after* super call
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
+        self.memory_service = None # Initialize later in set_up
+        self.orchestrator_agent = None # Initialize later in set_up
+        if self.otel_collector_endpoint is None: # Set if not provided in kwargs
+             self.otel_collector_endpoint = otel_collector_endpoint
 
     async def _async_set_up(self, **kwargs):
         # All your original async logic can go here
         print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
+        os.environ["OTEL_SERVICE_NAME"] = self.name
+        setup_observability()
+        if self.orchestrator_agent:
+            return
+
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
+
+        if not self.project or not self.location:
+            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
+        if not self.reasoning_engine_id:
+            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
+            raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
+
+        self.memory_service = VertexAiMemoryBankService(
+            project=self.project,
+            location=self.location,
+            agent_engine_id=self.reasoning_engine_id,
+        )
+        logging.info("VertexAiMemoryBankService initialized.")
+
+        thinking_config = ThinkingConfig(
+            include_thoughts=True,
+            thinking_budget=-1,  # Use dynamic thinking
+        )
+        planner = BuiltInPlanner(thinking_config=thinking_config)
+        all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
+
+        self.orchestrator_agent = Agent(
+            model="gemini-2.5-flash",
+            name="orchestrate_agent",
+            instruction=self.root_instruction,
+            description=(
+                "This agent orchestrates the decomposition of the user request into"
+                " tasks that can be performed by the child agents."
+            ),
+            tools=all_tools,
+            planner=planner,
+            memory=self.memory_service,
+        )
+        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
+
+    def set_up(self, **kwargs):
+        # This is the synchronous entry point for the Reasoning Engine
+        print(f"Sync set_up called, running async portion...")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            print(f"Async set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            print(f"Error during async set_up: {e}")
+            raise
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         if self.orchestrator_agent:

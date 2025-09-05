@@ -21,18 +21,22 @@ class PlannerAgent(LlmAgent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
+    async def _async_set_up(self, **kwargs):
+        # All your original asynchronous setup logic goes here
+        print(f"Async set_up for {self.__class__.__name__}")
+        os.environ["OTEL_SERVICE_NAME"] = self.name
+        setup_observability()
+        logger.info("PlannerAgent setup complete.")
+
     def set_up(self, **kwargs):
-        # Synchronous entry point for the Reasoning Engine
-        print(f"Sync set_up called for {self.__class__.__name__}, running async setup...")
+        # This is the synchronous entry point for the Reasoning Engine
+        print(f"Sync set_up called, running async portion...")
         try:
             asyncio.run(self._async_set_up(**kwargs))
-            print(f"Async set_up for {self.__class__.__name__} completed.")
+            print(f"Async set_up completed for {self.__class__.__name__}.")
         except Exception as e:
-            print(f"Error during async set_up for {self.__class__.__name__}: {e}")
+            print(f"Error during async set_up: {e}")
             raise
-
-    async def _async_set_up(self, **kwargs):
-        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability()
         logger.info("PlannerAgent setup complete.")

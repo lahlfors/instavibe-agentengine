@@ -1,0 +1,14 @@
+Flask==3.0.0
+gunicorn
+google-cloud-spanner
+python-dotenv>=1.0.0
+requests>=2.0.0
+python-dateutil
+humanize==4.8.0
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-logging
+opentelemetry-exporter-otlp-proto-grpc
+google-cloud-logging
+google-cloud-storage

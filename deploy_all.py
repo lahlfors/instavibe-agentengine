@@ -302,63 +302,78 @@ def main(args):
             agent_resource_names = {}
             otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
 
-            # Define agent classes to deploy
             agents_to_deploy = [
-                ("agents.planner.agent", "PlannerAgent"),
-                ("agents.social.agent", "SocialLoopAgent"),
-                ("agents.platform_mcp_client.agent", "PlatformMCPClientAgent"),
-                ("agents.orchestrate.orchestrate_service_agent", "OrchestrateServiceAgent"),
+                {
+                    "name": "planner_agent",
+                    "display_name": "Planner Agent",
+                    "module": "agents.planner.agent",
+                    "agent_variable": "PlannerAgent",
+                    "init_args": {},
+                    "requirements_file": "./agents/planner/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+                {
+                    "name": "social_agent",
+                    "display_name": "Social Agent",
+                    "module": "agents.social.agent",
+                    "agent_variable": "SocialLoopAgent",
+                    "init_args": {},
+                    "requirements_file": "./agents/social/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+                {
+                    "name": "platform_mcp_client_agent",
+                    "display_name": "Platform MCP Client Agent",
+                    "module": "agents.platform_mcp_client.agent",
+                    "agent_variable": "PlatformMCPClientAgent",
+                    "init_args": {"mcp_server_address": os.environ.get("MCP_SERVER_URL")},
+                    "requirements_file": "./agents/platform_mcp_client/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
+                {
+                    "name": "orchestrate_agent",
+                    "display_name": "Orchestrate Agent",
+                    "module": "agents.orchestrate.orchestrate_service_agent",
+                    "agent_variable": "OrchestrateServiceAgent",
+                    "init_args": {},
+                    "requirements_file": "./agents/orchestrate/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                },
             ]
 
-            # Filter for orchestrate_agent if requested
             if args.deploy_orchestrate_only:
-                agents_to_deploy = [a for a in agents_to_deploy if a[1] == 'OrchestrateServiceAgent']
-                logging.info("--- Deploying only the OrchestrateServiceAgent as requested. ---")
+                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
+                logging.info("--- Deploying only the orchestrate_agent as requested. ---")
 
-
-            for module_path, agent_class_name in agents_to_deploy:
+            for agent_conf in agents_to_deploy:
+                display_name = agent_conf["display_name"]
+                agent_id = agent_conf["name"]
+                logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
                 try:
-                    # Dynamically import the agent class
-                    module = importlib.import_module(module_path)
-                    agent_class = getattr(module, agent_class_name)
+                    module = importlib.import_module(agent_conf["module"])
+                    agent_class = getattr(module, agent_conf["agent_variable"])
 
                     # Prepare arguments for instantiation
-                    agent_name = agent_class_name.replace("Agent", "").lower() + "_agent"
-                    display_name = " ".join(agent_class_name.replace("Agent", "").split("(?=[A-Z])")) + " Agent"
-
-                    init_args = {
-                        "name": agent_name,
-                        "display_name": display_name,
-                        "otel_collector_endpoint": otel_collector_endpoint,
-                    }
-                    if agent_class_name == "PlatformMCPClientAgent":
-                         init_args["mcp_server_address"] = os.environ.get("MCP_SERVER_URL")
-
-
-                    logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_name}) ---")
+                    final_args = agent_conf.get("init_args", {}).copy()
+                    final_args['name'] = agent_id
+                    final_args['display_name'] = display_name
+                    final_args['otel_collector_endpoint'] = otel_collector_endpoint
 
                     # Instantiate the agent
-                    agent_to_deploy = agent_class(**init_args)
-
-                    # Define paths for requirements and extra packages
-                    agent_dir = os.path.join("agents", agent_name.split('_agent')[0])
-                    requirements_path = os.path.join(agent_dir, "requirements.txt")
-                    extra_packages = ["./agents/app", "./common", f"./{agent_dir}", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"]
-
+                    agent_to_deploy = agent_class(**final_args)
 
                     # Deploy the agent
                     remote_agent = deploy_agent_engine_app(
                         agent_object=agent_to_deploy,
                         project=project_id,
                         location=region,
-                        requirements_path=requirements_path,
-                        extra_packages=extra_packages,
+                        requirements_path=agent_conf["requirements_file"],
+                        extra_packages=agent_conf["extra_packages"],
                     )
-                    agent_resource_names[agent_name] = remote_agent.name
+                    agent_resource_names[agent_id] = remote_agent.name
                     logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")
-
                 except Exception as e:
-                    logging.error(f"--- FAILED to Deploy/Update: {agent_class_name}: {e} ---", exc_info=True)
+                    logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
 
         else:
             logging.info("Skipping all agent deployments.")

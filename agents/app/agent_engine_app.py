@@ -12,7 +12,7 @@ def deploy_agent_engine_app(
     location: str,
     requirements_path: str,
     extra_packages: list[str],
-) -> reasoning_engines.RemoteReasoningEngine:
+) -> reasoning_engines.ReasoningEngine:
     """Deploys or updates a Reasoning Engine application."""
 
     with open(requirements_path, "r") as f:

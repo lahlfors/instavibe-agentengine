@@ -26,6 +26,7 @@ class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, interacting with Memory Bank via REST API and delegating tasks.
     """
+    display_name: Optional[str] = None
     project: Optional[str] = None
     location: Optional[str] = None
     reasoning_engine_id: Optional[str] = None
@@ -33,12 +34,20 @@ class OrchestrateServiceAgent(Agent):
     memory_service: Optional[VertexAiMemoryBankService] = None
     otel_collector_endpoint: Optional[str] = None
 
-    def __init__(self, name: str, instruction: Optional[str] = None, description: Optional[str] = None):
+    def __init__(self, **kwargs):
+        self.display_name = kwargs.pop("display_name", kwargs.get("name"))
+        name = kwargs.pop("name", "default_orchestrate_name")
+        instruction = kwargs.pop("instruction", "I am an orchestrator agent...")
+        description = kwargs.pop("description", self.display_name)
+        model = kwargs.pop("model", "gemini-1.5-flash")
+        self.otel_collector_endpoint = kwargs.pop("otel_collector_endpoint", None)
+
         super().__init__(
             name=name,
-            model="gemini-2.5-flash",
-            instruction=instruction or "I am an orchestrator agent with memory and task delegation capabilities.",
-            description=description or "An agent that can create/search memories and delegate tasks.",
+            model=model,
+            instruction=instruction,
+            description=description,
+            **kwargs  # Pass any remaining kwargs to the base class
         )
 
     def set_up(self, **kwargs):

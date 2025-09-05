@@ -353,21 +353,33 @@ def main(args):
                 agent_id = agent_conf["name"]
                 logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
                 try:
-                    # Dynamically import the agent
                     module_path = agent_conf["module"]
                     agent_var = agent_conf["agent_variable"]
                     module = importlib.import_module(module_path)
                     agent_ref = getattr(module, agent_var)
 
-                    # Construct final arguments for the agent's constructor
-                    final_args = agent_conf.get("init_args", {})
-                    final_args['name'] = agent_conf['name']
-                    final_args['display_name'] = display_name
+                    final_args = agent_conf.get("init_args", {}).copy()
+                    final_args['name'] = agent_id
+                    final_args['display_name'] = display_name # Now safe for all agents
 
-                    if "init_args" in agent_conf:
-                        agent_to_deploy = agent_ref(**final_args)
-                    else:
-                        agent_to_deploy = agent_ref
+                    if otel_collector_endpoint:
+                         # Pass only if the class can handle it. Assuming base classes do not,
+                         # but OrchestrateServiceAgent's **kwargs will catch it.
+                         if agent_var == "OrchestrateServiceAgent":
+                             final_args['otel_collector_endpoint'] = otel_collector_endpoint
+                         elif agent_var in ["PlannerAgent", "SocialLoopAgent", "PlatformMCPClientAgent"]:
+                             # Optional: If you want to set the class attribute *after* init
+                             # pass for init, and set separately.
+                             pass
+
+
+                    agent_to_deploy = agent_ref(**final_args)
+
+                    # If otel_collector_endpoint is a class attribute but not an init arg for some:
+                    if otel_collector_endpoint and hasattr(agent_to_deploy, 'otel_collector_endpoint') and getattr(agent_to_deploy, 'otel_collector_endpoint') is None:
+                         if agent_var != "OrchestrateServiceAgent": # Already handled in init
+                             setattr(agent_to_deploy, 'otel_collector_endpoint', otel_collector_endpoint)
+                             logging.info(f"Set otel_collector_endpoint on {display_name}")
 
                     remote_agent = deploy_agent_engine_app(
                         agent_ref=agent_to_deploy,

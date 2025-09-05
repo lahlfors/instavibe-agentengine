@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from typing import Optional
 
 class PlannerAgent(LlmAgent):
+    display_name: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

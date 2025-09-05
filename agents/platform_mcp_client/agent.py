@@ -29,6 +29,7 @@ def _build_platform_mcp_client_agent(state):
 
 class PlatformMCPClientAgent(Agent):
     """An agent that interacts with the MCP server by dynamically loading tools."""
+    display_name: Optional[str] = None
     mcp_server_address: str
     api_key_secret: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None

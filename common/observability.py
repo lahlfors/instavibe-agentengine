@@ -1,17 +1,4 @@
 # common/observability.py
-import sys
-import os
-import subprocess
-import logging
-import importlib
-
-# --- VERY TOP LEVEL DEBUG ---
-print("--- COMMON OBSERVABILITY TOP LEVEL START ---")
-print(f"Python version: {sys.version}")
-print(f"sys.path: {sys.path}")
-print(f"os.getcwd(): {os.getcwd()}")
-# --- COMMON OBSERVABILITY TOP LEVEL END ---
-
 import os
 import logging
 import threading
@@ -25,18 +12,6 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.semconv.resource import ResourceAttributes
 import google.auth
-
-# ---- CORE IMPORT THAT FAILS ----
-print("--- PRE-IMPORT: from google.cloud import run_v2 ---")
-try:
-    from google.cloud import run_v2
-    print(f"--- POST-IMPORT: from google.cloud import run_v2 --- SUCCESS: {run_v2}")
-except ImportError as e:
-    print(f"--- POST-IMPORT: from google.cloud import run_v2 --- FAILED: {e}")
-except Exception as e:
-    print(f"--- POST-IMPORT: OTHER EXCEPTION for run_v2: {e}")
-# ---- END CORE IMPORT THAT FAILS ----
-
 
 # Corrected imports for logging, using the private _logs module structure
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -53,7 +28,10 @@ def _get_project_id():
         return os.getenv("COMMON_GOOGLE_CLOUD_PROJECT", "unknown")
 
 def get_otel_collector_endpoint(project_id, location, collector_service_name="otel-collector"):
+    """Dynamically discovers the OTel Collector endpoint from a Cloud Run service."""
     try:
+        # Import is deferred to avoid dependency issues in environments that don't need it.
+        from google.cloud import run_v2
         client = run_v2.ServicesClient()
         service_path = client.service_path(project_id, location, collector_service_name)
         response = client.get_service(name=service_path)
@@ -62,11 +40,14 @@ def get_otel_collector_endpoint(project_id, location, collector_service_name="ot
             return response.uri.replace("https://", "") + ":4317"
         log.error(f"Cloud Run service '{collector_service_name}' found, but URI is empty.")
         return None
+    except ImportError:
+        log.error("google.cloud.run_v2 not found, service discovery failed. Please provide OTEL_COLLECTOR_ENDPOINT directly.")
+        return None
     except Exception as e:
         log.error(f"Failed to get URL for Cloud Run service '{collector_service_name}' in {location}: {e}", exc_info=False)
         return None
 
-def setup_observability(service_name_suffix="service", disable_export=False):
+def setup_observability(service_name_suffix="service", disable_export=False, endpoint_override=None):
     """
     Configures OpenTelemetry for traces, metrics, and logs.
 
@@ -75,8 +56,6 @@ def setup_observability(service_name_suffix="service", disable_export=False):
     """
     if disable_export:
         log.info("Telemetry export is disabled for this run.")
-        # Configure basic logging without exporters.
-        # This ensures that logging still works for the script itself.
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         return
 
@@ -84,9 +63,11 @@ def setup_observability(service_name_suffix="service", disable_export=False):
     location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION", "us-central1")
     service_name = os.getenv("OTEL_SERVICE_NAME", f"instavibe-{service_name_suffix}")
 
-    OTEL_COLLECTOR_ENDPOINT = os.getenv("OTEL_COLLECTOR_ENDPOINT")
+    # Prioritize endpoint_override, then environment variable, then discovery.
+    OTEL_COLLECTOR_ENDPOINT = endpoint_override or os.getenv("OTEL_COLLECTOR_ENDPOINT")
+
     if not OTEL_COLLECTOR_ENDPOINT:
-        log.info("OTEL_COLLECTOR_ENDPOINT not set, attempting to discover from Cloud Run...")
+        log.info("OTEL_COLLECTOR_ENDPOINT not set and no override provided, attempting to discover from Cloud Run...")
         OTEL_COLLECTOR_ENDPOINT = get_otel_collector_endpoint(project_id, location)
 
     if not OTEL_COLLECTOR_ENDPOINT:

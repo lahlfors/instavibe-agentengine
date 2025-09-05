@@ -68,7 +68,7 @@ class PlatformMCPClientAgent(Agent):
         print(f"Async set_up for {self.__class__.__name__}")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         from common.observability import setup_observability
-        setup_observability()
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
         if self._mcp_tools:
             log.info("MCP Tools already loaded.")
             return

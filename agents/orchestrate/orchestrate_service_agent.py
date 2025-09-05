@@ -35,27 +35,12 @@ class OrchestrateServiceAgent(Agent):
     otel_collector_endpoint: Optional[str] = None
 
     def __init__(self, **kwargs):
-        name = kwargs.get("name", "default_orchestrate_name")
-        display_name = kwargs.get("display_name", name)
-        instruction = kwargs.get("instruction", "I am an orchestrator agent...")
-        description = kwargs.get("description", display_name)
-        model = kwargs.get("model", "gemini-1.5-flash")
-        otel_collector_endpoint = kwargs.get("otel_collector_endpoint")
+        # Set default values for instruction and description if not provided
+        kwargs.setdefault("instruction", "I am an orchestrator agent...")
+        if "display_name" in kwargs and "description" not in kwargs:
+            kwargs["description"] = kwargs["display_name"]
 
-        # Prepare args for super().__init__
-        super_args = {
-            "name": name,
-            "display_name": display_name,
-            "model": model,
-            "instruction": instruction,
-            "description": description,
-            "otel_collector_endpoint": otel_collector_endpoint,
-        }
-        # Add any other kwargs that the base class might expect
-        super_args.update(kwargs)
-
-        # Call super().__init__ FIRST
-        super().__init__(**super_args)
+        super().__init__(**kwargs)
 
         # Initialize other attributes specific to OrchestrateServiceAgent *after* super call
         self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
@@ -63,22 +48,17 @@ class OrchestrateServiceAgent(Agent):
         self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
         self.memory_service = None # Initialize later in set_up
         self.orchestrator_agent = None # Initialize later in set_up
-        if self.otel_collector_endpoint is None: # Set if not provided in kwargs
-             self.otel_collector_endpoint = otel_collector_endpoint
 
     async def _async_set_up(self, **kwargs):
-        # All your original async logic can go here
         print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability()
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
+
         if self.orchestrator_agent:
+            logging.info("Orchestrator sub-agent already initialized.")
             return
 
         logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
-        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
-
         if not self.project or not self.location:
             raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
         if not self.reasoning_engine_id:
@@ -94,19 +74,16 @@ class OrchestrateServiceAgent(Agent):
 
         thinking_config = ThinkingConfig(
             include_thoughts=True,
-            thinking_budget=-1,  # Use dynamic thinking
+            thinking_budget=-1,
         )
         planner = BuiltInPlanner(thinking_config=thinking_config)
         all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
 
         self.orchestrator_agent = Agent(
-            model="gemini-2.5-flash",
-            name="orchestrate_agent",
+            model=self.model, # Use the model from the parent agent
+            name="orchestrate_sub_agent", # Differentiate from the service agent name
             instruction=self.root_instruction,
-            description=(
-                "This agent orchestrates the decomposition of the user request into"
-                " tasks that can be performed by the child agents."
-            ),
+            description="This agent orchestrates the decomposition of the user request.",
             tools=all_tools,
             planner=planner,
             memory=self.memory_service,
@@ -115,57 +92,14 @@ class OrchestrateServiceAgent(Agent):
 
     def set_up(self, **kwargs):
         # This is the synchronous entry point for the Reasoning Engine
-        print(f"Sync set_up called, running async portion...")
+        print(f"--- Sync set_up called for {self.__class__.__name__}, running async portion... ---")
         try:
             asyncio.run(self._async_set_up(**kwargs))
-            print(f"Async set_up completed for {self.__class__.__name__}.")
+            print(f"--- _async_set_up completed for {self.__class__.__name__} ---")
         except Exception as e:
-            print(f"Error during async set_up: {e}")
+            print(f"--- Error during async set_up for {self.__class__.__name__}: {e} ---")
             raise
-        os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability()
-        if self.orchestrator_agent:
-            return
-
-        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
-        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
-
-        if not self.project or not self.location:
-            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
-        if not self.reasoning_engine_id:
-            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
-            raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
-
-        self.memory_service = VertexAiMemoryBankService(
-            project=self.project,
-            location=self.location,
-            agent_engine_id=self.reasoning_engine_id,
-        )
-        logging.info("VertexAiMemoryBankService initialized.")
-
-        thinking_config = ThinkingConfig(
-            include_thoughts=True,
-            thinking_budget=-1,  # Use dynamic thinking
-        )
-        planner = BuiltInPlanner(thinking_config=thinking_config)
-        all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
-
-        self.orchestrator_agent = Agent(
-            model="gemini-2.5-flash",
-            name="orchestrate_agent",
-            instruction=self.root_instruction,
-            description=(
-                "This agent orchestrates the decomposition of the user request into"
-                " tasks that can be performed by the child agents."
-            ),
-            tools=all_tools,
-            planner=planner,
-            memory=self.memory_service,
-        )
-        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
-        print("--- _async_setup_logic complete ---")
+        return self
 
 
     def root_instruction(self, context: ReadonlyContext) -> str:

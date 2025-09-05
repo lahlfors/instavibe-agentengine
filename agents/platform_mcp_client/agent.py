@@ -116,47 +116,6 @@ class PlatformMCPClientAgent(Agent):
         except Exception as e:
             print(f"Error during async set_up: {e}")
             raise
-        os.environ["OTEL_SERVICE_NAME"] = self.name
-        from common.observability import setup_observability
-        setup_observability()
-        if self._mcp_tools:
-            log.info("MCP Tools already loaded.")
-            return
-
-        with tracer.start_as_current_span("PlatformMCPClientAgent.set_up") as main_span:
-            log.info(f"Starting set_up - Fetching tools from MCP server at {self.mcp_server_address}")
-            main_span.add_event("Fetching MCP tools")
-            try:
-                api_key = None
-                if self.api_key_secret:
-                    api_key = self._get_api_key(self.api_key_secret)
-
-                headers = {"Accept": "application/json"}
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
-
-                conn_params = StreamableHTTPConnectionParams(
-                    url=self.mcp_server_address,
-                    headers=headers,
-                )
-                log.info(f"Connecting to MCP server with params: {conn_params}")
-
-                toolset = await mcp_toolset.MCPToolset.from_server(conn_params)
-                self._mcp_tools = list(toolset)
-
-                tool_names = [t.name for t in self._mcp_tools]
-                log.info(f"Successfully loaded {len(self._mcp_tools)} tools from MCP server: {tool_names}")
-                main_span.set_attribute("mcp.tool_count", len(self._mcp_tools))
-                main_span.set_attribute("mcp.tool_names", ",".join(tool_names))
-                main_span.set_status(Status(StatusCode.OK))
-
-            except Exception as e:
-                log.error(f"Error fetching tools from MCP server in set_up: {e}", exc_info=True)
-                main_span.record_exception(e)
-                main_span.set_status(Status(StatusCode.ERROR, str(e)))
-                self._mcp_tools = []
-                log.warning("MCP Tools initialization failed, agent will have no tools from this source.")
-        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
 
     @property
     def tools(self) -> List[Any]:

@@ -6,8 +6,7 @@ from vertexai.preview import reasoning_engines
 logger = logging.getLogger(__name__)
 
 def deploy_agent_engine_app(
-    agent_ref,
-    agent_id: str,
+    agent_object,
     project: str,
     location: str,
     requirements_path: str,
@@ -18,28 +17,33 @@ def deploy_agent_engine_app(
     with open(requirements_path, "r") as f:
         requirements = [line.strip() for line in f if line.strip()]
 
+    # Use the 'name' attribute from the agent object for the ID.
+    agent_id = agent_object.name
+    display_name = agent_object.display_name
+
     # Prepare arguments for create/update
     eng_kwargs = {
-        "reasoning_engine": agent_ref,
+        "reasoning_engine": agent_object,
         "requirements": requirements,
         "extra_packages": extra_packages,
+        "display_name": display_name,
+        "sys_version": "3.11", # Pin Python version for compatibility
     }
 
-    # Set Python version for all agents for consistency and compatibility.
-    logger.info(f"Setting sys_version='3.11' for agent '{agent_id}'.")
-    eng_kwargs["sys_version"] = "3.11"
-
     try:
+        # Check if the engine exists using its resource name.
+        # The ReasoningEngine constructor can take the agent_id (which is its name)
         remote_agent = reasoning_engines.ReasoningEngine(agent_id)
         logger.info(f"Found existing Reasoning Engine: {remote_agent.resource_name}. Attempting to update.")
 
-        eng_kwargs['display_name'] = agent_ref.display_name
+        # Update the existing engine
         remote_agent.update(**eng_kwargs)
-        logger.info(f"Engine '{remote_agent.display_name}' update operation finished.")
+        logger.info(f"Engine '{display_name}' update operation finished.")
 
     except exceptions.NotFound:
-        logger.info(f"Creating new Reasoning Engine with display name: '{agent_ref.display_name}'")
-        eng_kwargs['display_name'] = agent_ref.display_name
+        logger.info(f"Creating new Reasoning Engine with name: '{agent_id}' and display name: '{display_name}'")
+
+        # Create a new engine
         remote_agent = reasoning_engines.ReasoningEngine.create(**eng_kwargs)
 
     return remote_agent

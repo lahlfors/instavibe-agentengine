@@ -64,11 +64,12 @@ class PlatformMCPClientAgent(Agent):
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
     async def _async_set_up(self, **kwargs):
-        # All your original asynchronous setup logic goes here
-        print(f"Async set_up for {self.__class__.__name__}")
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         from common.observability import setup_observability
         setup_observability(endpoint_override=self.otel_collector_endpoint)
+        logger.info(f"{self.__class__.__name__} async setup complete.")
+
         if self._mcp_tools:
             log.info("MCP Tools already loaded.")
             return
@@ -108,14 +109,14 @@ class PlatformMCPClientAgent(Agent):
                 log.warning("MCP Tools initialization failed, agent will have no tools from this source.")
 
     def set_up(self, **kwargs):
-        # This is the synchronous entry point for the Reasoning Engine
-        print(f"Sync set_up called, running async portion...")
+        logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
         try:
             asyncio.run(self._async_set_up(**kwargs))
-            print(f"Async set_up completed for {self.__class__.__name__}.")
+            logger.info(f"Async set_up completed for {self.__class__.__name__}.")
         except Exception as e:
-            print(f"Error during async set_up: {e}")
+            logger.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
             raise
+        return self
 
     @property
     def tools(self) -> List[Any]:

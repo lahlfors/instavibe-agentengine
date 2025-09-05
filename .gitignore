@@ -14,6 +14,5 @@ venv_312/
 # Environment variables / Secrets
 /.env
 
-# Ignore Python version file managed by pyenv
-.python-version
-.venv/
+# Application-specific .env files
+my-app-env

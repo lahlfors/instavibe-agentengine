@@ -20,17 +20,18 @@ def deploy_agent_engine_app(
     agent_id = agent_object.name
     display_name = agent_object.display_name
 
-    # --- DIAGNOSTIC LOGGING ---
-    logger.info(f"--- DIAGNOSING RESOURCE NAME ---")
-    logger.info(f"Project: {repr(project)}")
-    logger.info(f"Location: {repr(location)}")
-    logger.info(f"Agent ID: {repr(agent_id)}")
-    # --- END DIAGNOSTIC LOGGING ---
+    agent_id = agent_object.name
+    display_name = agent_object.display_name
 
-    # Construct the full resource name for lookup
+    logger.info(f"--- DIAGNOSTICS for {agent_id} ---")
+    logger.info(f"Project: '{project}' (Type: {type(project)})")
+    logger.info(f"Location: '{location}' (Type: {type(location)})")
+    logger.info(f"Agent ID: '{agent_id}' (Type: {type(agent_id)})")
+
     full_resource_name = f"projects/{project}/locations/{location}/reasoningEngines/{agent_id}"
-    logger.info(f"Constructed Full Resource Name: {full_resource_name}")
+    logger.info(f"Constructed full_resource_name: '{full_resource_name}'")
 
+    # ... eng_kwargs setup ...
     eng_kwargs = {
         "reasoning_engine": agent_object,
         "requirements": requirements,
@@ -38,18 +39,21 @@ def deploy_agent_engine_app(
         "display_name": display_name,
         "sys_version": "3.11",
     }
-
     try:
-        # Use the full resource name to GET the engine
         remote_agent = reasoning_engines.ReasoningEngine(full_resource_name)
+        # ... update ...
         logger.info(f"Found existing Reasoning Engine: {remote_agent.resource_name}. Attempting to update.")
         remote_agent.update(**eng_kwargs)
         logger.info(f"Engine '{display_name}' update operation finished.")
-
     except exceptions.NotFound:
+        # ... create ...
         logger.info(f"Creating new Reasoning Engine '{agent_id}' with display name: '{display_name}'")
         remote_agent = reasoning_engines.ReasoningEngine.create(**eng_kwargs)
         logger.info(f"Engine '{display_name}' create operation finished.")
+    except exceptions.InvalidArgument as e:
+         logger.error(f"Error (InvalidArgument) during ReasoningEngine operation for {agent_id}: {e}", exc_info=True)
+         # Re-raise to stop this agent's deployment
+         raise
     except Exception as e:
          logger.error(f"Error during ReasoningEngine operation for {agent_id}: {e}", exc_info=True)
          raise

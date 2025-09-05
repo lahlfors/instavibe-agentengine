@@ -31,25 +31,25 @@ log = logging.getLogger(__name__)
 class SocialLlmAgent(LlmAgent):
     display_name: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
-    def set_up(self, **kwargs):
-        # Synchronous entry point for the Reasoning Engine
-        print(f"--- Sync set_up called for {self.__class__.__name__}, running async portion... ---")
-        try:
-            asyncio.run(self._async_set_up(**kwargs))
-            print(f"--- _async_set_up completed for {self.__class__.__name__} ---")
-        except Exception as e:
-            print(f"--- Error during async set_up for {self.__class__.__name__}: {e} ---")
-            raise
-        return self
+        # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
     async def _async_set_up(self, **kwargs):
-        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
+        log.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
-        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
+        log.info(f"{self.__class__.__name__} async setup complete.")
+
+    def set_up(self, **kwargs):
+        log.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            log.info(f"Async set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            log.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
         return self
 
     def query(self, **kwargs):
@@ -73,32 +73,26 @@ class SocialLoopAgent(LoopAgent):
     otel_collector_endpoint: Optional[str] = None
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Manually set the endpoint for sub-agents
-        for agent in self.sub_agents:
-            if hasattr(agent, 'otel_collector_endpoint'):
-                agent.otel_collector_endpoint = kwargs.get('otel_collector_endpoint')
+        # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
     async def _async_set_up(self, **kwargs):
-        print(f"--- Running _async_set_up for {self.__class__.__name__} ---")
+        log.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
+        log.info(f"{self.__class__.__name__} async setup complete.")
+
+    def set_up(self, **kwargs):
+        log.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            log.info(f"Async set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            log.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
 
         for agent in self.sub_agents:
             if hasattr(agent, "set_up"):
                 agent.set_up()
-
-        print(f"--- _async_setup_logic complete for {self.__class__.__name__} ---")
-        return self
-
-    def set_up(self, **kwargs):
-        # This is the synchronous entry point for the Reasoning Engine
-        print(f"--- Sync set_up called for {self.__class__.__name__}, running async portion... ---")
-        try:
-            asyncio.run(self._async_set_up(**kwargs))
-            print(f"--- _async_set_up completed for {self.__class__.__name__} ---")
-        except Exception as e:
-            print(f"--- Error during async set_up for {self.__class__.__name__}: {e} ---")
-            raise
         return self
 
     def query(self, **kwargs):

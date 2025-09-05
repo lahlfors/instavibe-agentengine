@@ -20,8 +20,16 @@ def deploy_agent_engine_app(
     agent_id = agent_object.name
     display_name = agent_object.display_name
 
+    # --- DIAGNOSTIC LOGGING ---
+    logger.info(f"--- DIAGNOSING RESOURCE NAME ---")
+    logger.info(f"Project: {repr(project)}")
+    logger.info(f"Location: {repr(location)}")
+    logger.info(f"Agent ID: {repr(agent_id)}")
+    # --- END DIAGNOSTIC LOGGING ---
+
     # Construct the full resource name for lookup
     full_resource_name = f"projects/{project}/locations/{location}/reasoningEngines/{agent_id}"
+    logger.info(f"Constructed Full Resource Name: {full_resource_name}")
 
     eng_kwargs = {
         "reasoning_engine": agent_object,

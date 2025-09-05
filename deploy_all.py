@@ -304,7 +304,7 @@ def main(args):
 
             agents_to_deploy = [
                 {
-                    "name": "planner_agent",
+                    "name": "planner-agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
@@ -313,7 +313,7 @@ def main(args):
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "social_agent",
+                    "name": "social-agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLoopAgent",
@@ -322,7 +322,7 @@ def main(args):
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "platform_mcp_client_agent",
+                    "name": "platform-mcp-client-agent",
                     "display_name": "Platform MCP Client Agent",
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
@@ -331,7 +331,7 @@ def main(args):
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "orchestrate_agent",
+                    "name": "orchestrate-agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "OrchestrateServiceAgent",
@@ -342,7 +342,7 @@ def main(args):
             ]
 
             if args.deploy_orchestrate_only:
-                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
+                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate-agent']
                 logging.info("--- Deploying only the orchestrate_agent as requested. ---")
 
             for agent_conf in agents_to_deploy:
@@ -362,12 +362,17 @@ def main(args):
                     # Instantiate the agent
                     agent_to_deploy = agent_class(**final_args)
 
+                    # --- DIAGNOSTIC LOGGING ---
+                    requirements_path = agent_conf["requirements_file"]
+                    logger.info(f"Attempting to use requirements file at (absolute path): {os.path.abspath(requirements_path)}")
+                    # --- END DIAGNOSTIC LOGGING ---
+
                     # Deploy the agent
                     remote_agent = deploy_agent_engine_app(
                         agent_object=agent_to_deploy,
                         project=project_id,
                         location=region,
-                        requirements_path=agent_conf["requirements_file"],
+                        requirements_path=requirements_path,
                         extra_packages=agent_conf["extra_packages"],
                     )
                     agent_resource_names[agent_id] = remote_agent.name

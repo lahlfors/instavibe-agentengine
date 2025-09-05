@@ -16,3 +16,4 @@ venv_312/
 
 # Ignore Python version file managed by pyenv
 .python-version
+.venv/

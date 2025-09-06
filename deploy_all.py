@@ -305,7 +305,6 @@ def main(args):
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
-                    "gcp_id": "planner-agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
@@ -315,7 +314,6 @@ def main(args):
                 },
                 {
                     "name": "social_agent",
-                    "gcp_id": "social-agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLoopAgent",
@@ -325,7 +323,6 @@ def main(args):
                 },
                 {
                     "name": "platform_mcp_client_agent",
-                    "gcp_id": "platform-mcp-client-agent",
                     "display_name": "Platform MCP Client Agent",
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
@@ -335,7 +332,6 @@ def main(args):
                 },
                 {
                     "name": "orchestrate_agent",
-                    "gcp_id": "orchestrate-agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "OrchestrateServiceAgent",
@@ -351,9 +347,8 @@ def main(args):
 
             for agent_conf in agents_to_deploy:
                 adk_agent_name = agent_conf["name"]
-                gcp_agent_id = agent_conf["gcp_id"]
                 display_name = agent_conf["display_name"]
-                logging.info(f"--- Deploying/Updating Agent: {display_name} (ADK Name: {adk_agent_name}, GCP ID: {gcp_agent_id}) ---")
+                logging.info(f"--- Deploying/Updating Agent: {display_name} (ADK Name: {adk_agent_name}) ---")
                 try:
                     module_path = agent_conf["module"]
                     agent_var = agent_conf["agent_variable"]
@@ -370,14 +365,12 @@ def main(args):
 
                     remote_agent = deploy_adk_agent_engine(
                         agent_object=agent_to_deploy,
-                        gcp_agent_id=gcp_agent_id,
                         project=project_id,
                         location=region,
                         requirements_path=agent_conf["requirements_file"],
                         extra_packages=agent_conf["extra_packages"],
-                        display_name=display_name,
                     )
-                    agent_resource_names[gcp_agent_id] = remote_agent.resource_name
+                    agent_resource_names[agent_conf["name"]] = remote_agent.resource_name
                     logging.info(f"--- Successfully Deployed/Updated: {display_name} to {remote_agent.resource_name} ---")
                 except Exception as e:
                     logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
@@ -393,9 +386,9 @@ def main(args):
                 "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
                 "ENABLE_TRACING": str(not args.deploy_orchestrate_only),
             }
-            if agent_resource_names.get('orchestrate-agent'):
+            if agent_resource_names.get('orchestrate_agent'):
                  # Use the full resource name for direct prediction calls
-                app_env_vars["ORCHESTRATE_AGENT_URL"] = agent_resource_names['orchestrate-agent']
+                app_env_vars["ORCHESTRATE_AGENT_URL"] = agent_resource_names['orchestrate_agent']
             else:
                 logging.warning("Orchestrate agent resource name not found. InstaVibe app may not function correctly.")
 

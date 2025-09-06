@@ -10,7 +10,7 @@ PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from agents.app.agent_engine_app import deploy_agent_engine_app
+from agents.app.agent_engine_adk_app import deploy_adk_agent_engine
 from common.observability import setup_observability
 from google.cloud import aiplatform as vertexai
 from typing import Dict, List, Optional
@@ -299,24 +299,23 @@ def main(args):
             else:
                 logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
 
-        enable_tracing = not args.deploy_orchestrate_only
-
+        agent_resource_names = {}
         if not args.skip_agents:
-            agent_resource_names = {}
             otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
-
             agents_to_deploy = [
                 {
-                    "name": "planner_agent",  # <<-- Use underscores
+                    "name": "planner_agent",
+                    "gcp_id": "planner-agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
-                    "init_args": {}, # Add otel endpoint in the loop
+                    "init_args": {},
                     "requirements_file": "./agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "social_agent",  # <<-- Use underscores
+                    "name": "social_agent",
+                    "gcp_id": "social-agent",
                     "display_name": "Social Agent",
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLoopAgent",
@@ -325,18 +324,18 @@ def main(args):
                     "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "platform_mcp_client_agent",  # <<-- Use underscores
+                    "name": "platform_mcp_client_agent",
+                    "gcp_id": "platform-mcp-client-agent",
                     "display_name": "Platform MCP Client Agent",
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
-                    "init_args": {
-                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
-                    },
+                    "init_args": { "mcp_server_address": os.environ.get("MCP_SERVER_URL") },
                     "requirements_file": "./agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
                 },
                 {
-                    "name": "orchestrate_agent",  # <<-- Use underscores
+                    "name": "orchestrate_agent",
+                    "gcp_id": "orchestrate-agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "OrchestrateServiceAgent",
@@ -347,46 +346,43 @@ def main(args):
             ]
 
             if args.deploy_orchestrate_only:
-                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate-agent']
-                logging.info("--- Deploying only the orchestrate_agent as requested. ---")
+                logging.info("--- Deploying only the Orchestrate Agent ---")
+                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
 
             for agent_conf in agents_to_deploy:
+                adk_agent_name = agent_conf["name"]
+                gcp_agent_id = agent_conf["gcp_id"]
                 display_name = agent_conf["display_name"]
-                agent_id = agent_conf["name"]
-                logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
+                logging.info(f"--- Deploying/Updating Agent: {display_name} (ADK Name: {adk_agent_name}, GCP ID: {gcp_agent_id}) ---")
                 try:
-                    module = importlib.import_module(agent_conf["module"])
-                    agent_class = getattr(module, agent_conf["agent_variable"])
+                    module_path = agent_conf["module"]
+                    agent_var = agent_conf["agent_variable"]
+                    module = importlib.import_module(module_path)
+                    agent_class = getattr(module, agent_var)
 
-                    # Prepare arguments for instantiation
                     final_args = agent_conf.get("init_args", {}).copy()
-                    final_args['name'] = agent_id
+                    final_args['name'] = adk_agent_name
                     final_args['display_name'] = display_name
-                    final_args['otel_collector_endpoint'] = otel_collector_endpoint
+                    if otel_collector_endpoint:
+                        final_args['otel_collector_endpoint'] = otel_collector_endpoint
 
-                    # Instantiate the agent
                     agent_to_deploy = agent_class(**final_args)
 
-                    # --- DIAGNOSTIC LOGGING ---
-                    requirements_path = agent_conf["requirements_file"]
-                    logger.info(f"Attempting to use requirements file at (absolute path): {os.path.abspath(requirements_path)}")
-                    # --- END DIAGNOSTIC LOGGING ---
-
-                    # Deploy the agent
-                    remote_agent = deploy_agent_engine_app(
+                    remote_agent = deploy_adk_agent_engine(
                         agent_object=agent_to_deploy,
+                        gcp_agent_id=gcp_agent_id,
                         project=project_id,
                         location=region,
-                        requirements_path=requirements_path,
+                        requirements_path=agent_conf["requirements_file"],
                         extra_packages=agent_conf["extra_packages"],
+                        display_name=display_name,
                     )
-                    agent_resource_names[agent_id] = remote_agent.name
-                    logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")
+                    agent_resource_names[gcp_agent_id] = remote_agent.resource_name
+                    logging.info(f"--- Successfully Deployed/Updated: {display_name} to {remote_agent.resource_name} ---")
                 except Exception as e:
                     logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
-
         else:
-            logging.info("Skipping all agent deployments.")
+            logging.info("--- Skipping all agent deployments. ---")
 
         if not args.skip_app:
             app_env_vars = {
@@ -394,19 +390,26 @@ def main(args):
                 "COMMON_GOOGLE_CLOUD_LOCATION": region,
                 "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
                 "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
-                "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate_agent')}:predict" if agent_resource_names.get('orchestrate_agent') else "",
-                "SERVICE_NAME": "instavibe-app",
                 "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
+                "ENABLE_TRACING": str(not args.deploy_orchestrate_only),
             }
+            if agent_resource_names.get('orchestrate-agent'):
+                 # Use the full resource name for direct prediction calls
+                app_env_vars["ORCHESTRATE_AGENT_URL"] = agent_resource_names['orchestrate-agent']
+            else:
+                logging.warning("Orchestrate agent resource name not found. InstaVibe app may not function correctly.")
+
             build_and_deploy_cloud_run_service(
                 project_id,
                 region,
                 "instavibe-app",
                 "./instavibe",
-                env_vars={k:v for k,v in app_env_vars.items() if v},
-                allow_unauthenticated=True, # Public-facing web app
+                env_vars=app_env_vars,
+                allow_unauthenticated=True,
                 service_account=config.get("service_account"),
             )
+        else:
+            logging.info("Skipping InstaVibe App deployment.")
 
         logging.info("--- Deployment script finished successfully! ---")
 

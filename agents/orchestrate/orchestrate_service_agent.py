@@ -36,35 +36,13 @@ class OrchestrateServiceAgent(Agent):
     otel_collector_endpoint: Optional[str] = None
 
     def __init__(self, **kwargs):
-        name = kwargs.get("name", "default_orchestrate_name")
-        display_name = kwargs.get("display_name", name)
-        instruction = kwargs.get("instruction", "I am an orchestrator agent...")
-        description = kwargs.get("description", display_name)
-        model = kwargs.get("model", "gemini-1.5-flash")
-        otel_collector_endpoint = kwargs.get("otel_collector_endpoint")
-
-        super_args = {
-            "name": name,
-            "display_name": display_name,
-            "model": model,
-            "instruction": instruction,
-            "description": description,
-            "otel_collector_endpoint": otel_collector_endpoint,
-        }
-        # Include any other keys from kwargs to pass to the base Agent
-        for key in kwargs:
-            if key not in super_args:
-                super_args[key] = kwargs[key]
-
-        super().__init__(**super_args)
-
+        super().__init__(**kwargs)
         # Initialize instance-specific attributes *after* super call
         self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
         self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
         self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
-        self.memory_service = None # Initialize later in set_up
-        self.orchestrator_agent = None # Initialize later in set_up
-
+        self.memory_service = None  # Initialize later in set_up
+        self.orchestrator_agent = None  # Initialize later in set_up
 
     async def _async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
@@ -100,7 +78,7 @@ class OrchestrateServiceAgent(Agent):
         all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
 
         self.orchestrator_agent = Agent(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             name="orchestrate_agent",
             instruction=self.root_instruction,
             description=(
@@ -113,10 +91,11 @@ class OrchestrateServiceAgent(Agent):
         )
         logger.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
-    async def set_up(self, **kwargs): # <--- Change to async def
-        logger.info(f"Async set_up called for {self.__class__.__name__}")
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            await self._async_set_up(**kwargs) # <--- Directly await
+            asyncio.run(self._async_set_up(**kwargs))
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

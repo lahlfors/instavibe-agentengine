@@ -107,10 +107,11 @@ class PlatformMCPClientAgent(Agent):
                 self._mcp_tools = []
                 logger.warning("MCP Tools initialization failed, agent will have no tools from this source.")
 
-    async def set_up(self, **kwargs): # <--- Change to async def
-        logger.info(f"Async set_up called for {self.__class__.__name__}")
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            await self._async_set_up(**kwargs) # <--- Directly await
+            asyncio.run(self._async_set_up(**kwargs))
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

@@ -24,6 +24,36 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 app.secret_key = os.environ.get("INSTAVIBE_FLASK_SECRET_KEY", "a_default_secret_key_for_dev")
 app.register_blueprint(ally_bp)
 
+from vertexai import agent_engines
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+LOCATION = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+def _get_agent_client(gcp_agent_id):
+    if not PROJECT or not LOCATION: return None
+    try:
+        resource_name = f"projects/{PROJECT}/locations/{LOCATION}/reasoningEngines/{gcp_agent_id}"
+        return agent_engines.get(resource_name)
+    except Exception as e:
+        logger.error(f"Failed to get agent client for {gcp_agent_id}: {e}", exc_info=True)
+        return None
+
+def get_planner_agent():
+    return _get_agent_client("planner-agent")
+
+def get_orchestrator_agent():
+    return _get_agent_client("orchestrate-agent")
+
+def get_social_agent():
+    return _get_agent_client("social-agent")
+
+def get_platform_mcp_client_agent():
+    return _get_agent_client("platform-mcp-client-agent")
+
+
 # --- Spanner Configuration ---
 INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
 if not INSTANCE_ID:

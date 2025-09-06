@@ -42,10 +42,11 @@ class SocialLlmAgent(LlmAgent):
         setup_observability(endpoint_override=self.otel_collector_endpoint)
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
-    async def set_up(self, **kwargs): # <--- Change to async def
-        logger.info(f"Async set_up called for {self.__class__.__name__}")
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            await self._async_set_up(**kwargs) # <--- Directly await
+            asyncio.run(self._async_set_up(**kwargs))
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
@@ -71,6 +72,7 @@ class SocialLlmAgent(LlmAgent):
 class SocialLoopAgent(LoopAgent):
     display_name: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # otel_collector_endpoint is set by Pydantic if passed in kwargs
@@ -81,10 +83,11 @@ class SocialLoopAgent(LoopAgent):
         setup_observability(endpoint_override=self.otel_collector_endpoint)
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
-    async def set_up(self, **kwargs): # <--- Change to async def
-        logger.info(f"Async set_up called for {self.__class__.__name__}")
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            await self._async_set_up(**kwargs) # <--- Directly await
+            asyncio.run(self._async_set_up(**kwargs))
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

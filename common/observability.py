@@ -48,15 +48,26 @@ def setup_observability(service_name_suffix="service", disable_export=False, end
              logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         return
 
+    project_id = _get_project_id()
+    location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION", "us-central1")
+
+    # --- DEFINE service_name HERE ---
+    service_name = os.getenv("OTEL_SERVICE_NAME", f"instavibe-{service_name_suffix}")
+    if "mcp-tool-server" in service_name_suffix: # Example for mcp-tool-server
+         service_name = "mcp-tool-server"
+    elif "planner" in service_name_suffix:
+         service_name = "planner-agent"
+    # ... Add other agent specific names if needed
+
     OTEL_COLLECTOR_ENDPOINT = endpoint_override or os.getenv("OTEL_COLLECTOR_ENDPOINT")
 
     if not OTEL_COLLECTOR_ENDPOINT:
-        log.error("OTEL_COLLECTOR_ENDPOINT must be provided via endpoint_override or environment variable.")
-        # Fail loudly to make the requirement clear:
-        raise ValueError("OTEL_COLLECTOR_ENDPOINT is not set, cannot configure OpenTelemetry exporters.")
+        log.error("Failed to determine OTEL_COLLECTOR_ENDPOINT. OTEL Exporters will not be configured.")
+        return
 
-    log.info(f"Configuring OpenTelemetry with collector endpoint: {OTEL_COLLECTOR_ENDPOINT}")
+    log.info(f"Configuring OpenTelemetry with collector endpoint: {OTEL_COLLECTOR_ENDPOINT} for service: {service_name}")
 
+    # --- USE service_name HERE ---
     resource = Resource.create({
         ResourceAttributes.SERVICE_NAME: service_name,
         ResourceAttributes.CLOUD_REGION: location,

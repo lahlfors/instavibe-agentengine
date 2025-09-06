@@ -26,7 +26,7 @@ from typing import Optional
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 class SocialLlmAgent(LlmAgent):
     display_name: Optional[str] = None
@@ -37,18 +37,18 @@ class SocialLlmAgent(LlmAgent):
         # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
     async def _async_set_up(self, **kwargs):
-        log.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
-        log.info(f"{self.__class__.__name__} async setup complete.")
+        logger.info(f"{self.__class__.__name__} async setup complete.")
 
     def set_up(self, **kwargs):
-        log.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
         try:
             asyncio.run(self._async_set_up(**kwargs))
-            log.info(f"Async set_up completed for {self.__class__.__name__}.")
+            logger.info(f"Async set_up completed for {self.__class__.__name__}.")
         except Exception as e:
-            log.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            logger.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
             raise
         return self
 
@@ -76,18 +76,18 @@ class SocialLoopAgent(LoopAgent):
         # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
     async def _async_set_up(self, **kwargs):
-        log.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
-        log.info(f"{self.__class__.__name__} async setup complete.")
+        logger.info(f"{self.__class__.__name__} async setup complete.")
 
     def set_up(self, **kwargs):
-        log.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
         try:
             asyncio.run(self._async_set_up(**kwargs))
-            log.info(f"Async set_up completed for {self.__class__.__name__}.")
+            logger.info(f"Async set_up completed for {self.__class__.__name__}.")
         except Exception as e:
-            log.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            logger.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
             raise
 
         for agent in self.sub_agents:
@@ -102,7 +102,7 @@ class SocialLoopAgent(LoopAgent):
 def create_agent():
     class CheckCondition(BaseAgent):
         async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-            log.info(f"Summary: {ctx.session.state.get('summary')}")
+            logger.info(f"Summary: {ctx.session.state.get('summary')}")
             status = ctx.session.state.get("summary_status", "fail").strip()
             is_done = (status == "completed")
             yield Event(author=self.name, actions=EventActions(escalate=is_done))

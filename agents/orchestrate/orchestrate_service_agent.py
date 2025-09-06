@@ -20,6 +20,7 @@ from google.adk.tools import preload_memory_tool
 from common.observability import setup_observability
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 class OrchestrateServiceAgent(Agent):
@@ -73,7 +74,7 @@ class OrchestrateServiceAgent(Agent):
         if self.orchestrator_agent:
             return
 
-        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
+        logger.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
         self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
         self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
         self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
@@ -81,7 +82,7 @@ class OrchestrateServiceAgent(Agent):
         if not self.project or not self.location:
             raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
         if not self.reasoning_engine_id:
-            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
+            logger.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
             raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
 
         self.memory_service = VertexAiMemoryBankService(
@@ -89,7 +90,7 @@ class OrchestrateServiceAgent(Agent):
             location=self.location,
             agent_engine_id=self.reasoning_engine_id,
         )
-        logging.info("VertexAiMemoryBankService initialized.")
+        logger.info("VertexAiMemoryBankService initialized.")
 
         thinking_config = ThinkingConfig(
             include_thoughts=True,
@@ -201,7 +202,7 @@ class OrchestrateServiceAgent(Agent):
                 prompt_tokens = model.count_tokens([input_text]).total_tokens
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, prompt_tokens)
             except Exception as e:
-                logging.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
+                logger.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, len(input_text) // 4)
 
             # Add PROMPT CONTENT as an EVENT
@@ -211,7 +212,7 @@ class OrchestrateServiceAgent(Agent):
             )
 
             if not self.orchestrator_agent:
-                logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+                logger.error("OrchestratorAgent not initialized. set_up() was not called.")
                 raise RuntimeError("Agent not properly initialized.")
 
             response_text = self.orchestrator_agent.query(input_text)
@@ -227,7 +228,7 @@ class OrchestrateServiceAgent(Agent):
                 completion_tokens = model.count_tokens([response_text]).total_tokens
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, completion_tokens)
             except Exception as e:
-                logging.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
+                logger.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(response_text) // 4)
 
             return response_text

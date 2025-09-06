@@ -10,6 +10,7 @@ import sys
 sys.path.append('.')
 from google.adk.tools.mcp_tool import mcp_toolset, StreamableHTTPConnectionParams
 from pydantic import PrivateAttr
+from asgiref.sync import async_to_sync
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -108,15 +109,10 @@ class PlatformMCPClientAgent(Agent):
                 logger.warning("MCP Tools initialization failed, agent will have no tools from this source.")
 
     def set_up(self, **kwargs):
-        logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If a loop is running, run the coroutine to completion in this loop
-                loop.run_until_complete(self._async_set_up(**kwargs))
-            else:
-                # Fallback for local testing where a loop might not be running
-                asyncio.run(self._async_set_up(**kwargs))
+            # Wrap the async function call
+            async_to_sync(self._async_set_up)(**kwargs)
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

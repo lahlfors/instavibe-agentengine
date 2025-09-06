@@ -22,6 +22,7 @@ from common.observability import setup_observability
 from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional
+from asgiref.sync import async_to_sync
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -43,15 +44,10 @@ class SocialLlmAgent(LlmAgent):
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
     def set_up(self, **kwargs):
-        logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If a loop is running, run the coroutine to completion in this loop
-                loop.run_until_complete(self._async_set_up(**kwargs))
-            else:
-                # Fallback for local testing where a loop might not be running
-                asyncio.run(self._async_set_up(**kwargs))
+            # Wrap the async function call
+            async_to_sync(self._async_set_up)(**kwargs)
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
@@ -88,15 +84,10 @@ class SocialLoopAgent(LoopAgent):
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
     def set_up(self, **kwargs):
-        logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If a loop is running, run the coroutine to completion in this loop
-                loop.run_until_complete(self._async_set_up(**kwargs))
-            else:
-                # Fallback for local testing where a loop might not be running
-                asyncio.run(self._async_set_up(**kwargs))
+            # Wrap the async function call
+            async_to_sync(self._async_set_up)(**kwargs)
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

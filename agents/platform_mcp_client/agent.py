@@ -110,10 +110,16 @@ class PlatformMCPClientAgent(Agent):
     def set_up(self, **kwargs):
         logger.info(f"Sync set_up called for {self.__class__.__name__}, running async portion...")
         try:
-            asyncio.run(self._async_set_up(**kwargs))
-            logger.info(f"Async set_up completed for {self.__class__.__name__}.")
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If a loop is running, run the coroutine to completion in this loop
+                loop.run_until_complete(self._async_set_up(**kwargs))
+            else:
+                # Fallback for local testing where a loop might not be running
+                asyncio.run(self._async_set_up(**kwargs))
+            logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
-            logger.error(f"Error during async set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
             raise
         return self
 

@@ -7,7 +7,6 @@ from google.adk.tools import google_search
 from opentelemetry import trace
 from common.observability import setup_observability
 import logging
-from asgiref.sync import async_to_sync
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -28,11 +27,10 @@ class PlannerAgent(LlmAgent):
         setup_observability(endpoint_override=self.otel_collector_endpoint)
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
-    def set_up(self, **kwargs):
-        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+    async def set_up(self, **kwargs): # <--- Change to async def
+        logger.info(f"Async set_up called for {self.__class__.__name__}")
         try:
-            # Wrap the async function call
-            async_to_sync(self._async_set_up)(**kwargs)
+            await self._async_set_up(**kwargs) # <--- Directly await
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

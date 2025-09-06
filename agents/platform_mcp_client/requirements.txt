@@ -26,4 +26,3 @@ google-auth[aiohttp]>=2.0.0
 grpcio
 grpcio-status
 aiohttp
-asgiref~=3.0

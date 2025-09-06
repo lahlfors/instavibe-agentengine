@@ -18,7 +18,6 @@ from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
 from common.observability import setup_observability
-from asgiref.sync import async_to_sync
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -114,11 +113,10 @@ class OrchestrateServiceAgent(Agent):
         )
         logger.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
 
-    def set_up(self, **kwargs):
-        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+    async def set_up(self, **kwargs): # <--- Change to async def
+        logger.info(f"Async set_up called for {self.__class__.__name__}")
         try:
-            # Wrap the async function call
-            async_to_sync(self._async_set_up)(**kwargs)
+            await self._async_set_up(**kwargs) # <--- Directly await
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)

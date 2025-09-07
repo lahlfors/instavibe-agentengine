@@ -85,7 +85,7 @@ substitutions:
   _MCP_AGENT_URL: ''
   _INSTAVIBE_GOOGLE_MAPS_API_KEY: ''
   _OTEL_COLLECTOR_ENDPOINT: ''
-  _ENABLE_TRACING: ''
+  _ENABLE_TRACING: 'True'
 
 images:
   - '${_IMAGE_PATH}'

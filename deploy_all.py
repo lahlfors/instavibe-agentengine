@@ -332,14 +332,25 @@ def main(args):
                     if hasattr(agent_class, "get_tools"):
                         tools = agent_class.get_tools()
 
+                    # Create agent instance. This assumes a constructor signature of (model, tools).
+                    agent_object = agent_class(model="gemini-1.5-flash-001", tools=tools)
+
+                    # Construct the path to the agent's requirements.txt
+                    agent_module_path = agent_config["module"].split('.')
+                    agent_dir = agent_module_path[1] if len(agent_module_path) > 1 else agent_module_path[0]
+                    requirements_path = os.path.join("agents", agent_dir, "requirements.txt")
+
+                    # Default extra_packages to empty list as it's not in the config
+                    extra_packages = agent_config.get("extra_packages", [])
+
                     remote_agent = deploy_adk_agent_engine(
-                        project_id=env_config["project_id"],
+                        agent_object=agent_object,
+                        gcp_agent_id=agent_name,
+                        project=env_config["project_id"],
                         location=env_config["region"],
+                        requirements_path=requirements_path,
+                        extra_packages=extra_packages,
                         display_name=agent_display_name,
-                        agent_class=agent_class,
-                        agent_description=agent_config.get("description"),
-                        staging_bucket=env_config["staging_bucket"],
-                        tools_for_agent=tools,
                     )
                     if remote_agent and remote_agent.resource_name:
                         agent_resource_names[agent_name] = remote_agent.resource_name

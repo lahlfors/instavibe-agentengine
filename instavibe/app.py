@@ -44,7 +44,7 @@ def _get_agent_client_by_display_name(display_name: str):
         return None
     try:
         logger.info(f"Listing agents to find display name: '{display_name}'")
-        existing_engines = agent_engines.ReasoningEngine.list(project=PROJECT, location=LOCATION)
+        existing_engines = agent_engines.list(project=PROJECT, location=LOCATION)
         for engine in existing_engines:
             if engine.display_name == display_name:
                 logger.info(f"Found agent '{display_name}' with resource name: {engine.resource_name}")

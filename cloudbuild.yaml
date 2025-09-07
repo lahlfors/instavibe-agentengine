@@ -61,6 +61,14 @@ steps:
       - 'OTEL_COLLECTOR_ENDPOINT=${_OTEL_COLLECTOR_ENDPOINT}'
       - '--set-env-vars'
       - 'ENABLE_TRACING=${_ENABLE_TRACING}'
+      - '--set-env-vars'
+      - 'COMMON_GEMINI_MODEL=${_COMMON_GEMINI_MODEL}'
+      - '--set-env-vars'
+      - 'ORCHESTRATE_AGENT_RESOURCE_NAME=${_ORCHESTRATE_AGENT_RESOURCE_NAME}'
+      - '--set-env-vars'
+      - 'PLANNER_AGENT_RESOURCE_NAME=${_PLANNER_AGENT_RESOURCE_NAME}'
+      - '--set-env-vars'
+      - 'PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME=${_PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME}'
       - '--allow-unauthenticated'
     wait_for: ['Push']
 
@@ -86,6 +94,10 @@ substitutions:
   _INSTAVIBE_GOOGLE_MAPS_API_KEY: ''
   _OTEL_COLLECTOR_ENDPOINT: ''
   _ENABLE_TRACING: 'True'
+  _COMMON_GEMINI_MODEL: 'gemini-1.5-flash'
+  _ORCHESTRATE_AGENT_RESOURCE_NAME: ''
+  _PLANNER_AGENT_RESOURCE_NAME: ''
+  _PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME: ''
 
 images:
   - '${_IMAGE_PATH}'

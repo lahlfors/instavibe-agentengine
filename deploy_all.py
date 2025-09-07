@@ -3,6 +3,7 @@ import sys
 import logging
 import importlib
 import argparse
+import inspect
 from dotenv import load_dotenv
 from typing import Dict, List, Optional
 import subprocess
@@ -283,83 +284,118 @@ def main(args):
 
         agent_resource_names = {}
         if not args.skip_agents:
+            # CORRECTED agents_to_deploy structure
+            gemini_model = os.environ.get("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
+                    "gcp_id": "planner-agent",
                     "display_name": "Planner Agent",
-                    "description": "An agent that creates a detailed plan to create a new event.",
                     "module": "agents.planner.agent",
-                    "class_name": "PlannerAgent",
+                    "agent_variable": "PlannerAgent",
+                    "requirements_file": "agents/planner/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/planner"],
+                    "init_args": {
+                        "model": gemini_model,
+                        "tools": [] # Or specific tools
+                    }
                 },
                 {
-                    "name": "orchestrator_agent",
+                    "name": "orchestrate_agent",
+                    "gcp_id": "orchestrate-agent",
                     "display_name": "Orchestrate Agent",
-                    "description": "An agent that orchestrates other agents to create a new event.",
                     "module": "agents.orchestrate.orchestrate_service_agent",
-                    "class_name": "OrchestrateServiceAgent",
+                    "agent_variable": "OrchestrateServiceAgent",
+                    "requirements_file": "agents/orchestrate/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate"],
+                    "init_args": {
+                        "model": gemini_model
+                    }
                 },
                 {
                     "name": "social_agent",
+                    "gcp_id": "social-agent",
                     "display_name": "Social Agent",
-                    "description": "An agent that generates social media posts.",
                     "module": "agents.social.agent",
-                    "class_name": "SocialLoopAgent",
+                    "agent_variable": "SocialLoopAgent",
+                    "requirements_file": "agents/social/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/social"],
+                    "init_args": {} # Does not take model or tools
                 },
                 {
                     "name": "platform_mcp_client_agent",
+                    "gcp_id": "platform-mcp-client-agent",
                     "display_name": "Platform MCP Client Agent",
-                    "description": "An agent that interacts with the MCP server.",
                     "module": "agents.platform_mcp_client.agent",
-                    "class_name": "PlatformMCPClientAgent",
-                },
+                    "agent_variable": "PlatformMCPClientAgent",
+                    "requirements_file": "agents/platform_mcp_client/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client"],
+                    "init_args": {
+                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
+                        "model": gemini_model,
+                        "tools": []
+                    }
+                }
             ]
+            otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
 
             if args.deploy_orchestrate_only:
                 logging.info("--- Deploying only the Orchestrate Agent ---")
                 agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
 
-            for agent_config in agents_to_deploy:
-                agent_name = agent_config["name"]
-                agent_display_name = agent_config["display_name"]
-                logging.info(f"--- Deploying/Updating Agent: {agent_display_name} (Name: {agent_name}) ---")
+            project_id = env_config["project_id"]
+            region = env_config["region"]
 
+            for agent_conf in agents_to_deploy:
+                display_name = agent_conf["display_name"]
+                adk_agent_name = agent_conf["name"]
+                agent_gcp_id = agent_conf.get("gcp_id", adk_agent_name)
+
+                logging.info(f"--- Deploying/Updating Agent: {display_name} (ADK Name: {adk_agent_name}, GCP ID: {agent_gcp_id}) ---")
                 try:
-                    module = importlib.import_module(agent_config["module"])
-                    agent_class = getattr(module, agent_config["class_name"])
+                    module_path = agent_conf["module"]
+                    agent_var = agent_conf["agent_variable"]
+                    module = importlib.import_module(module_path)
+                    agent_class = getattr(module, agent_var)
 
-                    # Dynamically get tools for the agent
-                    tools = []
-                    if hasattr(agent_class, "get_tools"):
-                        tools = agent_class.get_tools()
+                    init_args = agent_conf.get("init_args", {}).copy()
+                    init_args['name'] = adk_agent_name
 
-                    # Create agent instance. This assumes a constructor signature of (model, tools).
-                    agent_object = agent_class(model="gemini-1.5-flash-001", tools=tools)
+                    potential_args = {
+                        'display_name': display_name,
+                        'otel_collector_endpoint': otel_collector_endpoint
+                    }
+                    init_args.update(potential_args)
 
-                    # Construct the path to the agent's requirements.txt
-                    agent_module_path = agent_config["module"].split('.')
-                    agent_dir = agent_module_path[1] if len(agent_module_path) > 1 else agent_module_path[0]
-                    requirements_path = os.path.join("agents", agent_dir, "requirements.txt")
+                    # Inspect signature and filter args
+                    sig = inspect.signature(agent_class.__init__)
+                    params = sig.parameters
+                    valid_param_names = {p for p in params if p != 'self'}
+                    has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
 
-                    # Default extra_packages to empty list as it's not in the config
-                    extra_packages = agent_config.get("extra_packages", [])
+                    final_args = {}
+                    for k, v in init_args.items():
+                        if k in valid_param_names or has_kwargs:
+                            final_args[k] = v
+                        else:
+                            logger.warning(f"Argument '{k}' not in {agent_class.__name__} signature. Skipping.")
+
+                    agent_to_deploy = agent_class(**final_args)
+                    logger.info(f"Successfully instantiated {agent_class.__name__} with keys: {list(final_args.keys())}")
 
                     remote_agent = deploy_adk_agent_engine(
-                        agent_object=agent_object,
-                        gcp_agent_id=agent_name,
-                        project=env_config["project_id"],
-                        location=env_config["region"],
-                        requirements_path=requirements_path,
-                        extra_packages=extra_packages,
-                        display_name=agent_display_name,
+                        agent_object=agent_to_deploy,
+                        gcp_agent_id=agent_gcp_id,
+                        project=project_id,
+                        location=region,
+                        requirements_path=agent_conf["requirements_file"],
+                        extra_packages=agent_conf["extra_packages"],
+                        display_name=display_name,
                     )
-                    if remote_agent and remote_agent.resource_name:
-                        agent_resource_names[agent_name] = remote_agent.resource_name
-                        logging.info(f"--- Successfully Deployed/Updated: {agent_display_name} to {remote_agent.resource_name} ---")
-                    else:
-                        logging.error(f"--- FAILED to Deploy/Update: {agent_display_name}. No resource name returned. ---")
-
+                    agent_resource_names[adk_agent_name] = remote_agent.resource_name
+                    logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")
                 except Exception as e:
-                    logging.error(f"--- FAILED to Deploy/Update: {agent_display_name}: {e} ---", exc_info=True)
+                    logger.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
         else:
             logging.info("--- Skipping all agent deployments. ---")
 

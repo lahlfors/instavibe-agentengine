@@ -165,3 +165,5 @@ def create_agent():
     return root_agent
 
 root_agent = create_agent()
+SocialLlmAgent.model_rebuild()
+SocialLoopAgent.model_rebuild()

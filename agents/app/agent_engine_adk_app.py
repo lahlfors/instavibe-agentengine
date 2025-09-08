@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 # Access classes from the imported reasoning_engines module
 ReasoningEngine = reasoning_engines.ReasoningEngine
 AdkApp = reasoning_engines.AdkApp
+try:
+    ReasoningEngineSpec = reasoning_engines.ReasoningEngineSpec
+    logger.info("Using reasoning_engines.ReasoningEngineSpec")
+except AttributeError:
+    logger.critical("CRITICAL: reasoning_engines.ReasoningEngineSpec not found!")
+    raise
 
 def find_existing_reasoning_engine(display_name: str, project: str, location: str) -> Optional[ReasoningEngine]:
     """Finds an existing Reasoning Engine by display name."""
@@ -37,7 +43,6 @@ def deploy_adk_agent_engine(
 
     try:
         with open(requirements_path, "r") as f:
-            # CORRECTED: Filter out empty lines and comments
             requirements = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
         logger.info(f"Cleaned requirements: {requirements}")
     except FileNotFoundError:
@@ -51,14 +56,21 @@ def deploy_adk_agent_engine(
         logger.error(f"Failed to create AdkApp: {e}", exc_info=True)
         raise
 
-    # --- NO MANUAL ReasoningEngineSpec Creation ---
+    # --- CORRECTED Spec ---
+    spec = ReasoningEngineSpec(
+        agent=app,
+        requirements=requirements,
+        extra_packages=extra_packages,
+        display_name=display_name,
+        # --- REMOVED service_account ---
+    )
 
     existing_agent = find_existing_reasoning_engine(display_name, project, location)
 
     if existing_agent:
         logger.info(f"Found existing Reasoning Engine: {existing_agent.resource_name}. Deleting to update...")
         try:
-            delete_operation = existing_agent.delete(force=True)
+            delete_operation = existing_agent.delete() # Removed force=True
             logger.info(f"Deletion initiated for {existing_agent.resource_name}. Waiting for completion...")
             try:
                 delete_operation.result(timeout=180)
@@ -76,15 +88,7 @@ def deploy_adk_agent_engine(
 
     logger.info(f"Creating Reasoning Engine for {display_name}...")
     try:
-        # --- CORRECTED Create Call ---
-        remote_agent = ReasoningEngine.create(
-            app,  # Pass the AdkApp instance directly
-            display_name=display_name,
-            requirements=requirements,
-            extra_packages=extra_packages,
-            service_account=os.getenv("SERVICE_ACCOUNT_EMAIL"), # Example: useful optional parameter
-            # python_version is NOT a parameter here
-        )
+        remote_agent = ReasoningEngine.create(spec)
         logger.info(f"Creation initiated for {display_name}. Waiting for LRO to complete...")
         remote_agent = remote_agent._wait_for_creation()
         logger.info(f"Successfully created or updated: {remote_agent.resource_name}")

@@ -10,7 +10,6 @@ opentelemetry-instrumentation-flask
 opentelemetry-instrumentation-aiohttp-client
 opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-fastapi==0.57b0
-google-cloud-aiplatform>=1.86.0
 google-cloud-aiplatform[agent_engines,adk]>=1.111.0
 google-adk==1.13.0
 google-auth

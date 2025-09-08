@@ -1,12 +1,23 @@
 # agents/app/agent_engine_adk_app.py
 import logging
+import time
 from google.api_core import exceptions
-# import vertexai # Not strictly needed here if already init'd in deploy_all
 from vertexai import agent_engines
 from google.adk.agents import Agent as AdkAgentType
 from typing import Optional, List, Any
+from google.cloud.aiplatform.vertex_ai import ReasoningEngine, ReasoningEngineSpec
 
 logger = logging.getLogger(__name__)
+
+def find_existing_reasoning_engine(display_name: str, project: str, location: str) -> Optional[agent_engines.ReasoningEngine]:
+    """Finds an existing Reasoning Engine by display name."""
+    try:
+        filters = f'display_name="{display_name}"'
+        engines = agent_engines.ReasoningEngine.list(filter=filters, project=project, location=location)
+        return engines[0] if engines else None
+    except Exception as e:
+        logger.error(f"Error listing Reasoning Engines: {e}", exc_info=True)
+        return None
 
 def deploy_adk_agent_engine(
     agent_object: AdkAgentType,
@@ -16,69 +27,62 @@ def deploy_adk_agent_engine(
     requirements_path: str,
     extra_packages: list[str],
     display_name: str,
-) -> Optional[agent_engines.AgentEngine]:
+) -> Optional[agent_engines.ReasoningEngine]:
     """Deploys or updates a Reasoning Engine application using ADK's AdkApp."""
 
     try:
         with open(requirements_path, "r") as f:
-            requirements = [line.strip() for line in f if line.strip()]
+            # CORRECTED: Filter out empty lines and comments
+            requirements = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+        logger.info(f"Cleaned requirements: {requirements}")
     except FileNotFoundError:
         logger.error(f"Requirements file not found: {requirements_path}")
         raise
 
     logger.info(f"Wrapping ADK agent '{agent_object.name}' in AdkApp for deployment.")
     try:
-        # AdkApp only wraps the agent object
         app = agent_engines.AdkApp(agent=agent_object)
     except Exception as e:
         logger.error(f"Failed to create AdkApp: {e}", exc_info=True)
         raise
 
-    # Arguments for the create/update operations
-    spec_kwargs = {
-        "requirements": requirements,
-        "extra_packages": extra_packages,
-        "python_version": "3.11",
-    }
+    # --- CORRECTED Spec ---
+    spec = agent_engines.ReasoningEngineSpec(
+        agent=app,
+        requirements=requirements,
+        extra_packages=extra_packages,
+        display_name=display_name,
+        # --- CRITICAL: REMOVED python_version ---
+    )
 
-    remote_agent = None
-    try:
-        logger.info(f"Listing Reasoning Engines in {project}/{location} to find display name: '{display_name}'")
-        existing_engines = agent_engines.list()
+    existing_agent = find_existing_reasoning_engine(display_name, project, location)
 
-        found_engine = None
-        for engine in existing_engines:
-            if engine.display_name == display_name:
-                found_engine = engine
-                break
-
-        if found_engine:
-            remote_agent = found_engine
-            logger.info(f"Found existing Reasoning Engine: {remote_agent.resource_name} with display name '{display_name}'. Attempting to update.")
+    if existing_agent:
+        logger.info(f"Found existing Reasoning Engine: {existing_agent.resource_name}. Deleting to update...")
+        try:
+            delete_operation = existing_agent.delete(force=True)
+            logger.info(f"Deletion initiated for {existing_agent.resource_name}. Waiting for completion...")
             try:
-                # Update the existing engine with the new app definition and specs
-                remote_agent.update(
-                    reasoning_engine=app,
-                    **spec_kwargs
-                )
-                logger.info(f"Successfully updated existing agent: {remote_agent.resource_name}")
-            except Exception as up_e:
-                logger.error(f"Failed to update existing agent {remote_agent.resource_name}: {up_e}", exc_info=True)
-                raise
-        else:
-            logger.info(f"No existing engine with display name '{display_name}'. Creating new Reasoning Engine.")
-            try:
-                remote_agent = agent_engines.create(
-                    reasoning_engine=app, # Pass the AdkApp object
-                    display_name=display_name,
-                    **spec_kwargs
-                )
-                logger.info(f"Engine '{display_name}' created. Resource Name: {remote_agent.resource_name}")
-            except Exception as c_e:
-                 logger.error(f"Failed to create new Reasoning Engine {display_name}: {c_e}", exc_info=True)
+                delete_operation.result(timeout=180)  # Wait for the operation to complete
+                logger.info(f"Successfully deleted existing agent: {existing_agent.resource_name}")
+            except TimeoutError:
+                logger.warning(f"Deletion of {existing_agent.resource_name} timed out after 180s. Proceeding with create, but there might be issues.")
+            except Exception as e:
+                 logger.error(f"Error during delete operation for {existing_agent.resource_name}: {e}", exc_info=True)
                  raise
+        except exceptions.NotFound:
+            logger.info(f"Agent {existing_agent.resource_name} not found for deletion.")
+        except Exception as e:
+            logger.error(f"Failed to initiate deletion for {existing_agent.resource_name}: {e}", exc_info=True)
+            raise
 
+    logger.info(f"Creating Reasoning Engine for {display_name}...")
+    try:
+        remote_agent = agent_engines.ReasoningEngine.create(spec) # CORRECT: Passing spec object
+        logger.info(f"Creation initiated for {display_name}. Waiting for LRO to complete...")
+        remote_agent = remote_agent._wait_for_creation()
+        logger.info(f"Successfully created or updated: {remote_agent.resource_name}")
+        return remote_agent
     except Exception as e:
-         logger.error(f"Error during ReasoningEngine operation for {display_name}: {e}", exc_info=True)
-         raise
-    return remote_agent
+        logger.error(f"Failed to create new Reasoning Engine {display_name}: {e}", exc_info=True)
+        raise

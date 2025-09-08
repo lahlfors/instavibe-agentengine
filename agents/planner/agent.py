@@ -57,8 +57,7 @@ class PlannerAgent(LlmAgent):
                 span.set_status(trace.StatusCode.ERROR, str(e))
                 raise
 
-def create_agent():
-    MODEL_NAME = "gemini-1.5-flash"
+def create_agent(model: str):
     AGENT_NAME = "planner_agent"
     AGENT_INSTRUCTION = '''
 
@@ -97,10 +96,11 @@ def create_agent():
 
     return PlannerAgent(
         name=AGENT_NAME,
-        model=MODEL_NAME,
+        model=model,
         description="Agent that creates plans",
         instruction=AGENT_INSTRUCTION,
         tools=[google_search]
     )
 
-root_agent = create_agent()
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+root_agent = create_agent(model=gemini_model)

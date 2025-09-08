@@ -284,8 +284,12 @@ def main(args):
 
         agent_resource_names = {}
         if not args.skip_agents:
-            # CORRECTED agents_to_deploy structure
-            gemini_model = os.environ.get("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+            # Get the model name from the environment
+            gemini_model = os.getenv("COMMON_GEMINI_MODEL")
+            if not gemini_model:
+                logging.error("ERROR: COMMON_GEMINI_MODEL environment variable not set. Please define it in your .env file.")
+                exit(1)
+
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
@@ -295,10 +299,7 @@ def main(args):
                     "agent_variable": "PlannerAgent",
                     "requirements_file": "agents/planner/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/planner"],
-                    "init_args": {
-                        "model": gemini_model,
-                        "tools": [] # Or specific tools
-                    }
+                    "tools": []
                 },
                 {
                     "name": "orchestrate_agent",
@@ -308,9 +309,6 @@ def main(args):
                     "agent_variable": "OrchestrateServiceAgent",
                     "requirements_file": "agents/orchestrate/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/orchestrate"],
-                    "init_args": {
-                        "model": gemini_model
-                    }
                 },
                 {
                     "name": "social_agent",
@@ -319,8 +317,7 @@ def main(args):
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLoopAgent",
                     "requirements_file": "agents/social/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/social"],
-                    "init_args": {} # Does not take model or tools
+                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./tools"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -330,11 +327,7 @@ def main(args):
                     "agent_variable": "PlatformMCPClientAgent",
                     "requirements_file": "agents/platform_mcp_client/requirements.txt",
                     "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client"],
-                    "init_args": {
-                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
-                        "model": gemini_model,
-                        "tools": []
-                    }
+                    "tools": []
                 }
             ]
             otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
@@ -358,30 +351,27 @@ def main(args):
                     module = importlib.import_module(module_path)
                     agent_class = getattr(module, agent_var)
 
-                    init_args = agent_conf.get("init_args", {}).copy()
-                    init_args['name'] = adk_agent_name
-
-                    potential_args = {
-                        'display_name': display_name,
-                        'otel_collector_endpoint': otel_collector_endpoint
+                    kwargs = {
+                        "name": adk_agent_name,
+                        "model": gemini_model,
+                        "tools": agent_conf.get("tools", []),
+                        "display_name": agent_conf.get("display_name", adk_agent_name),
+                        "otel_collector_endpoint": os.getenv("OTEL_COLLECTOR_ENDPOINT")
                     }
-                    init_args.update(potential_args)
 
-                    # Inspect signature and filter args
-                    sig = inspect.signature(agent_class.__init__)
-                    params = sig.parameters
-                    valid_param_names = {p for p in params if p != 'self'}
-                    has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+                    if agent_var == "PlatformMCPClientAgent":
+                        kwargs["mcp_server_address"] = os.getenv("MCP_SERVER_URL")
+                        if not kwargs["mcp_server_address"]:
+                            logging.error(f"ERROR: MCP_SERVER_URL must be set in .env for {adk_agent_name}")
+                            continue
 
-                    final_args = {}
-                    for k, v in init_args.items():
-                        if k in valid_param_names or has_kwargs:
-                            final_args[k] = v
-                        else:
-                            logger.warning(f"Argument '{k}' not in {agent_class.__name__} signature. Skipping.")
+                    if agent_var == "SocialLoopAgent":
+                        # SocialLoopAgent doesn't accept model or tools based on previous errors
+                        if "model" in kwargs: del kwargs["model"]
+                        if "tools" in kwargs: del kwargs["tools"]
 
-                    agent_to_deploy = agent_class(**final_args)
-                    logger.info(f"Successfully instantiated {agent_class.__name__} with keys: {list(final_args.keys())}")
+                    logging.info(f"Instantiating {adk_agent_name} with keys: {list(kwargs.keys())}")
+                    agent_to_deploy = agent_class(**kwargs)
 
                     remote_agent = deploy_adk_agent_engine(
                         agent_object=agent_to_deploy,

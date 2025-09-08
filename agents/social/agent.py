@@ -102,7 +102,7 @@ class SocialLoopAgent(LoopAgent):
         # The LoopAgent's entry point is __call__
         return self(**kwargs)
 
-def create_agent():
+def create_agent(model: str):
     class CheckCondition(BaseAgent):
         async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
             logger.info(f"Summary: {ctx.session.state.get('summary')}")
@@ -112,7 +112,7 @@ def create_agent():
 
     profile_agent = SocialLlmAgent(
         name="profile_agent",
-        model="gemini-1.5-flash",
+        model=model,
         description="Agent to answer questions about the this person's social profile.",
         instruction="You are a helpful agent who can answer user questions about this person's social profile.",
         tools=[
@@ -125,7 +125,7 @@ def create_agent():
 
     summary_agent = SocialLlmAgent(
         name="summary_agent",
-        model="gemini-1.5-flash",
+        model=model,
         description="Generate a comprehensive social summary.",
         instruction="Your primary task is to synthesize social profile information into a single, comprehensive paragraph.",
         output_key="summary"
@@ -133,7 +133,7 @@ def create_agent():
 
     check_agent = SocialLlmAgent(
         name="check_agent",
-        model="gemini-1.5-flash",
+        model=model,
         description="Check if everyone's social profile are summarized.",
         output_key="summary_status"
     )
@@ -164,6 +164,5 @@ def create_agent():
     )
     return root_agent
 
-root_agent = create_agent()
-SocialLlmAgent.model_rebuild()
-SocialLoopAgent.model_rebuild()
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+root_agent = create_agent(model=gemini_model)

@@ -78,7 +78,7 @@ class OrchestrateServiceAgent(Agent):
         all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
 
         self.orchestrator_agent = Agent(
-            model="gemini-1.5-flash",
+            model=self.model,
             name="orchestrate_agent",
             instruction=self.root_instruction,
             description=(

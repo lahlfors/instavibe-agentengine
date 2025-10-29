@@ -20,36 +20,39 @@ from google.adk.tools import preload_memory_tool
 from common.observability import setup_observability
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 class OrchestrateServiceAgent(Agent):
     """
     The main orchestrator agent, interacting with Memory Bank via REST API and delegating tasks.
     """
+    display_name: Optional[str] = None
     project: Optional[str] = None
     location: Optional[str] = None
     reasoning_engine_id: Optional[str] = None
     orchestrator_agent: Optional[Agent] = None
     memory_service: Optional[VertexAiMemoryBankService] = None
+    otel_collector_endpoint: Optional[str] = None
 
-    def __init__(self, name: str, instruction: Optional[str] = None, description: Optional[str] = None):
-        super().__init__(
-            name=name,
-            model="gemini-2.5-flash",
-            instruction=instruction or "I am an orchestrator agent with memory and task delegation capabilities.",
-            description=description or "An agent that can create/search memories and delegate tasks.",
-        )
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Initialize instance-specific attributes *after* super call
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
+        self.memory_service = None  # Initialize later in set_up
+        self.orchestrator_agent = None  # Initialize later in set_up
 
-    async def set_up(self):
-        """
-        Called by the Agent Engine framework after deployment.
-        """
+    async def _async_set_up(self, **kwargs):
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability()
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
+
         if self.orchestrator_agent:
             return
 
-        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
+        logger.info("--- ORCHESTRATE AGENT RUNTIME SETUP ---")
         self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
         self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
         self.reasoning_engine_id = os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID")
@@ -57,7 +60,7 @@ class OrchestrateServiceAgent(Agent):
         if not self.project or not self.location:
             raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION environment variables must be set.")
         if not self.reasoning_engine_id:
-            logging.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
+            logger.error("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable not set.")
             raise RuntimeError("GOOGLE_CLOUD_AGENT_ENGINE_ID environment variable must be set.")
 
         self.memory_service = VertexAiMemoryBankService(
@@ -65,7 +68,7 @@ class OrchestrateServiceAgent(Agent):
             location=self.location,
             agent_engine_id=self.reasoning_engine_id,
         )
-        logging.info("VertexAiMemoryBankService initialized.")
+        logger.info("VertexAiMemoryBankService initialized.")
 
         thinking_config = ThinkingConfig(
             include_thoughts=True,
@@ -75,7 +78,7 @@ class OrchestrateServiceAgent(Agent):
         all_tools = [self.send_task, preload_memory_tool.PreloadMemoryTool(memory=self.memory_service)]
 
         self.orchestrator_agent = Agent(
-            model="gemini-2.5-flash",
+            model=self.model,
             name="orchestrate_agent",
             instruction=self.root_instruction,
             description=(
@@ -86,10 +89,22 @@ class OrchestrateServiceAgent(Agent):
             planner=planner,
             memory=self.memory_service,
         )
-        logging.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
+        logger.info("--- ORCHESTRATE AGENT RUNTIME SETUP COMPLETE ---")
+
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            logger.info(f"set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
+        return self
+
 
     def root_instruction(self, context: ReadonlyContext) -> str:
-        return """
+        return '''
     You are an expert AI Orchestrator for the Instavibe application. Your primary responsibility is to intelligently interpret user requests and delegate them to the most appropriate specialized remote agents by invoking their capabilities.
 
     You have the following agents at your disposal:
@@ -118,7 +133,7 @@ class OrchestrateServiceAgent(Agent):
         - Your tool call: `send_task(agent_name='social-agent', action='share', data={'message': 'Check out this cool event I just made on Instavibe!'})`
 
     Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
-    """
+    '''
 
     async def send_task(
         self,
@@ -166,7 +181,7 @@ class OrchestrateServiceAgent(Agent):
                 prompt_tokens = model.count_tokens([input_text]).total_tokens
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, prompt_tokens)
             except Exception as e:
-                logging.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
+                logger.warning(f"Could not count input tokens accurately: {e}, falling back to estimation.")
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_INPUT_TOKENS, len(input_text) // 4)
 
             # Add PROMPT CONTENT as an EVENT
@@ -176,7 +191,7 @@ class OrchestrateServiceAgent(Agent):
             )
 
             if not self.orchestrator_agent:
-                logging.error("OrchestratorAgent not initialized. set_up() was not called.")
+                logger.error("OrchestratorAgent not initialized. set_up() was not called.")
                 raise RuntimeError("Agent not properly initialized.")
 
             response_text = self.orchestrator_agent.query(input_text)
@@ -192,7 +207,7 @@ class OrchestrateServiceAgent(Agent):
                 completion_tokens = model.count_tokens([response_text]).total_tokens
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, completion_tokens)
             except Exception as e:
-                logging.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
+                logger.warning(f"Could not count output tokens accurately: {e}, falling back to estimation.")
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(response_text) // 4)
 
             return response_text

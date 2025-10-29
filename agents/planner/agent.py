@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
@@ -7,27 +8,35 @@ from opentelemetry import trace
 from common.observability import setup_observability
 import logging
 
-# --- START: Agent Environment Debugging Code ---
-# This code will run when the agent container starts on Vertex AI.
-print("--- AGENT SERVER-SIDE ENVIRONMENT CHECK ---")
-print(f"Python Version Used by Agent: {sys.version}")
-# print(f"Agent's google-cloud-aiplatform SDK Version: {google.cloud.aiplatform.__version__}")
-print("--- AGENT INITIALIZATION CONTINUING ---")
-# --- END: Agent Environment Debugging Code ---
-
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
+from typing import Optional
+
 class PlannerAgent(LlmAgent):
+    display_name: Optional[str] = None
+    otel_collector_endpoint: Optional[str] = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def set_up(self):
+    async def _async_set_up(self, **kwargs):
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability()
-        logger.info("PlannerAgent setup complete.")
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
+        logger.info(f"{self.__class__.__name__} async setup complete.")
+
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            logger.info(f"set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
         return self
 
     def query(self, **kwargs):
@@ -48,10 +57,9 @@ class PlannerAgent(LlmAgent):
                 span.set_status(trace.StatusCode.ERROR, str(e))
                 raise
 
-def create_agent():
-    MODEL_NAME = "gemini-1.5-flash"
+def create_agent(model: str):
     AGENT_NAME = "planner_agent"
-    AGENT_INSTRUCTION = """
+    AGENT_INSTRUCTION = '''
 
             You are a specialized AI assistant tasked with generating creative and fun plan suggestions.
 
@@ -84,14 +92,15 @@ def create_agent():
               ]
             }
 
-        """
+        '''
 
     return PlannerAgent(
         name=AGENT_NAME,
-        model=MODEL_NAME,
+        model=model,
         description="Agent that creates plans",
         instruction=AGENT_INSTRUCTION,
         tools=[google_search]
     )
 
-root_agent = create_agent()
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+root_agent = create_agent(model=gemini_model)

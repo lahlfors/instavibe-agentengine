@@ -5,15 +5,17 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+
 extensions:
   health_check:
+    endpoint: "0.0.0.0:${PORT}"
+
 processors:
   batch:
   memory_limiter:
     check_interval: 1s
     limit_percentage: 75
     spike_limit_percentage: 20
-  # Optional: attributes processor to add common attributes
   resource:
     attributes:
     - key: environment
@@ -25,12 +27,8 @@ exporters:
     project: "${GOOGLE_CLOUD_PROJECT}"
     trace:
       endpoint: "dns:///cloudtrace.googleapis.com:443"
-  googlecloudlogging:
-    project: "${GOOGLE_CLOUD_PROJECT}"
-  googlecloudmonitoring:
-    project: "${GOOGLE_CLOUD_PROJECT}"
     metric:
-        service_resource_labels: false # Avoids duplicate labels if resource is set in SDK
+      service_resource_labels: false
   debug:
     verbosity: detailed
 
@@ -44,11 +42,11 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch, memory_limiter, resource]
-      exporters: [googlecloudmonitoring, debug]
+      exporters: [googlecloud, debug]
     logs:
       receivers: [otlp]
       processors: [batch, memory_limiter, resource]
-      exporters: [googlecloudlogging, debug]
+      exporters: [googlecloud, debug]
   telemetry:
     logs:
       level: "debug"

@@ -3,26 +3,26 @@ import sys
 import logging
 import importlib
 import argparse
+import inspect
 from dotenv import load_dotenv
+from typing import Dict, List, Optional
+import subprocess
 
 # CRITICAL: Add the project root to the path for local module imports
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from agents.app.agent_engine_app import deploy_agent_engine_app
+from agents.app.agent_engine_adk_app import deploy_adk_agent_engine
 from common.observability import setup_observability
 from google.cloud import aiplatform as vertexai
-from typing import Dict, List, Optional
-import subprocess
 
-# Agent deployment functions are imported locally within main() to ensure
-# dependencies are installed first.
-
+# --- Logger Initialization ---
+logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-GCLOUD_COMMON_ARGS = [] # Will be populated in setup_environment
+GCLOUD_COMMON_ARGS = []
 
 class ApiDisabledError(Exception):
     """Custom exception for when a required GCP API is not enabled."""
@@ -42,8 +42,6 @@ def install_dependencies():
         logging.warning(f"Root requirements.txt not found at {req_path}. Skipping dependency installation.")
         return
     try:
-        # Use the already defined run_command to get logging and error handling
-        # We set capture_output to False to see pip's progress in real-time.
         run_command([sys.executable, "-m", "pip", "install", "--upgrade", "-r", req_path], check=True, capture_output=False)
         logging.info("--- Dependencies are up to date. ---")
     except subprocess.CalledProcessError as e:
@@ -131,7 +129,6 @@ def setup_environment() -> Dict[str, str]:
 
     return env_config
 
-# --- Spanner Setup ---
 def setup_spanner(project_id: str, instance_id: str, db_id: str, region: str):
     """Ensures the Spanner instance and database exist."""
     logging.info("--- Starting Spanner Setup ---")
@@ -172,7 +169,6 @@ def setup_spanner(project_id: str, instance_id: str, db_id: str, region: str):
         os.chdir(original_cwd)
     logging.info("--- Spanner Setup Complete ---")
 
-# --- Cloud Run Service Deployment (REFACTORED) ---
 def build_and_deploy_cloud_run_service(
     project_id: str,
     region: str,
@@ -192,7 +188,6 @@ def build_and_deploy_cloud_run_service(
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
-    # Start with base substitutions
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_SERVICE_NAME": service_name,
@@ -201,15 +196,11 @@ def build_and_deploy_cloud_run_service(
         "_SERVICE_ACCOUNT": service_account or "",
     }
 
-    # Add environment variables directly into the substitutions dictionary.
-    # The key is prefixed with an underscore to match the placeholder in cloudbuild.yaml.
     if env_vars:
         for k, v in env_vars.items():
             if v is not None:
                 substitutions[f"_{k}"] = str(v)
 
-    # Convert the dictionary to a single, comma-separated string for the --substitutions flag.
-    # This is now safe because none of the values contain commas.
     substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
     build_submit_cmd = [
@@ -225,7 +216,6 @@ def build_and_deploy_cloud_run_service(
     except subprocess.CalledProcessError as e:
         raise DeploymentError(f"Cloud Build submission failed for {service_name}") from e
 
-    # After successful deployment, get the service URL
     url_cmd = [
         "gcloud", "run", "services", "describe", service_name,
         "--platform", "managed", "--region", region, "--project", project_id,
@@ -242,34 +232,30 @@ def build_and_deploy_cloud_run_service(
         logging.warning(f"Could not retrieve service URL for {service_name} after deployment. This might be okay. Error: {e}")
         return None
 
-
-# --- Main Orchestration ---
 def main(args):
-    # Setup logging for the main script
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     try:
-        setup_observability()
+        setup_observability(disable_export=True)
         logging.info("Observability setup complete.")
 
         install_dependencies()
-        config = setup_environment()
-        project_id = config["project_id"]
-        region = config["region"]
+        env_config = setup_environment()
 
         if not args.skip_spanner:
-            setup_spanner(project_id, config["spanner_instance"], config["spanner_db"], region)
-        else: logging.info("Skipping Spanner setup.")
+            setup_spanner(env_config["project_id"], env_config["spanner_instance"], env_config["spanner_db"], env_config["region"])
+        else:
+            logging.info("Skipping Spanner setup.")
 
         if not args.skip_collector:
             otel_collector_url = build_and_deploy_cloud_run_service(
-                project_id,
-                region,
+                env_config["project_id"],
+                env_config["region"],
                 "otel-collector",
                 "./otel-collector",
-                env_vars={"GOOGLE_CLOUD_PROJECT": project_id},
-                allow_unauthenticated=False, # Internal service
-                service_account=config.get("service_account"),
+                env_vars={"COMMON_GOOGLE_CLOUD_PROJECT": env_config["project_id"]},
+                allow_unauthenticated=False,
+                service_account=env_config.get("service_account"),
             )
             if otel_collector_url:
                 os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{otel_collector_url}:4317"
@@ -279,16 +265,16 @@ def main(args):
         mcp_tool_server_url = None
         if not args.skip_mcp_server:
             mcp_tool_server_url = build_and_deploy_cloud_run_service(
-                project_id,
-                region,
+                env_config["project_id"],
+                env_config["region"],
                 "mcp-tool-server",
                 "./tools/instavibe",
                 env_vars={
-                    "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+                    "COMMON_GOOGLE_CLOUD_PROJECT": env_config["project_id"],
                     "SERVICE_NAME": "mcp-tool-server",
                     "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
                 },
-                allow_unauthenticated=False, # Internal tool, requires auth
+                allow_unauthenticated=False,
             )
             if mcp_tool_server_url:
                 logging.info(f"Setting MCP_SERVER_URL for agent deployment: {mcp_tool_server_url}")
@@ -296,123 +282,142 @@ def main(args):
             else:
                 logging.warning("MCP Tool Server deployment did not return a URL. Platform MCP Client Agent may fail.")
 
-        enable_tracing = not args.deploy_orchestrate_only
-
+        agent_resource_names = {}
         if not args.skip_agents:
-            agent_resource_names = {}
-            otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
+            # Get the model name from the environment
+            gemini_model = os.getenv("COMMON_GEMINI_MODEL")
+            if not gemini_model:
+                logging.error("ERROR: COMMON_GEMINI_MODEL environment variable not set. Please define it in your .env file.")
+                exit(1)
+
             agents_to_deploy = [
                 {
                     "name": "planner_agent",
+                    "gcp_id": "planner-agent",
                     "display_name": "Planner Agent",
                     "module": "agents.planner.agent",
-                    "agent_variable": "root_agent",
-                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
-                    "requirements_file": "./agents/planner/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/planner", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
-                },
-                {
-                    "name": "social_agent",
-                    "display_name": "Social Agent",
-                    "module": "agents.social.agent",
-                    "agent_variable": "root_agent",
-                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
-                    "requirements_file": "./agents/social/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
-                },
-                {
-                    "name": "platform_mcp_client_agent",
-                    "display_name": "Platform MCP Client Agent",
-                    "module": "agents.platform_mcp_client.agent",
-                    "agent_variable": "PlatformMCPClientAgent",
-                    "init_args": {
-                        "mcp_server_address": os.environ.get("MCP_SERVER_URL"),
-                        "name": "platform_mcp_client_agent",
-                        "otel_collector_endpoint": otel_collector_endpoint,
-                    },
-                    "requirements_file": "./agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                    "agent_variable": "PlannerAgent",
+                    "requirements_file": "agents/planner/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/planner"],
+                    "tools": []
                 },
                 {
                     "name": "orchestrate_agent",
+                    "gcp_id": "orchestrate-agent",
                     "display_name": "Orchestrate Agent",
                     "module": "agents.orchestrate.orchestrate_service_agent",
-                    "agent_variable": "root_agent",
-                    "init_args": {"otel_collector_endpoint": otel_collector_endpoint},
-                    "requirements_file": "./agents/orchestrate/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate", "./agents/a2a_common-0.1.0-py3-none-any.whl", "./tools"],
+                    "agent_variable": "OrchestrateServiceAgent",
+                    "requirements_file": "agents/orchestrate/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate"],
                 },
+                {
+                    "name": "social_agent",
+                    "gcp_id": "social-agent",
+                    "display_name": "Social Agent",
+                    "module": "agents.social.agent",
+                    "agent_variable": "SocialLoopAgent",
+                    "requirements_file": "agents/social/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./tools"],
+                },
+                {
+                    "name": "platform_mcp_client_agent",
+                    "gcp_id": "platform-mcp-client-agent",
+                    "display_name": "Platform MCP Client Agent",
+                    "module": "agents.platform_mcp_client.agent",
+                    "agent_variable": "PlatformMCPClientAgent",
+                    "requirements_file": "agents/platform_mcp_client/requirements.txt",
+                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client"],
+                    "tools": []
+                }
             ]
+            otel_collector_endpoint = os.environ.get("OTEL_COLLECTOR_ENDPOINT")
 
-            def load_requirements(file_path):
-                requirements = []
-                with open(file_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            requirements.append(line)
-                return requirements
+            if args.deploy_orchestrate_only:
+                logging.info("--- Deploying only the Orchestrate Agent ---")
+                agents_to_deploy = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
+
+            project_id = env_config["project_id"]
+            region = env_config["region"]
 
             for agent_conf in agents_to_deploy:
                 display_name = agent_conf["display_name"]
-                agent_id = agent_conf["name"]
-                logging.info(f"--- Deploying/Updating Agent: {display_name} (ID: {agent_id}) ---")
+                adk_agent_name = agent_conf["name"]
+                agent_gcp_id = agent_conf.get("gcp_id", adk_agent_name)
+
+                logging.info(f"--- Deploying/Updating Agent: {display_name} (ADK Name: {adk_agent_name}, GCP ID: {agent_gcp_id}) ---")
                 try:
-                    # Dynamically import the agent
                     module_path = agent_conf["module"]
                     agent_var = agent_conf["agent_variable"]
                     module = importlib.import_module(module_path)
-                    agent_ref = getattr(module, agent_var)
+                    agent_class = getattr(module, agent_var)
 
-                    # Construct final arguments for the agent's constructor
-                    final_args = agent_conf.get("init_args", {})
-                    final_args['name'] = agent_conf['name']
+                    kwargs = {
+                        "name": adk_agent_name,
+                        "model": gemini_model,
+                        "tools": agent_conf.get("tools", []),
+                        "display_name": agent_conf.get("display_name", adk_agent_name),
+                        "otel_collector_endpoint": os.getenv("OTEL_COLLECTOR_ENDPOINT")
+                    }
 
-                    if "init_args" in agent_conf:
-                        agent_to_deploy = agent_ref(**final_args)
-                    else:
-                        agent_to_deploy = agent_ref
+                    if agent_var == "PlatformMCPClientAgent":
+                        kwargs["mcp_server_address"] = os.getenv("MCP_SERVER_URL")
+                        if not kwargs["mcp_server_address"]:
+                            logging.error(f"ERROR: MCP_SERVER_URL must be set in .env for {adk_agent_name}")
+                            continue
 
-                    requirements = load_requirements(agent_conf["requirements_file"])
+                    if agent_var == "SocialLoopAgent":
+                        # SocialLoopAgent doesn't accept model or tools based on previous errors
+                        if "model" in kwargs: del kwargs["model"]
+                        if "tools" in kwargs: del kwargs["tools"]
 
-                    agent_labels = {"agent_id": agent_id} # Use agent_id for the label
+                    logging.info(f"Instantiating {adk_agent_name} with keys: {list(kwargs.keys())}")
+                    agent_to_deploy = agent_class(**kwargs)
 
-                    remote_agent = deploy_agent_engine_app(
+                    remote_agent = deploy_adk_agent_engine(
+                        agent_object=agent_to_deploy,
+                        gcp_agent_id=agent_gcp_id,
                         project=project_id,
                         location=region,
-                        agent_object=agent_to_deploy,
-                        display_name=display_name,
-                        labels=agent_labels,
-                        requirements=requirements,
+                        requirements_path=agent_conf["requirements_file"],
                         extra_packages=agent_conf["extra_packages"],
+                        display_name=display_name,
                     )
-                    agent_resource_names[agent_id] = remote_agent.name
+                    agent_resource_names[adk_agent_name] = remote_agent.resource_name
                     logging.info(f"--- Successfully Deployed/Updated: {display_name} ---")
                 except Exception as e:
-                    logging.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
-
+                    logger.error(f"--- FAILED to Deploy/Update: {display_name}: {e} ---", exc_info=True)
         else:
-            logging.info("Skipping all agent deployments.")
+            logging.info("--- Skipping all agent deployments. ---")
 
         if not args.skip_app:
             app_env_vars = {
-                "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
-                "COMMON_GOOGLE_CLOUD_LOCATION": region,
-                "COMMON_SPANNER_INSTANCE_ID": config["spanner_instance"],
-                "COMMON_SPANNER_DATABASE_ID": config["spanner_db"],
-                "ORCHESTRATE_AGENT_URL": f"https://{region}-aiplatform.googleapis.com/v1beta1/{agent_resource_names.get('orchestrate_agent')}:predict" if agent_resource_names.get('orchestrate_agent') else "",
-                "SERVICE_NAME": "instavibe-app",
+                "COMMON_GOOGLE_CLOUD_PROJECT": env_config["project_id"],
+                "COMMON_GOOGLE_CLOUD_LOCATION": env_config["region"],
+                "COMMON_SPANNER_INSTANCE_ID": env_config["spanner_instance"],
+                "COMMON_SPANNER_DATABASE_ID": env_config["spanner_db"],
+                "AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL": mcp_tool_server_url,
                 "OTEL_COLLECTOR_ENDPOINT": os.environ.get("OTEL_COLLECTOR_ENDPOINT"),
+                "ENABLE_TRACING": str(not args.deploy_orchestrate_only),
             }
+            # Pass all deployed agent resource names to the app
+            for agent_name, resource_name in agent_resource_names.items():
+                env_key = f"{agent_name.upper()}_RESOURCE_NAME"
+                app_env_vars[env_key] = resource_name
+
+            if "orchestrate_agent" not in agent_resource_names:
+                 logging.warning("Orchestrate agent resource name not found. InstaVibe app may not function correctly.")
+
             build_and_deploy_cloud_run_service(
-                project_id,
-                region,
+                env_config["project_id"],
+                env_config["region"],
                 "instavibe-app",
                 "./instavibe",
-                env_vars={k:v for k,v in app_env_vars.items() if v},
-                allow_unauthenticated=True, # Public-facing web app
-                service_account=config.get("service_account"),
+                env_vars=app_env_vars,
+                allow_unauthenticated=True,
+                service_account=env_config.get("service_account"),
             )
+        else:
+            logging.info("Skipping InstaVibe App deployment.")
 
         logging.info("--- Deployment script finished successfully! ---")
 
@@ -435,7 +440,7 @@ def main(args):
         meter_provider = metrics.get_meter_provider()
         if hasattr(meter_provider, 'shutdown'):
             try:
-                meter_provider.shutdown(timeout_millis=10000) # Give some time to flush
+                meter_provider.shutdown(timeout_millis=10000)
                 logging.info("MeterProvider shutdown complete.")
             except Exception as e:
                 logging.error(f"Error shutting down MeterProvider: {e}", exc_info=True)

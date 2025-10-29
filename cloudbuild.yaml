@@ -36,11 +36,40 @@ steps:
       - '--project'
       - '${PROJECT_ID}'
       - '--service-account=${_SERVICE_ACCOUNT}'
-      # This delimiter allows gcloud to correctly parse a list of key=value pairs.
-      # It is constructed from all the individual substitutions below.
+      # Set environment variables. Pass empty strings for variables that are not set.
       - '--set-env-vars'
-      - '^--^COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT}--COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION}--COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID}--COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID}--ORCHESTRATE_AGENT_URL=${_ORCHESTRATE_AGENT_URL}--AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL=${_AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL}--SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL}--PLANNER_AGENT_URL=${_PLANNER_AGENT_URL}--MCP_AGENT_URL=${_MCP_AGENT_URL}--INSTAVIBE_GOOGLE_MAPS_API_KEY=${_INSTAVIBE_GOOGLE_MAPS_API_KEY}'
-      - '--allow-unauthenticated' # Simplified, can be made conditional
+      - 'COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT}'
+      - '--set-env-vars'
+      - 'COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION}'
+      - '--set-env-vars'
+      - 'COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID}'
+      - '--set-env-vars'
+      - 'COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID}'
+      - '--set-env-vars'
+      - 'ORCHESTRATE_AGENT_URL=${_ORCHESTRATE_AGENT_URL}'
+      - '--set-env-vars'
+      - 'AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL=${_AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL}'
+      - '--set-env-vars'
+      - 'SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL}'
+      - '--set-env-vars'
+      - 'PLANNER_AGENT_URL=${_PLANNER_AGENT_URL}'
+      - '--set-env-vars'
+      - 'MCP_AGENT_URL=${_MCP_AGENT_URL}'
+      - '--set-env-vars'
+      - 'INSTAVIBE_GOOGLE_MAPS_API_KEY=${_INSTAVIBE_GOOGLE_MAPS_API_KEY}'
+      - '--set-env-vars'
+      - 'OTEL_COLLECTOR_ENDPOINT=${_OTEL_COLLECTOR_ENDPOINT}'
+      - '--set-env-vars'
+      - 'ENABLE_TRACING=${_ENABLE_TRACING}'
+      - '--set-env-vars'
+      - 'COMMON_GEMINI_MODEL=${_COMMON_GEMINI_MODEL}'
+      - '--set-env-vars'
+      - 'ORCHESTRATE_AGENT_RESOURCE_NAME=${_ORCHESTRATE_AGENT_RESOURCE_NAME}'
+      - '--set-env-vars'
+      - 'PLANNER_AGENT_RESOURCE_NAME=${_PLANNER_AGENT_RESOURCE_NAME}'
+      - '--set-env-vars'
+      - 'PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME=${_PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME}'
+      - '--allow-unauthenticated'
     wait_for: ['Push']
 
 # This section defines all placeholders the script can provide.
@@ -63,6 +92,12 @@ substitutions:
   _PLANNER_AGENT_URL: ''
   _MCP_AGENT_URL: ''
   _INSTAVIBE_GOOGLE_MAPS_API_KEY: ''
+  _OTEL_COLLECTOR_ENDPOINT: ''
+  _ENABLE_TRACING: 'True'
+  _COMMON_GEMINI_MODEL: 'gemini-1.5-flash'
+  _ORCHESTRATE_AGENT_RESOURCE_NAME: ''
+  _PLANNER_AGENT_RESOURCE_NAME: ''
+  _PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME: ''
 
 images:
   - '${_IMAGE_PATH}'

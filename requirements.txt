@@ -1,34 +1,23 @@
-# Core OTEL
 opentelemetry-api~=1.36.0
 opentelemetry-sdk~=1.36.0
 opentelemetry-semantic-conventions==0.57b0
-
-# AI Semantic Conventions for Traces
 opentelemetry-semantic-conventions-ai==0.4.13
-
-# OTLP Exporter for all signals
 opentelemetry-exporter-otlp-proto-grpc~=1.36.0
-
-# OTEL Instrumentation
 opentelemetry-instrumentation-vertexai
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-grpc
 opentelemetry-instrumentation-flask
 opentelemetry-instrumentation-aiohttp-client
-opentelemetry-instrumentation-logging # To capture standard logging
+opentelemetry-instrumentation-logging
 opentelemetry-instrumentation-fastapi==0.57b0
-
-# Vertex AI SDK
-google-cloud-aiplatform>=1.86.0
 google-cloud-aiplatform[agent_engines,adk]>=1.111.0
-
-# Other dependencies
 google-adk==1.13.0
 google-auth
 google-cloud-spanner
 python-dotenv>=1.0.0
 grpcio
 requests>=2.0.0
+google-cloud-run
 python-dateutil
 aiohttp
 Flask==3.0.0
@@ -47,7 +36,6 @@ google-cloud-trace
 google-search-results
 tiktoken
 google-cloud-logging
-google-cloud-run
 google-api-python-client
 fastapi
 uvicorn

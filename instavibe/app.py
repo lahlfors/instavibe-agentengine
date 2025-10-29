@@ -9,7 +9,7 @@ import humanize
 import uuid
 import traceback
 from dateutil import parser
-from .ally_routes import ally_bp
+from ally_routes import ally_bp
 from common.observability import setup_observability
 from opentelemetry import trace
 
@@ -23,6 +23,51 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 app.secret_key = os.environ.get("INSTAVIBE_FLASK_SECRET_KEY", "a_default_secret_key_for_dev")
 app.register_blueprint(ally_bp)
+
+from vertexai import agent_engines
+import os
+import logging
+from google.api_core import exceptions
+
+logger = logging.getLogger(__name__)
+PROJECT = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+LOCATION = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+
+_agent_client_cache = {}
+
+def _get_agent_client_by_display_name(display_name: str):
+    if display_name in _agent_client_cache:
+        return _agent_client_cache[display_name]
+
+    if not PROJECT or not LOCATION:
+        logger.error("COMMON_GOOGLE_CLOUD_PROJECT or COMMON_GOOGLE_CLOUD_LOCATION not set.")
+        return None
+    try:
+        logger.info(f"Listing agents to find display name: '{display_name}'")
+        existing_engines = agent_engines.list(project=PROJECT, location=LOCATION)
+        for engine in existing_engines:
+            if engine.display_name == display_name:
+                logger.info(f"Found agent '{display_name}' with resource name: {engine.resource_name}")
+                _agent_client_cache[display_name] = engine
+                return engine
+        logger.error(f"Agent with display name '{display_name}' not found in {PROJECT}/{LOCATION}.")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to list or get agent client for {display_name}: {e}", exc_info=True)
+        return None
+
+def get_planner_agent():
+    return _get_agent_client_by_display_name("Planner Agent")
+
+def get_orchestrator_agent():
+    return _get_agent_client_by_display_name("Orchestrate Agent")
+
+def get_social_agent():
+    return _get_agent_client_by_display_name("Social Agent")
+
+def get_platform_mcp_client_agent():
+    return _get_agent_client_by_display_name("Platform MCP Client Agent")
+
 
 # --- Spanner Configuration ---
 INSTANCE_ID = os.environ.get("COMMON_SPANNER_INSTANCE_ID")

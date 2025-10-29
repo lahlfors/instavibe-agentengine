@@ -6,6 +6,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+import asyncio
 import datetime
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
@@ -25,15 +26,31 @@ from typing import Optional
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 class SocialLlmAgent(LlmAgent):
+    display_name: Optional[str] = None
+    otel_collector_endpoint: Optional[str] = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
-    def set_up(self):
+    async def _async_set_up(self, **kwargs):
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability()
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
+        logger.info(f"{self.__class__.__name__} async setup complete.")
+
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            logger.info(f"set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
         return self
 
     def query(self, **kwargs):
@@ -53,12 +70,29 @@ class SocialLlmAgent(LlmAgent):
                 raise
 
 class SocialLoopAgent(LoopAgent):
+    display_name: Optional[str] = None
+    otel_collector_endpoint: Optional[str] = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
-    def set_up(self):
+    async def _async_set_up(self, **kwargs):
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability()
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
+        logger.info(f"{self.__class__.__name__} async setup complete.")
+
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            logger.info(f"set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
+
         for agent in self.sub_agents:
             if hasattr(agent, "set_up"):
                 agent.set_up()
@@ -68,17 +102,17 @@ class SocialLoopAgent(LoopAgent):
         # The LoopAgent's entry point is __call__
         return self(**kwargs)
 
-def create_agent():
+def create_agent(model: str):
     class CheckCondition(BaseAgent):
         async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-            log.info(f"Summary: {ctx.session.state.get('summary')}")
+            logger.info(f"Summary: {ctx.session.state.get('summary')}")
             status = ctx.session.state.get("summary_status", "fail").strip()
             is_done = (status == "completed")
             yield Event(author=self.name, actions=EventActions(escalate=is_done))
 
     profile_agent = SocialLlmAgent(
         name="profile_agent",
-        model="gemini-1.5-flash",
+        model=model,
         description="Agent to answer questions about the this person's social profile.",
         instruction="You are a helpful agent who can answer user questions about this person's social profile.",
         tools=[
@@ -91,7 +125,7 @@ def create_agent():
 
     summary_agent = SocialLlmAgent(
         name="summary_agent",
-        model="gemini-1.5-flash",
+        model=model,
         description="Generate a comprehensive social summary.",
         instruction="Your primary task is to synthesize social profile information into a single, comprehensive paragraph.",
         output_key="summary"
@@ -99,7 +133,7 @@ def create_agent():
 
     check_agent = SocialLlmAgent(
         name="check_agent",
-        model="gemini-1.5-flash",
+        model=model,
         description="Check if everyone's social profile are summarized.",
         output_key="summary_status"
     )
@@ -130,4 +164,5 @@ def create_agent():
     )
     return root_agent
 
-root_agent = create_agent()
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+root_agent = create_agent(model=gemini_model)

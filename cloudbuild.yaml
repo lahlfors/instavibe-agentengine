@@ -2,18 +2,30 @@
 
 steps:
   # 1. Build the container image from the specified service directory.
+  # 1a. Copy shared dependencies into the service directory to be included in the build context.
+  # We use bash -c '...' to handle cases where directories might not exist.
+  - name: 'ubuntu'
+    id: 'Pre-build-copy-shared-dirs'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -d "common" ]; then cp -r common "${_SERVICE_DIR}"; fi
+        if [ -d "agents" ]; then cp -r agents "${_SERVICE_DIR}"; fi
+
+  # 2. Build the container image from the specified service directory.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build'
+    dir: '${_SERVICE_DIR}' # Change working directory for the build step
     args:
       - 'build'
       - '--no-cache'
       - '--tag'
       - '${_IMAGE_PATH}'
-      - '--file'
-      - '${_SERVICE_DIR}/Dockerfile'
-      - '.'
+      - '.' # Build context is the current directory (now _SERVICE_DIR)
+    wait_for: ['Pre-build-copy-shared-dirs']
 
-  # 2. Push the container image to Artifact Registry.
+  # 3. Push the container image to Artifact Registry.
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push'
     args: ['push', '${_IMAGE_PATH}']

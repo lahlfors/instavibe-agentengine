@@ -1,11 +1,12 @@
 FROM python:3.12-slim
 WORKDIR /app
 
-# Corrected paths relative to the build context (PROJECT_ROOT)
-COPY ./instavibe/requirements.txt ./requirements.txt
+# Standard paths relative to the build context (the instavibe/ directory)
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY ./instavibe/ ./
-COPY ./common ./common
+COPY . .
+# The 'common' directory is now copied into the build context by cloudbuild.yaml
+COPY common ./common
 
 ENV PYTHONPATH="/app"
 EXPOSE 8080

@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 # Access classes from the imported reasoning_engines module
 ReasoningEngine = reasoning_engines.ReasoningEngine
 AdkApp = reasoning_engines.AdkApp
-try:
-    ReasoningEngineSpec = reasoning_engines.ReasoningEngineSpec
-    logger.info("Using reasoning_engines.ReasoningEngineSpec")
-except AttributeError:
-    logger.critical("CRITICAL: reasoning_engines.ReasoningEngineSpec not found!")
-    raise
+# The ReasoningEngineSpec class has been removed from the SDK.
+# The ReasoningEngine class is now used for this purpose.
+# try:
+#     ReasoningEngineSpec = reasoning_engines.ReasoningEngineSpec
+#     logger.info("Using reasoning_engines.ReasoningEngineSpec")
+# except AttributeError:
+#     logger.critical("CRITICAL: reasoning_engines.ReasoningEngineSpec not found!")
+#     raise
 
 def find_existing_reasoning_engine(display_name: str, project: str, location: str) -> Optional[ReasoningEngine]:
     """Finds an existing Reasoning Engine by display name."""
@@ -57,7 +59,7 @@ def deploy_adk_agent_engine(
         raise
 
     # --- CORRECTED Spec ---
-    spec = ReasoningEngineSpec(
+    spec = reasoning_engines.ReasoningEngine(
         agent=app,
         requirements=requirements,
         extra_packages=extra_packages,

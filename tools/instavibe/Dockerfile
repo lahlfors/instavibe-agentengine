@@ -3,19 +3,17 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Copy the specific requirements file for this service
-COPY tools/instavibe/requirements.txt .
+COPY requirements.txt .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the shared agents directory
+# The 'agents' and 'common' directories are now copied into the build context by cloudbuild.yaml
 COPY agents ./agents
-
-# Copy the shared common directory
 COPY common ./common
 
 # Copy the server script itself
-COPY tools/instavibe/mcp_server.py .
+COPY mcp_server.py .
 
 ENV PYTHONPATH="/app"
 EXPOSE 8080

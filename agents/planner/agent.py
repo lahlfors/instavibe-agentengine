@@ -5,24 +5,31 @@ from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from opentelemetry import trace
-from common.observability import setup_observability
+from ..common.observability import setup_observability
 import logging
+from vertexai.generative_models import GenerativeModel
+from google.generativeai import GenerativeModel # Added import
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
-from typing import Optional
+from typing import Optional, Any
 
 class PlannerAgent(LlmAgent):
     display_name: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None
+    model_client: Any = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __post_init__(self):
+        super().__post_init__()
+        if self.model:
+            self.model_client = GenerativeModel(self.model)
+        else:
+            print("WARNING: PlannerAgent initialized without a model name.")
 
-    async def _async_set_up(self, **kwargs):
+    async def __async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
@@ -102,5 +109,5 @@ def create_agent(model: str):
         tools=[google_search]
     )
 
-gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
 root_agent = create_agent(model=gemini_model)

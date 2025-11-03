@@ -21,7 +21,8 @@ from opentelemetry import trace
 from common.observability import setup_observability
 from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
-from typing import Optional
+from typing import Optional, Any
+from vertexai.generative_models import GenerativeModel # Added import
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -31,12 +32,16 @@ logger = logging.getLogger(__name__)
 class SocialLlmAgent(LlmAgent):
     display_name: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None
+    model_client: Any = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # otel_collector_endpoint is set by Pydantic if passed in kwargs
+    def __post_init__(self):
+        super().__post_init__()
+        if self.model:
+            self.model_client = GenerativeModel(self.model)
+        else:
+            print("WARNING: SocialLlmAgent initialized without a model name.")
 
-    async def _async_set_up(self, **kwargs):
+    async def __async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
@@ -77,7 +82,7 @@ class SocialLoopAgent(LoopAgent):
         super().__init__(**kwargs)
         # otel_collector_endpoint is set by Pydantic if passed in kwargs
 
-    async def _async_set_up(self, **kwargs):
+    async def __async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
@@ -164,5 +169,5 @@ def create_agent(model: str):
     )
     return root_agent
 
-gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-1.5-flash")
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
 root_agent = create_agent(model=gemini_model)

@@ -373,12 +373,13 @@ def main(args):
                     logging.info(f"Instantiating {adk_agent_name} with keys: {list(kwargs.keys())}")
                     agent_to_deploy = agent_class(**kwargs)
 
+                    with open(agent_conf["requirements_file"], "r") as f:
+                        requirements = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
                     remote_agent = deploy_adk_agent_engine(
                         agent_object=agent_to_deploy,
-                        gcp_agent_id=agent_gcp_id,
                         project=project_id,
                         location=region,
-                        requirements_path=agent_conf["requirements_file"],
+                        requirements=requirements,
                         extra_packages=agent_conf["extra_packages"],
                         display_name=display_name,
                     )

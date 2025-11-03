@@ -13,6 +13,9 @@ from ally_routes import ally_bp
 from common.observability import setup_observability
 from opentelemetry import trace
 
+# Import the root_agent
+from agents.orchestrate.orchestrate_service_agent import root_agent
+
 tracer = trace.get_tracer(__name__)
 
 app = Flask(__name__)
@@ -1039,6 +1042,14 @@ def service_unavailable(e):
 
 
 
+@app.before_request
+def setup_agent():
+    if not hasattr(app, 'agent_setup_complete'):
+        print("--- Running ADK Agent setup ---")
+        # Assuming root_agent is globally accessible after import
+        root_agent.set_up(reasoning_engine_id="orchestrate_agent") # Pass a dummy ID for now
+        app.agent_setup_complete = True
+        print("--- Agent setup complete. Ready to serve requests. ---")
 
 
 if __name__ == '__main__':

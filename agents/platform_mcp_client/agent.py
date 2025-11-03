@@ -63,7 +63,7 @@ class PlatformMCPClientAgent(Agent):
         logger.info(f"Fetching API key from secret: {secret_name}")
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
-    async def _async_set_up(self, **kwargs):
+    async def __async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         from common.observability import setup_observability
@@ -127,3 +127,11 @@ class PlatformMCPClientAgent(Agent):
         """The entry point for the reasoning engine."""
         # The base Agent's entry point is __call__
         return self(**kwargs)
+
+root_agent = PlatformMCPClientAgent(
+    name="platform_mcp_client_agent",
+    model="gemini-1.5-flash",
+    tools=[],
+    display_name="Platform MCP Client Agent",
+    mcp_server_address=os.getenv("MCP_SERVER_URL"),
+)

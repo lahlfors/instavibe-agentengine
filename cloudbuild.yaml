@@ -64,6 +64,8 @@ steps:
       - '--set-env-vars'
       - 'SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL}'
       - '--set-env-vars'
+      - 'SOCIAL_AGENT_RESOURCE_NAME=${_SOCIAL_AGENT_RESOURCE_NAME}'
+      - '--set-env-vars'
       - 'PLANNER_AGENT_URL=${_PLANNER_AGENT_URL}'
       - '--set-env-vars'
       - 'MCP_AGENT_URL=${_MCP_AGENT_URL}'
@@ -106,9 +108,10 @@ substitutions:
   _INSTAVIBE_GOOGLE_MAPS_API_KEY: ''
   _OTEL_COLLECTOR_ENDPOINT: ''
   _ENABLE_TRACING: 'True'
-  _COMMON_GEMINI_MODEL: 'gemini-1.5-flash'
+  _COMMON_GEMINI_MODEL: 'gemini-2.5-flash'
   _ORCHESTRATE_AGENT_RESOURCE_NAME: ''
   _PLANNER_AGENT_RESOURCE_NAME: ''
+  _SOCIAL_AGENT_RESOURCE_NAME: ''
   _PLATFORM_MCP_CLIENT_AGENT_RESOURCE_NAME: ''
 
 images:

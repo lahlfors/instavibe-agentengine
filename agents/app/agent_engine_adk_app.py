@@ -1,28 +1,20 @@
-# agents/app/agent_engine_adk_app.py
+# In agents/app/agent_engine_adk_app.py
 import logging
 import time
-from google.api_core import exceptions
 import vertexai
-from vertexai.preview import reasoning_engines # Import the module
+from vertexai.preview import reasoning_engines
 from google.adk.agents import Agent as AdkAgentType
-from typing import Optional, List, Any
-import os
+from typing import Optional, List
+from google.api_core import exceptions
 
 logger = logging.getLogger(__name__)
 
-# Access classes from the imported reasoning_engines module
 ReasoningEngine = reasoning_engines.ReasoningEngine
 AdkApp = reasoning_engines.AdkApp
-# The ReasoningEngineSpec class has been removed from the SDK.
-# The ReasoningEngine class is now used for this purpose.
-# try:
-#     ReasoningEngineSpec = reasoning_engines.ReasoningEngineSpec
-#     logger.info("Using reasoning_engines.ReasoningEngineSpec")
-# except AttributeError:
-#     logger.critical("CRITICAL: reasoning_engines.ReasoningEngineSpec not found!")
-#     raise
 
-def find_existing_reasoning_engine(display_name: str, project: str, location: str) -> Optional[ReasoningEngine]:
+def find_existing_reasoning_engine(
+    display_name: str, project: str, location: str
+) -> Optional[ReasoningEngine]:
     """Finds an existing Reasoning Engine by display name."""
     try:
         filters = f'display_name="{display_name}"'
@@ -34,22 +26,15 @@ def find_existing_reasoning_engine(display_name: str, project: str, location: st
 
 def deploy_adk_agent_engine(
     agent_object: AdkAgentType,
-    gcp_agent_id: str, # For logging
+    display_name: str,
     project: str,
     location: str,
-    requirements_path: str,
-    extra_packages: list[str],
-    display_name: str,
+    requirements: List[str],
+    extra_packages: List[str],
 ) -> Optional[ReasoningEngine]:
-    """Deploys or updates a Reasoning Engine application using ADK's AdkApp."""
+    """ Deploys or updates a Reasoning Engine by DELETING and RE-CREATING it. """
 
-    try:
-        with open(requirements_path, "r") as f:
-            requirements = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-        logger.info(f"Cleaned requirements: {requirements}")
-    except FileNotFoundError:
-        logger.error(f"Requirements file not found: {requirements_path}")
-        raise
+    vertexai.init(project=project, location=location)
 
     logger.info(f"Wrapping ADK agent '{agent_object.name}' in AdkApp for deployment.")
     try:
@@ -58,43 +43,35 @@ def deploy_adk_agent_engine(
         logger.error(f"Failed to create AdkApp: {e}", exc_info=True)
         raise
 
-    # --- CORRECTED Spec ---
-    spec = reasoning_engines.ReasoningEngine(
-        agent=app,
-        requirements=requirements,
-        extra_packages=extra_packages,
-        display_name=display_name,
-        # --- REMOVED service_account ---
+    logger.info(f"Checking for existing Reasoning Engine: '{display_name}'")
+    existing_agent = find_existing_reasoning_engine(
+        display_name=display_name, project=project, location=location
     )
 
-    existing_agent = find_existing_reasoning_engine(display_name, project, location)
-
     if existing_agent:
-        logger.info(f"Found existing Reasoning Engine: {existing_agent.resource_name}. Deleting to update...")
+        logger.warning(f"Found existing engine: {existing_agent.resource_name}. Deleting it now...")
         try:
-            delete_operation = existing_agent.delete() # Removed force=True
-            logger.info(f"Deletion initiated for {existing_agent.resource_name}. Waiting for completion...")
-            try:
-                delete_operation.result(timeout=180)
-                logger.info(f"Successfully deleted existing agent: {existing_agent.resource_name}")
-            except TimeoutError:
-                logger.warning(f"Deletion of {existing_agent.resource_name} timed out after 180s.")
-            except Exception as e:
-                 logger.error(f"Error during delete operation for {existing_agent.resource_name}: {e}", exc_info=True)
-                 raise
+            existing_agent.delete()
+            logger.info(f"Successfully deleted old agent: {display_name}")
+            time.sleep(10) 
         except exceptions.NotFound:
-            logger.info(f"Agent {existing_agent.resource_name} not found for deletion.")
+            logger.warning(f"Agent {display_name} was already deleted.")
         except Exception as e:
-            logger.error(f"Failed to initiate deletion for {existing_agent.resource_name}: {e}", exc_info=True)
+            logger.error(f"Failed to delete existing Reasoning Engine {display_name}: {e}", exc_info=True)
             raise
 
-    logger.info(f"Creating Reasoning Engine for {display_name}...")
+    logger.info(f"Creating new Reasoning Engine for {display_name}...")
     try:
-        remote_agent = ReasoningEngine.create(spec)
-        logger.info(f"Creation initiated for {display_name}. Waiting for LRO to complete...")
-        remote_agent = remote_agent._wait_for_creation()
-        logger.info(f"Successfully created or updated: {remote_agent.resource_name}")
+        remote_agent = ReasoningEngine.create(
+            app,
+            requirements=requirements,
+            extra_packages=extra_packages,
+            display_name=display_name,
+        )
+        
+        logger.info(f"Successfully created: {remote_agent.resource_name}")
         return remote_agent
+        
     except Exception as e:
         logger.error(f"Failed to create new Reasoning Engine {display_name}: {e}", exc_info=True)
         raise

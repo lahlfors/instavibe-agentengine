@@ -41,7 +41,7 @@ class PlannerAgent(LlmAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """This is the main, streaming entry point for the agent."""
         if not self.model_client:
-            yield Event(content=types.Content(parts=[types.Part(text="Model client not initialized")]))
+            yield Event(author=self.name, content=types.Content(parts=[types.Part(text="Model client is not initialized.")]))
             return
 
         # This reuses the single, shared client

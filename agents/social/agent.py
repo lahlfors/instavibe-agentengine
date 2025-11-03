@@ -61,7 +61,7 @@ class SocialLlmAgent(LlmAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """This is the main, streaming entry point for the agent."""
         if not self.model_client:
-            yield Event(content=types.Content(parts=[types.Part(text="Model client not initialized")]))
+            yield Event(author=self.name, content=types.Content(parts=[types.Part(text="Model client not initialized")]))
             return
 
         # This reuses the single, shared client
@@ -160,7 +160,7 @@ def create_agent(model: str):
         agent_name = callback_context.agent_name
         invocation_id = callback_context.invocation_id
         current_state = callback_context.state.to_dict()
-        status = current_state.get("summary_status").strip()
+        status = current_state.get("summary_status", "fail").strip()
         is_done = (status == "completed")
         final_summary = current_state.get("summary")
         if final_summary and is_done and isinstance(final_summary, str):

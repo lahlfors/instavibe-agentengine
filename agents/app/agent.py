@@ -1,6 +1,7 @@
 from google.adk.agents import BaseAgent
 from google.genai.types import Content, Part
-from google.adk.events import Event, InvocationContext
+from google.adk.events import Event
+from google.adk.agents.invocation_context import InvocationContext
 from google.generativeai import GenerativeModel
 from typing import Any, AsyncIterator
 
@@ -45,5 +46,5 @@ class AppAgent(BaseAgent):
 
 # This is what the loader looks for
 root_agent = AppAgent(
-    model="gemini-1.5-flash"
+    model="gemini-2.5-flash"
 )

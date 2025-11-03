@@ -117,7 +117,7 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     yield {"type": "thought", "data": f"Sending detailed planning prompt to ADK App for {user_name}'s event."}
 
     with tracer.start_as_current_span("call_agent_for_plan") as span:
-        model_name = "gemini-1.5-flash-001" # Or get from env
+        model_name = "gemini-2.5-flash-001" # Or get from env
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
         span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, model_name)
         model = GenerativeModel(model_name)

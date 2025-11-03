@@ -18,7 +18,7 @@ from typing import Optional, AsyncGenerator, List, Callable, Any
 from google.adk.events import Event
 from google.genai.types import Content, Part
 from google.adk.events import Event
-from pydantic import Field
+from pydantic import Field, PrivateAttr, PrivateAttr, PrivateAttr
 from vertexai.preview.reasoning_engines import ReasoningEngine # Import ReasoningEngine
 
 # Add project root to sys.path
@@ -61,31 +61,19 @@ class OrchestrateServiceAgent(Agent):
     social_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
     platform_mcp_client_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
 
-    model_client: Any = None
-
+    _model_client: Any = PrivateAttr(default=None)
 
     def __post_init__(self):
-        """(Pydantic v1) Runs after model is initialized."""
         super().__post_init__()
-        logger.info("--- ORCHESTRATE AGENT POST-INIT (STATIC) ---")
-        
-        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
-        self.otel_collector_endpoint = os.getenv("OTEL_COLLECTOR_ENDPOINT")
-
-        if not self.project or not self.location:
-            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION must be set.")
-
-        # Initialize static agent components
         if self.model:
-            self.model_client = GenerativeModel(self.model)
+            self._model_client = GenerativeModel(self.model)
         else:
-            print(f"WARNING: {self.__class__.__name__} initialized without a model name.")
-        self.planner = BuiltInPlanner(thinking_config=ThinkingConfig(include_thoughts=True, thinking_budget=-1))
-        self.tools: List[Callable] = [ self.__async_send_task_tool ]
-        self.instruction = self.root_instruction
-        
-        logger.info("--- ORCHESTRATE AGENT POST-INIT COMPLETE ---")
+            print("WARNING: OrchestrateServiceAgent initialized without a model name.")
+
+    @property
+    def model_client(self) -> GenerativeModel | None:
+        """Exposes the private model client."""
+        return self._model_client
 
 
     async def _async_set_up(self, reasoning_engine_id: str, **kwargs):

@@ -8,7 +8,7 @@ import google.auth.credentials
 import json
 from opentelemetry import trace
 import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
-from vertexai.generative_models import GenerativeModel
+from google.generativeai import GenerativeModel
 from google.adk.agents import Agent, InvocationContext
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
@@ -61,10 +61,11 @@ class OrchestrateServiceAgent(Agent):
     social_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
     platform_mcp_client_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
 
-    model_client: Optional[GenerativeModel] = Field(default=None, exclude=True)
+    model_client: Any = None
 
 
     def __post_init__(self):
+        """(Pydantic v1) Runs after model is initialized."""
         super().__post_init__()
         logger.info("--- ORCHESTRATE AGENT POST-INIT (STATIC) ---")
         
@@ -79,7 +80,7 @@ class OrchestrateServiceAgent(Agent):
         if self.model:
             self.model_client = GenerativeModel(self.model)
         else:
-            print("WARNING: OrchestrateServiceAgent initialized without a model name.")
+            print(f"WARNING: {self.__class__.__name__} initialized without a model name.")
         self.planner = BuiltInPlanner(thinking_config=ThinkingConfig(include_thoughts=True, thinking_budget=-1))
         self.tools: List[Callable] = [ self.__async_send_task_tool ]
         self.instruction = self.root_instruction

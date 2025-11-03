@@ -1,15 +1,25 @@
+import sys
+import os
+
+# 1. FIX: Add project root to sys.path
+# (Replaces your 'sys.path.append('.')')
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
 import asyncio
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 import logging
-import os
 from typing import Any, Dict, List, Tuple, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-import sys
-sys.path.append('.')
+
+# 2. FIX: Import GenerativeModel for the resource leak fix
+from google.generativeai import GenerativeModel
 from google.adk.tools.mcp_tool import mcp_toolset, StreamableHTTPConnectionParams
 from pydantic import PrivateAttr
+from common.observability import setup_observability # Now this import works
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -35,8 +45,22 @@ class PlatformMCPClientAgent(Agent):
     otel_collector_endpoint: Optional[str] = None
     _mcp_tools: List[Any] = PrivateAttr(default_factory=list)
 
+    # 3. FIX: Declare model_client for the resource leak fix
+    model_client: Any = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+    # 4. FIX: Add __post_init__ for the resource leak fix
+    def __post_init__(self):
+        """(Pydantic v1) Runs after model is initialized."""
+        super().__post_init__()  # Call the parent's post_init
+        if self.model:
+            self.model_client = GenerativeModel(self.model)
+        else:
+            print(f"WARNING: {self.__class__.__name__} initialized without a model name.")
+        # Note: The base Agent's _run_async_impl will
+        # automatically use self.model_client if it exists.
 
     def __getstate__(self):
         return {
@@ -66,7 +90,8 @@ class PlatformMCPClientAgent(Agent):
     async def __async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
-        from common.observability import setup_observability
+
+        # This import is now at the top of the file
         setup_observability(endpoint_override=self.otel_collector_endpoint)
 
         if self._mcp_tools:
@@ -128,10 +153,14 @@ class PlatformMCPClientAgent(Agent):
         # The base Agent's entry point is __call__
         return self(**kwargs)
 
+mcp_address = os.getenv("MCP_SERVER_ADDRESS")
+if not mcp_address:
+    raise ValueError("MCP_SERVER_ADDRESS not set in .env file")
+
 root_agent = PlatformMCPClientAgent(
     name="platform_mcp_client_agent",
     model="gemini-1.5-flash",
-    tools=[],
+    tools=[], # Tools are loaded dynamically in set_up
     display_name="Platform MCP Client Agent",
-    mcp_server_address=os.getenv("MCP_SERVER_URL"),
+    mcp_server_address=mcp_address,
 )

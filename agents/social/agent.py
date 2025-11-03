@@ -22,7 +22,7 @@ from common.observability import setup_observability
 from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional, Any
-from vertexai.generative_models import GenerativeModel # Added import
+from google.generativeai import GenerativeModel # Use the Google AI client
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -57,6 +57,19 @@ class SocialLlmAgent(LlmAgent):
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
             raise
         return self
+
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        """This is the main, streaming entry point for the agent."""
+        if not self.model_client:
+            yield Event(content=types.Content(parts=[types.Part(text="Model client not initialized")]))
+            return
+
+        # This reuses the single, shared client
+        prompt_content = ctx.user_content
+        response = await self.model_client.generate_content_async(prompt_content)
+
+        # Yield the full response event
+        yield Event(content=response.candidates[0].content)
 
     def query(self, **kwargs):
         with tracer.start_as_current_span(f"a2a.social.{self.name}") as span:

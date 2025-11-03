@@ -1,14 +1,5 @@
-import sys
-import os
-
-# Determine the project root directory
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 import asyncio
 import datetime
-from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 from google.adk.agents import LoopAgent, LlmAgent, BaseAgent
 from google.adk.tools import FunctionTool
@@ -18,14 +9,11 @@ from google.adk.events import Event, EventActions
 from typing import AsyncGenerator
 import logging
 from opentelemetry import trace
-from common.observability import setup_observability
+from ..common.observability import setup_observability
 from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional, Any
 from google.generativeai import GenerativeModel # Use the Google AI client
-
-# Load environment variables
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
@@ -69,7 +57,7 @@ class SocialLlmAgent(LlmAgent):
         response = await self.model_client.generate_content_async(prompt_content)
 
         # Yield the full response event
-        yield Event(content=response.candidates[0].content)
+        yield Event(author=self.name, content=response.candidates[0].content)
 
     def query(self, **kwargs):
         with tracer.start_as_current_span(f"a2a.social.{self.name}") as span:
@@ -160,7 +148,7 @@ def create_agent(model: str):
         agent_name = callback_context.agent_name
         invocation_id = callback_context.invocation_id
         current_state = callback_context.state.to_dict()
-        status = current_state.get("summary_status", "fail").strip()
+        status = current_state.get("summary_status").strip()
         is_done = (status == "completed")
         final_summary = current_state.get("summary")
         if final_summary and is_done and isinstance(final_summary, str):

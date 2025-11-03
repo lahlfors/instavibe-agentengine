@@ -29,7 +29,7 @@ class AppAgent(BaseAgent):
     ) -> AsyncIterator[Event]:
 
         if not self.model_client:
-            yield Event(content=Content(parts=[Part(text="AppAgent: Model client not initialized")]))
+            yield Event(author=self.name, content=Content(parts=[Part(text="AppAgent: Model client not initialized")]))
             return
 
         # Example: Get user's prompt
@@ -42,9 +42,9 @@ class AppAgent(BaseAgent):
             f"You are a helpful app agent. User said: {user_prompt}"
         )
 
-        yield Event(content=response.candidates[0].content)
+        yield Event(author=self.name, content=response.candidates[0].content)
 
 # This is what the loader looks for
 root_agent = AppAgent(
-    model="gemini-2.5-flash"
+    model="gemini-1.5-flash"
 )

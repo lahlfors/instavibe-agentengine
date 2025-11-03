@@ -1,26 +1,14 @@
-import sys
-import os
-
-# Add the project root directory (which contains 'common' and 'agents') to the path
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
-
 import asyncio
-from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from opentelemetry import trace
-from common.observability import setup_observability
+from ..common.observability import setup_observability
 import logging
 from google.generativeai import GenerativeModel # Added import
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from typing import AsyncGenerator
 from google.genai import types
-
-# Load environment variables
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
@@ -41,7 +29,7 @@ class PlannerAgent(LlmAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """This is the main, streaming entry point for the agent."""
         if not self.model_client:
-            yield Event(author=self.name, content=types.Content(parts=[types.Part(text="Model client is not initialized.")]))
+            yield Event(author=self.name, content=types.Content(parts=[types.Part(text="Model client not initialized")]))
             return
 
         # This reuses the single, shared client
@@ -49,7 +37,7 @@ class PlannerAgent(LlmAgent):
         response = await self.model_client.generate_content_async(prompt_content)
 
         # Yield the full response event
-        yield Event(content=response.candidates[0].content)
+        yield Event(author=self.name, content=response.candidates[0].content)
 
     async def __async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")

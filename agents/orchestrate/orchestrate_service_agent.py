@@ -18,19 +18,14 @@ from typing import Optional, AsyncGenerator, List, Callable, Any
 from google.adk.events import Event
 from google.genai.types import Content, Part
 from google.adk.events import Event
-from pydantic import Field, PrivateAttr, PrivateAttr, PrivateAttr
+from pydantic import Field, PrivateAttr
 from vertexai.preview.reasoning_engines import ReasoningEngine # Import ReasoningEngine
-
-# Add project root to sys.path
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
 
 # We are now calling agents directly, not using the old helper
 # from agents.app.utils.communication import call_agent_capability 
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
-from common.observability import setup_observability
+from ..common.observability import setup_observability
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,12 +58,29 @@ class OrchestrateServiceAgent(Agent):
 
     _model_client: Any = PrivateAttr(default=None)
 
+
     def __post_init__(self):
+        """(Pydantic v1) Runs after model is initialized."""
         super().__post_init__()
+        logger.info("--- ORCHESTRATE AGENT POST-INIT (STATIC) ---")
+
+        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        self.otel_collector_endpoint = os.getenv("OTEL_COLLECTOR_ENDPOINT")
+
+        if not self.project or not self.location:
+            raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION must be set.")
+
+        # Initialize static agent components
         if self.model:
             self._model_client = GenerativeModel(self.model)
         else:
-            print("WARNING: OrchestrateServiceAgent initialized without a model name.")
+            print(f"WARNING: {self.__class__.__name__} initialized without a model name.")
+        self.planner = BuiltInPlanner(thinking_config=ThinkingConfig(include_thoughts=True, thinking_budget=-1))
+        self.tools: List[Callable] = [ self.__async_send_task_tool ]
+        self.instruction = self.root_instruction
+
+        logger.info("--- ORCHESTRATE AGENT POST-INIT COMPLETE ---")
 
     @property
     def model_client(self) -> GenerativeModel | None:

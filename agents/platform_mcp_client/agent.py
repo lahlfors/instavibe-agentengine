@@ -1,30 +1,15 @@
-import sys
-import os
-
-# 1. FIX: Add project root to sys.path
-# (Replaces your 'sys.path.append('.')')
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
-
 import asyncio
-from dotenv import load_dotenv
-
-# Load environment variables from the root .env file
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
 from google.adk.agents import Agent
 import logging
-import os
 from typing import Any, Dict, List, Tuple, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-import sys
-sys.path.append('.')
+
+# 2. FIX: Import GenerativeModel for the resource leak fix
 from google.generativeai import GenerativeModel
 from google.adk.tools.mcp_tool import mcp_toolset, StreamableHTTPConnectionParams
 from pydantic import PrivateAttr
-from common.observability import setup_observability # Now this import works
+from ..common.observability import setup_observability # Now this import works
 
 # Configure standard logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
@@ -161,7 +146,7 @@ if not mcp_address:
 
 root_agent = PlatformMCPClientAgent(
     name="platform_mcp_client_agent",
-    model="gemini-2.5-flash",
+    model="gemini-1.5-flash",
     tools=[], # Tools are loaded dynamically in set_up
     display_name="Platform MCP Client Agent",
     mcp_server_address=mcp_address,

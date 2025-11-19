@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
 
-from common.observability import setup_observability
+from agents.common.observability import setup_observability
 
 class TestObservabilityRefactor(unittest.TestCase):
     def tearDown(self):

@@ -1,7 +1,5 @@
-import os
 import asyncio
 from google.adk.agents import Agent
-import sys
 import logging
 from typing import Any, Dict, List, Tuple, Optional
 from opentelemetry import trace

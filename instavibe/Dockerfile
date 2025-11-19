@@ -6,7 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # The 'common' directory is now copied into the build context by cloudbuild.yaml
-COPY common ./common
+COPY agents/common ./common
 
 ENV PYTHONPATH="/app"
 EXPOSE 8080

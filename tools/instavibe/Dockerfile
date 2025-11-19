@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # The 'agents' and 'common' directories are now copied into the build context by cloudbuild.yaml
 COPY agents ./agents
-COPY common ./common
+COPY agents/common ./common
 
 # Copy the server script itself
 COPY mcp_server.py .

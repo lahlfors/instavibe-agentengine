@@ -1,4 +1,3 @@
-import os
 import asyncio
 import datetime
 from zoneinfo import ZoneInfo

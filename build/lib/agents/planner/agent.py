@@ -1,33 +1,82 @@
-import os
-import logging
 import asyncio
-from dotenv import load_dotenv
-from typing import Any, Dict, Optional, AsyncGenerator
-from google.adk.agents import LlmAgent, InvocationContext
-from google.adk.events import Event
+from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
-import sys
-sys.path.append('.')
-from agents.common.observability import setup_observability
-
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+from common.observability import setup_observability
+import logging
+from google.generativeai import GenerativeModel # Added import
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
+from typing import AsyncGenerator
+from google.genai import types
 tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
+
+from typing import Optional, Any
 
 class PlannerAgent(LlmAgent):
-    """An agent that helps users plan a night out."""
+    display_name: Optional[str] = None
+    otel_collector_endpoint: Optional[str] = None
+    model_client: Any = None
 
-    def set_up(self):
-        """Initializes the agent and sets up observability."""
-        setup_observability()
+    def __post_init__(self):
+        super().__post_init__()
+        if self.model:
+            self.model_client = GenerativeModel(self.model)
+        else:
+            print("WARNING: PlannerAgent initialized without a model name.")
 
-    def __init__(self, name: str = "planner_agent") -> None:
-        super().__init__(
-            name=name,
-            model="gemini-2.0-flash-001",
-            description="Agent tasked with generating creative and fun event plan suggestions",
-            instruction="""
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        """This is the main, streaming entry point for the agent."""
+        if not self.model_client:
+            yield Event(author=self.name, content=types.Content(parts=[types.Part(text="Model client not initialized")]))
+            return
+
+        # This reuses the single, shared client
+        prompt_content = ctx.user_content
+        response = await self.model_client.generate_content_async(prompt_content)
+
+        # Yield the full response event
+        yield Event(author=self.name, content=response.candidates[0].content)
+
+    async def __async_set_up(self, **kwargs):
+        logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
+        os.environ["OTEL_SERVICE_NAME"] = self.name
+        setup_observability(endpoint_override=self.otel_collector_endpoint)
+        logger.info(f"{self.__class__.__name__} async setup complete.")
+
+    def set_up(self, **kwargs):
+        """A synchronous wrapper for the async setup."""
+        logger.info(f"Sync set_up called for {self.__class__.__name__}")
+        try:
+            asyncio.run(self._async_set_up(**kwargs))
+            logger.info(f"set_up completed for {self.__class__.__name__}.")
+        except Exception as e:
+            logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
+            raise
+        return self
+
+    def query(self, **kwargs):
+        with tracer.start_as_current_span("a2a.planner.plan") as span:
+            span.set_attribute("agent.name", self.name)
+            span.set_attribute("user.prompt", kwargs.get("message", ""))
+            span.set_attribute("request.data", str(kwargs))
+            logger.info(f"Handling plan request: {kwargs}")
+
+            try:
+                response = super().__call__(**kwargs)
+                span.set_attribute("agent.final_response", str(response))
+                span.set_attribute("response.data", str(response))
+                span.set_status(trace.StatusCode.OK)
+                return response
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(trace.StatusCode.ERROR, str(e))
+                raise
+
+def create_agent(model: str):
+    AGENT_NAME = "planner_agent"
+    AGENT_INSTRUCTION = '''
 
             You are a specialized AI assistant tasked with generating creative and fun plan suggestions.
 
@@ -60,33 +109,15 @@ class PlannerAgent(LlmAgent):
               ]
             }
 
-        """,
-            tools=[google_search]
-        )
+        '''
 
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        with tracer.start_as_current_span("PlannerAgent.run") as span:
-            try:
-                async for event in super()._run_async_impl(ctx):
-                    if event.is_final_response():
-                        if event.content and event.content.parts:
-                            final_output = event.content.parts[0].text
-                            span.set_attribute("gen_ai.assistant.message", final_output)
-                        if event.usage_metadata:
-                            prompt_tokens = event.usage_metadata.prompt_token_count
-                            completion_tokens = event.usage_metadata.candidates_token_count
-                            total_tokens = event.usage_metadata.total_token_count
-                            input_cost = float(os.getenv("GEMINI_2_0_FLASH_INPUT_COST", "0.10"))
-                            output_cost = float(os.getenv("GEMINI_2_0_FLASH_OUTPUT_COST", "0.30"))
-                            cost = (prompt_tokens * input_cost / 1000000) + (completion_tokens * output_cost / 1000000)
-                            span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
-                            span.set_attribute("gen_ai.usage.completion_tokens", completion_tokens)
-                            span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
-                            span.set_attribute("gen_ai.usage.cost", cost)
-                    yield event
-                span.set_status(Status(StatusCode.OK))
-            except Exception as e:
-                logging.error(f"Error during PlannerAgent execution: {e}", exc_info=True)
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                span.record_exception(e)
-                raise
+    return PlannerAgent(
+        name=AGENT_NAME,
+        model=model,
+        description="Agent that creates plans",
+        instruction=AGENT_INSTRUCTION,
+        tools=[google_search]
+    )
+
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
+root_agent = create_agent(model=gemini_model)

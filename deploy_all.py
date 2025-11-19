@@ -14,7 +14,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from agents.app.agent_engine_adk_app import deploy_adk_agent_engine
-from common.observability import setup_observability
+from agents.common.observability import setup_observability
 from google.cloud import aiplatform as vertexai
 
 # --- Logger Initialization ---
@@ -298,7 +298,7 @@ def main(args):
                     "module": "agents.planner.agent",
                     "agent_variable": "PlannerAgent",
                     "requirements_file": "agents/planner/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/planner"],
+                    "extra_packages": ["./agents/app", "./agents/common", "./agents/planner"],
                     "tools": []
                 },
                 {
@@ -308,7 +308,7 @@ def main(args):
                     "module": "agents.orchestrate.orchestrate_service_agent",
                     "agent_variable": "OrchestrateServiceAgent",
                     "requirements_file": "agents/orchestrate/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/orchestrate"],
+                    "extra_packages": ["./agents/app", "./agents/common", "./agents/orchestrate"],
                 },
                 {
                     "name": "social_agent",
@@ -317,7 +317,7 @@ def main(args):
                     "module": "agents.social.agent",
                     "agent_variable": "SocialLoopAgent",
                     "requirements_file": "agents/social/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/social", "./tools"],
+                    "extra_packages": ["./agents/app", "./agents/common", "./agents/social", "./tools"],
                 },
                 {
                     "name": "platform_mcp_client_agent",
@@ -326,7 +326,7 @@ def main(args):
                     "module": "agents.platform_mcp_client.agent",
                     "agent_variable": "PlatformMCPClientAgent",
                     "requirements_file": "agents/platform_mcp_client/requirements.txt",
-                    "extra_packages": ["./agents/app", "./common", "./agents/platform_mcp_client"],
+                    "extra_packages": ["./agents/app", "./agents/common", "./agents/platform_mcp_client"],
                     "tools": []
                 }
             ]

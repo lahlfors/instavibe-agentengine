@@ -1,0 +1,210 @@
+import os
+from typing import Optional
+# import uuid # No longer needed for generating unique GCS filenames
+# from urllib.parse import urlparse # No longer needed for parsing staging_bucket_uri
+# import cloudpickle # Handled by ADK
+# import tarfile # Handled by ADK
+# import tempfile # Handled by ADK
+# import shutil # Handled by ADK
+
+from google.cloud import aiplatform as vertexai # Standard alias
+# from vertexai.preview import reasoning_engines # ADK for deployment - Old
+from vertexai.preview.reasoning_engines import AdkApp as AgentEngineApp # For wrapping
+from vertexai import agent_engines # For the new create method
+# from google.cloud.aiplatform_v1.services import reasoning_engine_service # GAPIC, removed
+# from google.cloud.aiplatform_v1.types import ReasoningEngine as ReasoningEngineGAPIC # GAPIC, removed
+# from google.cloud.aiplatform_v1.types import ReasoningEngineSpec # GAPIC, removed
+# from google.cloud import storage # Handled by ADK or not needed directly
+# import google.auth # For google.auth.exceptions, potentially still needed if vertexai.init() fails early
+from dotenv import load_dotenv # For loading .env file
+import logging # Added
+
+from agents.planner.planner_agent import PlannerAgent
+
+# Load environment variables from the root .env file
+# This ensures that any implicit environment variable reads by underlying
+# libraries (e.g., Google Cloud clients if project_id isn't explicit everywhere)
+# are configured from the root .env.
+# Keep load_dotenv for now, as PlannerAgent or other setup might use it.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+log = logging.getLogger(__name__) # Added
+
+def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_run: bool = False, env_vars: Optional[dict[str, str]] = None):
+    """
+    Deploys the Planner Agent as a Vertex AI Reasoning Engine using the ADK.
+
+    Args:
+        project_id: The Google Cloud project ID.
+        region: The Google Cloud region for deployment.
+        base_dir: The base directory of the repository (repo root).
+    """
+    display_name = "Planner Agent"
+    description = """This agent helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions."""
+
+    # Vertex AI Staging bucket is typically set globally via vertexai.init()
+    # ADK's create() command will use this global configuration.
+    # Ensure vertexai.init(project=project_id, location=region, staging_bucket="gs://your-bucket")
+    # has been called, likely in a main deployment script (e.g., deploy_all.py).
+    # We remove direct staging_bucket_uri parsing and GCS client instantiation here.
+
+    local_agent_instance = PlannerAgent()
+
+
+
+    # --- SIMPLIFICATION: Remove SpannerSessionServiceBuilder logic, rely on default VertexAiSessionService ---
+    # The default VertexAiSessionService is expected to be used by the deployed agent.
+    # We will ensure its necessary environment variables are set.
+    log.info("Planner Agent: Configuring AdkApp to use default session service. Spanner config will be passed via environment variables.")
+    adk_app_to_deploy = AgentEngineApp(agent=local_agent_instance)
+
+    spanner_instance_id_for_agent = os.environ.get("COMMON_SPANNER_INSTANCE_ID")
+    spanner_database_id_for_agent = os.environ.get("COMMON_SPANNER_DATABASE_ID")
+
+    # Prepare environment variables for the deployed agent.
+    # These will be available to the agent's runtime environment.
+    # The ADK's default VertexAiSessionService will pick these up if it's designed to look for them.
+    env_vars_for_deployment = {
+        "COMMON_GOOGLE_CLOUD_PROJECT": project_id,
+        "COMMON_GOOGLE_CLOUD_LOCATION": region,
+        "COMMON_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
+        "COMMON_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
+        # Adding ADK_SESSION_ prefixed versions as well, as the default service might prefer these.
+        "ADK_SESSION_SPANNER_INSTANCE_ID": spanner_instance_id_for_agent,
+        "ADK_SESSION_SPANNER_DATABASE_ID": spanner_database_id_for_agent,
+    }
+    env_vars_for_deployment.update(env_vars or {})
+    # --- END SIMPLIFICATION ---
+
+    # Filter out any keys that have None or empty string values from the env_vars_for_deployment
+    env_vars_for_deployment = {k: v for k, v in env_vars_for_deployment.items() if v is not None and v != ""}
+    print(f"  Environment variables for deployed agent: {env_vars_for_deployment}")
+
+    # base_dir is the repository root.
+    requirements_path = os.path.join(base_dir, "agents/planner/requirements.txt")
+    requirements_list = []
+    if os.path.exists(requirements_path):
+        with open(requirements_path, "r") as f:
+            requirements_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    else:
+        # Log a warning if not found, but proceed with empty list as ADK might allow this
+        # or base image might be sufficient for some agents.
+        # However, for this agent, requirements are likely crucial.
+        log.warning(f"Requirements file not found: {requirements_path}. Proceeding with an empty requirements list.")
+        # Consider raising an error if requirements are essential:
+        # raise FileNotFoundError(f"Requirements file {requirements_path} not found.")
+
+    # Ensure nest_asyncio is present with the correct version constraint
+    # This matches the logic in platform_mcp_client/deploy.py
+    nest_asyncio_req_line = "nest_asyncio>=1.5.0,<2.0.0" # ADK often needs this for its async ops
+    found_nest_asyncio = False
+    for i, req in enumerate(requirements_list):
+        if req.startswith("nest_asyncio"):
+            # If found, ensure it matches the desired constraint.
+            # The planner's requirements.txt already has nest_asyncio==1.6.0, which satisfies this.
+            # This logic is more about ensuring a general constraint if it were different or missing.
+            # For now, if it's specified as nest_asyncio==1.6.0, this block might not alter it,
+            # but if it was, e.g., nest_asyncio==1.4.0, it would update it.
+            # To be precise like platform_mcp_client, we could enforce the exact string if different.
+            # Let's assume if it starts with "nest_asyncio" and is in requirements.txt, it's the one we want (1.6.0).
+            # The logic from platform_mcp_client was more about adding it if missing or updating if version was too old.
+            # Given planner's reqs.txt has 1.6.0, this should be fine.
+            # For consistency with platform_mcp_client, let's ensure the line matches if found, or add if not.
+            if req != nest_asyncio_req_line:
+                log.info(f"Updating nest_asyncio requirement from '{req}' to '{nest_asyncio_req_line}' in {requirements_path} (for deployment list)")
+                requirements_list[i] = nest_asyncio_req_line
+            found_nest_asyncio = True
+            break
+    if not found_nest_asyncio:
+        log.info(f"Adding '{nest_asyncio_req_line}' to requirements list for {display_name} deployment.")
+        requirements_list.append(nest_asyncio_req_line)
+
+
+    if dry_run:
+        return adk_app_to_deploy
+    print(f"Starting deployment of '{display_name}' using ADK...")
+    print(f"  Project: {project_id}, Region: {region}")
+    print(f"  Requirements file (source): {requirements_path}") # Log original source
+    print(f"  Processed requirements list (for deployment): {requirements_list}") # Log processed list
+    # env_vars_for_deployment is already prepared and filtered above.
+    # The print statement for it is also already done.
+
+    # The ADK's create() function handles packaging and uploading.
+    # It uses the globally configured staging bucket from vertexai.init().
+    # project and location are also typically set by vertexai.init() but can be overridden.
+    try:
+        remote_agent = agent_engines.create(
+            local_agent_instance,
+            display_name=display_name,
+            description=description,
+            requirements=requirements_list, # Pass the processed list
+            extra_packages=[base_dir, "agents", "agents/a2a_common-0.1.0-py3-none-any.whl", "common"],
+            env_vars=env_vars_for_deployment, # Changed to env_vars
+            # project=project_id, # Optional: ADK uses vertexai.init() global config
+            # location=region,    # Optional: ADK uses vertexai.init() global config
+            # staging_bucket_uri can be specified to override global, but usually not needed.
+            # gcs_dir_name can also be specified if a custom GCS path within the staging bucket is desired.
+            # python_version can be specified if needed, e.g., python_version="3.9"
+            # staging_bucket can be set via vertexai.init() globally
+        )
+    except Exception as e:
+        print(f"ERROR: ADK agent_engines.create() failed: {e}")
+        # Consider if specific error handling or re-raising is needed.
+        # For example, if google.auth.exceptions.DefaultCredentialsError occurs here,
+        # it means vertexai.init() might not have been called or failed.
+        raise
+
+    print(f"Planner Agent (Reasoning Engine) deployment initiated successfully via ADK.")
+    print(f"  Deployed Agent Resource Name (usually available after operation completion): {remote_agent.name if remote_agent else 'Pending...'}") # .name might not be immediately populated depending on return type.
+    # The create() method in ADK is synchronous and should return the deployed resource or raise an error.
+    # If it returns a long-running operation, the access to .name might differ.
+    # Assuming it returns the completed ReasoningEngine resource as per typical ADK behavior.
+    print(f"Access the deployed agent in the Vertex AI Console or via its resource name.")
+
+    return remote_agent # Return the ADK representation of the Reasoning Engine
+
+
+if __name__ == "__main__":
+    print("Running Planner Agent deployment script...")
+    # This __main__ block is primarily for direct execution of this script,
+    # which might be useful for testing the deployment logic in isolation.
+    # In a typical setup, deploy_all.py or a similar script would call deploy_planner_main_func.
+
+    # For direct execution, ensure GOOGLE_APPLICATION_CREDENTIALS is set,
+    # or you've run `gcloud auth application-default login`.
+    # Also, ensure vertexai.init() is called with necessary parameters.
+
+    # Example:
+    # try:
+    #     # These would typically come from command-line args or a config file
+    #     PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    #     REGION = "us-central1"
+    #     STAGING_BUCKET = os.environ.get("VERTEX_AI_STAGING_BUCKET") # e.g., "gs://your-unique-bucket-name"
+    #     REPO_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+    #     if not PROJECT_ID:
+    #         raise ValueError("GOOGLE_CLOUD_PROJECT environment variable not set.")
+    #     if not STAGING_BUCKET:
+    #         raise ValueError("VERTEX_AI_STAGING_BUCKET environment variable not set (e.g., gs://your-bucket).")
+
+    #     print(f"Initializing Vertex AI for project: {PROJECT_ID}, region: {REGION}, staging: {STAGING_BUCKET}")
+    #     vertexai.init(project=PROJECT_ID, location=REGION, staging_bucket=STAGING_BUCKET)
+
+    #     print(f"Using repository base directory: {REPO_BASE_DIR}")
+
+    #     deployed_re = deploy_planner_main_func(
+    #         project_id=PROJECT_ID,
+    #         region=REGION,
+    #         base_dir=REPO_BASE_DIR
+    #     )
+    #     print(f"Deployment script finished. Deployed Reasoning Engine: {deployed_re.name if deployed_re else 'Failed or not available'}")
+
+    # except Exception as e:
+    #     print(f"An error occurred during the __main__ execution: {e}")
+    #     import traceback
+    #     traceback.print_exc()
+
+    print("Planner deployment script __main__ section is illustrative.")
+    print("Actual deployment is typically orchestrated by a higher-level script like deploy_all.py,")
+    print("which should handle vertexai.init() and pass appropriate parameters.")

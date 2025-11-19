@@ -1,144 +1,155 @@
-# In agents/orchestrate/orchestrate_service_agent.py
+# agents/orchestrate/orchestrate_service_agent.py
 import logging
 import os
-import sys
-import asyncio
-import google.auth
-import google.auth.credentials
-import json
-from opentelemetry import trace
-import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
-from google.generativeai import GenerativeModel
-from google.adk.agents import Agent, InvocationContext
-from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.agents import LlmAgent
+from google.adk.readonly_context import ReadonlyContext
 from google.adk.planners import BuiltInPlanner
-from google.adk.tools.tool_context import ToolContext
 from google.genai.types import ThinkingConfig
-from typing import Optional, AsyncGenerator, List, Callable, Any
-from google.adk.events import Event
-from google.genai.types import Content, Part
-from google.adk.events import Event
-from pydantic import Field, PrivateAttr
-from vertexai.preview.reasoning_engines import ReasoningEngine # Import ReasoningEngine
+from pydantic import Field
+from typing import Optional
+from a2a.client import ClientConfig
+from a2a.types import TransportProtocol
 
-# We are now calling agents directly, not using the old helper
-# from agents.app.utils.communication import call_agent_capability 
+# Import picklable wrappers
+from agents.orchestrate.picklable_a2a_wrappers import (
+    PicklableRemoteA2aAgent,
+    PicklableClientFactory
+)
+
+# Import observability and memory
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
-from ..common.observability import setup_observability
+from common.observability import setup_observability
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 
-class OrchestrateServiceAgent(Agent):
+
+class OrchestrateServiceAgent(LlmAgent):
     """
-    The main orchestrator agent. It is initialized with the resource names
-    of other agents and calls them directly using the SDK.
+    Orchestrator that delegates to specialist agents on Agent Engine via A2A protocol.
+    Uses picklable RemoteA2aAgent wrappers for deployment to Agent Engine.
+    
+    Based on Google Cloud Japan's proven pattern:
+    https://github.com/google-cloud-japan/sa-ml-workshop/blob/main/blog/Agentic-workflow-AgentEngine-A2A.ipynb
     """
     
-    # --- Pydantic Fields ---
-    display_name: Optional[str] = Field(default=None, description="The display name for the agent.")
-    project: Optional[str] = Field(default=None, description="The Google Cloud project ID.")
-    location: Optional[str] = Field(default=None, description="The Google Cloud location.")
-    reasoning_engine_id: Optional[str] = Field(default=None, description="The GCP Reasoning Engine ID.")
-    
-    memory_service: Optional[VertexAiMemoryBankService] = Field(default=None, exclude=True)
-    otel_collector_endpoint: Optional[str] = Field(default=None)
-    
-    # --- Dependency Injection Fields ---
+    # Resource names for deployed agents (to construct A2A URLs)
     planner_agent_resource_name: Optional[str] = Field(default=None)
     social_agent_resource_name: Optional[str] = Field(default=None)
-    platform_mcp_client_agent_resource_name: Optional[str] = Field(default=None)
-
-    # Agent clients will be initialized in _async_set_up
-    planner_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
-    social_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
-    platform_mcp_client_agent: Optional[ReasoningEngine] = Field(default=None, exclude=True)
-
-    _model_client: Any = PrivateAttr(default=None)
-
-
+    platform_agent_resource_name: Optional[str] = Field(default=None)
+    
+    # Project/location info
+    project_id: Optional[str] = Field(default=None)
+    location: Optional[str] = Field(default=None)
+    reasoning_engine_id: Optional[str] = Field(default=None)
+    otel_collector_endpoint: Optional[str] = Field(default=None)
+    
+    # Memory service (initialized in _async_set_up)
+    memory_service: Optional[VertexAiMemoryBankService] = Field(default=None, exclude=True)
+    
     def __post_init__(self):
-        """(Pydantic v1) Runs after model is initialized."""
+        """Initialize orchestrator with picklable RemoteA2aAgent sub-agents."""
         super().__post_init__()
+        
         logger.info("--- ORCHESTRATE AGENT POST-INIT (STATIC) ---")
-
-        self.project = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
-        self.location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+        
+        # Get config from environment
+        self.project_id = self.project_id or os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+        self.location = self.location or os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
         self.otel_collector_endpoint = os.getenv("OTEL_COLLECTOR_ENDPOINT")
-
-        if not self.project or not self.location:
+        
+        if not self.project_id or not self.location:
             raise RuntimeError("COMMON_GOOGLE_CLOUD_PROJECT and COMMON_GOOGLE_CLOUD_LOCATION must be set.")
-
-        # Initialize static agent components
-        if self.model:
-            self._model_client = GenerativeModel(self.model)
-        else:
-            print(f"WARNING: {self.__class__.__name__} initialized without a model name.")
-        self.planner = BuiltInPlanner(thinking_config=ThinkingConfig(include_thoughts=True, thinking_budget=-1))
-        self.tools: List[Callable] = [ self.__async_send_task_tool ]
+        
+        # Create picklable client factory (httpx client created lazily at runtime)
+        factory = PicklableClientFactory(
+            ClientConfig(
+                supported_transports=[TransportProtocol.http_json],
+                use_client_preference=True,
+            )
+        )
+        
+        # Construct A2A URLs from resource names
+        planner_resource = self.planner_agent_resource_name or os.getenv("PLANNER_AGENT_URL", "")
+        social_resource = self.social_agent_resource_name or os.getenv("SOCIAL_AGENT_URL", "")
+        platform_resource = self.platform_agent_resource_name or os.getenv("PLATFORM_MCP_CLIENT_AGENT_URL", "")
+        
+        planner_a2a_url = f"https://{self.location}-aiplatform.googleapis.com/v1beta1/{planner_resource}/a2a"
+        social_a2a_url = f"https://{self.location}-aiplatform.googleapis.com/v1beta1/{social_resource}/a2a"
+        platform_a2a_url = f"https://{self.location}-aiplatform.googleapis.com/v1beta1/{platform_resource}/a2a"
+        
+        logger.info(f"Planner A2A URL: {planner_a2a_url}")
+        logger.info(f"Social A2A URL: {social_a2a_url}")
+        logger.info(f"Platform A2A URL: {platform_a2a_url}")
+        
+        # Create picklable RemoteA2aAgent instances
+        planner_agent = PicklableRemoteA2aAgent(
+            name="planner_agent",
+            description="Generates creative event/activity plans based on user preferences",
+            agent_card=f"{planner_a2a_url}/v1/card",
+            a2a_client_factory=factory
+        )
+        
+        social_agent = PicklableRemoteA2aAgent(
+            name="social_agent",
+            description="Analyzes social profiles and provides insights",
+            agent_card=f"{social_a2a_url}/v1/card",
+            a2a_client_factory=factory
+        )
+        
+        platform_agent = PicklableRemoteA2aAgent(
+            name="platform_mcp_client_agent",
+            description="Interacts with the Instavibe platform to create events and posts",
+            agent_card=f"{platform_a2a_url}/v1/card",
+            a2a_client_factory=factory
+        )
+        
+        # Set as sub-agents (enables automatic transfer_to_agent)
+        self.sub_agents = [planner_agent, social_agent, platform_agent]
+        
+        # Configure planner
+        self.planner = BuiltInPlanner(
+            thinking_config=ThinkingConfig(include_thoughts=True, thinking_budget=-1)
+        )
         self.instruction = self.root_instruction
-
+        
+        logger.info("✅ OrchestrateServiceAgent initialized with picklable A2A sub-agents")
         logger.info("--- ORCHESTRATE AGENT POST-INIT COMPLETE ---")
-
-    @property
-    def model_client(self) -> GenerativeModel | None:
-        """Exposes the private model client."""
-        return self._model_client
-
 
     async def _async_set_up(self, reasoning_engine_id: str, **kwargs):
         """
-        Async setup for dynamic components (Memory) and remote agent clients.
+        Async setup for dynamic components (Memory and Observability).
+        Note: Sub-agents are now configured in __post_init__, not here.
         """
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} (DYNAMIC) ---")
+        
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
         
         self.reasoning_engine_id = reasoning_engine_id
-
-        # --- Initialize Memory ---
+        
+        # Initialize Memory
         self.memory_service = VertexAiMemoryBankService(
-            project=self.project,
+            project=self.project_id,
             location=self.location,
             agent_engine_id=self.reasoning_engine_id,
         )
         self.memory = self.memory_service
-        self.tools.append(preload_memory_tool.PreloadMemoryTool(memory=self.memory_service))
-        logger.info(f"Memory service initialized for {self.reasoning_engine_id}.")
-
-        # --- Initialize Remote Agent Clients ---
-        logger.info("Connecting to remote agents...")
-        try:
-            if self.planner_agent_resource_name:
-                self.planner_agent = ReasoningEngine.get(self.planner_agent_resource_name)
-                logger.info(f"Connected to planner agent: {self.planner_agent_resource_name}")
-            else:
-                logger.warning("Planner agent resource name not provided.")
-                
-            if self.social_agent_resource_name:
-                self.social_agent = ReasoningEngine.get(self.social_agent_resource_name)
-                logger.info(f"Connected to social agent: {self.social_agent_resource_name}")
-            else:
-                logger.warning("Social agent resource name not provided.")
-
-            if self.platform_mcp_client_agent_resource_name:
-                self.platform_mcp_client_agent = ReasoningEngine.get(self.platform_mcp_client_agent_resource_name)
-                logger.info(f"Connected to platform agent: {self.platform_mcp_client_agent_resource_name}")
-            else:
-                logger.warning("Platform MCP client agent resource name not provided.")
-                
-        except Exception as e:
-            logger.error(f"Failed to initialize remote agent clients: {e}", exc_info=True)
-            raise
         
+        # Add memory preload tool
+        if not hasattr(self, 'tools') or self.tools is None:
+            self.tools = []
+        self.tools.append(preload_memory_tool.PreloadMemoryTool(memory=self.memory_service))
+        
+        logger.info(f"Memory service initialized for {self.reasoning_engine_id}.")
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
     def set_up(self, reasoning_engine_id: str, **kwargs):
-        """A synchronous wrapper for the async setup."""
+        """Synchronous wrapper for async setup."""
         logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
+            import asyncio
             asyncio.run(self._async_set_up(reasoning_engine_id, **kwargs))
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
@@ -146,136 +157,56 @@ class OrchestrateServiceAgent(Agent):
             raise
         return self
 
-
     def root_instruction(self, context: ReadonlyContext) -> str:
+        """
+        Root instruction for the orchestrator.
+        Uses built-in transfer_to_agent tool instead of custom routing.
+        """
         return '''
-    You are an expert AI Orchestrator for the Instavibe application. Your primary responsibility is to intelligently interpret user requests and delegate them to the most appropriate specialized remote agents by invoking their capabilities.
+You are an expert AI Orchestrator for the Instavibe application. Your primary responsibility is to intelligently interpret user requests and delegate them to the most appropriate specialized agents.
 
-    You have the following agents at your disposal:
-    - **planner-agent**: Helps users plan activities and events, considering their interests, budget, and location. It can generate creative and fun plan suggestions.
-    - **platform-mcp-client-agent**: Interacts with the Instavibe platform. It can create events, posts, and perform other platform-specific actions.
-    - **social-agent**: Interacts with social media platforms.
+You have three specialized agents at your disposal:
+- **planner_agent**: Helps users plan activities and events, considering their interests, budget, and location. Use this for generating creative plan suggestions.
+- **social_agent**: Analyzes social media profiles and provides insights. Use this for profile analysis tasks.
+- **platform_mcp_client_agent**: Interacts with the Instavibe platform. Use this to create events, posts, and perform other platform-specific actions.
 
-    Core Workflow:
-    1.  **Understand User Intent:** Analyze the user's request to determine the core task.
-    2.  **Identify Action and Agent:** Determine the appropriate 'action' (capability) to call and the 'agent_name' that provides it.
-    3.  **Provide Reasoning:** After you have identified the agent and action, but before you call the tool, provide a brief summary of your reasoning for choosing a particular agent and action.
-    4.  **Delegate Task:** Use the `__async_send_task_tool` to delegate the task. Your call MUST include:
-        * `agent_name`: The name of the target agent (e.g., 'planner-agent').
-        * `action`: The name of the capability to invoke (e.g., 'plan', 'create_event').
-        * `data`: A dictionary containing the payload for the action. (e.g., {"prompt": "user's request"})
-    
-    Rely strictly on your tools. If the user's request is ambiguous or missing information, ask for clarification.
-    '''
+Core Workflow:
+1. **Understand User Intent**: Analyze the user's request to determine the core task.
+2. **Identify Appropriate Agent**: Determine which specialist agent should handle this request.
+3. **Provide Reasoning**: Before delegating, provide a brief summary of your reasoning for choosing this agent.
+4. **Delegate Using transfer_to_agent**: Use the built-in transfer_to_agent tool to delegate to the appropriate specialist.
 
-    # Renamed with double underscore to be private and fix deployment error
-    async def __async_send_task_tool(
-        self,
-        agent_name: str,
-        action: str, # 'action' is now for routing, not the SDK call
-        data: dict,
-        tool_context: ToolContext
-    ) -> dict:
-        """
-        Finds a remote agent client and invokes it.
-        """
-        with tracer.start_as_current_span(f"{agent_name}.{action}") as span:
-            span.set_attribute("agent.name", self.name)
-            span.set_attribute(ai_semconv.GEN_AI_OPERATION_NAME, "send_task")
-            span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "send_task")
-            tool_params = { "agent_name": agent_name, "action": action, "data": data }
-            span.set_attribute(ai_semconv.GEN_AI_TOOL_PARAMETERS, json.dumps(tool_params))
-            
-            try:
-                target_agent_client: Optional[ReasoningEngine] = None
-                if agent_name == "planner_agent":
-                    target_agent_client = self.planner_agent
-                elif agent_name == "social_agent":
-                    target_agent_client = self.social_agent
-                elif agent_name == "platform_mcp_client_agent":
-                    target_agent_client = self.platform_mcp_client_agent
+Important: Always use transfer_to_agent to delegate to specialists. Do not try to handle specialized requests yourself.
+'''
 
-                if not target_agent_client:
-                    raise ValueError(f"Client for agent '{agent_name}' is not initialized or not found.")
 
-                # The 'data' dict should contain the prompt for the remote agent
-                prompt = data.get("prompt", str(data))
-                
-                # Use stream_query to get a streaming response
-                logger.info(f"Sending task to remote agent '{agent_name}'...")
-                response_stream = target_agent_client.stream_query(message=prompt)
-                
-                # Collect the full response.
-                final_response = ""
-                for chunk in response_stream:
-                    if hasattr(chunk, 'response'):
-                        final_response += chunk.response
-                
-                logger.info(f"Received response from '{agent_name}': {final_response[:100]}...")
-                
-                # Attempt to parse as JSON, otherwise return as text
-                try:
-                    response_data = json.loads(final_response)
-                except json.JSONDecodeError:
-                    response_data = {"response": final_response}
-
-                span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps(response_data))
-                return response_data
-            
-            except Exception as e:
-                logger.error(f"Error calling remote agent '{agent_name}': {e}", exc_info=True)
-                span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps({"error": str(e)}))
-                return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
-
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        """This is the main, streaming entry point for the agent."""
-        user_prompt = ""
-        if ctx.user_content and ctx.user_content.parts:
-            user_prompt = ctx.user_content.parts[0].text
-        
-        with tracer.start_as_current_span("orchestrate_agent.run") as span:
-            span.set_attribute("agent.name", self.name)
-            span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
-            span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.model)
-            span.add_event(
-                "gen_ai.prompt",
-                {"gen_ai.prompt.value": user_prompt}
-            )
-
-            try:
-                # Call this agent's OWN logic (planner, tools, etc.)
-                async for event in super()._run_async_impl(ctx):
-                    yield event
-            except Exception as e:
-                logger.error(f"Error during orchestration: {e}", exc_info=True)
-                yield Event(content=Content(parts=[Part(text=f"Error in orchestration: {e}")]))
-                raise
-
-OrchestrateServiceAgent.model_rebuild()
-
-# --- MODIFIED create_agent factory ---
+# Factory function
 def create_agent(
-    model: str, 
-    planner_url: str, 
-    social_url: str, 
-    platform_url: str
+    model: str,
+    planner_resource: str,
+    social_resource: str,
+    platform_resource: str,
+    project_id: str,
+    location: str
 ):
-    """Factory to create the orchestrator agent with its dependencies."""
-    logger.info(f"Creating OrchestrateServiceAgent with planner={planner_url}, social={social_url}, platform={platform_url}")
+    """Factory to create orchestrator with agent resource names."""
     return OrchestrateServiceAgent(
         name="orchestrate_service_agent",
         model=model,
-        planner_agent_resource_name=planner_url,
-        social_agent_resource_name=social_url,
-        platform_mcp_client_agent_resource_name=platform_url
+        planner_agent_resource_name=planner_resource,
+        social_agent_resource_name=social_resource,
+        platform_agent_resource_name=platform_resource,
+        project_id=project_id,
+        location=location
     )
 
-# This instance is loaded by deploy_all.py's load_agent_from_path
-# It will be re-created with the correct URLs
-gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
+
+# Default instance for deployment
 root_agent = create_agent(
-    model=gemini_model,
-    planner_url=os.getenv("PLANNER_AGENT_URL", ""),
-    social_url=os.getenv("SOCIAL_AGENT_URL", ""),
-    platform_url=os.getenv("PLATFORM_MCP_CLIENT_AGENT_URL", "")
+    model=os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash"),
+    planner_resource=os.getenv("PLANNER_AGENT_URL", ""),
+    social_resource=os.getenv("SOCIAL_AGENT_URL", ""),
+    platform_resource=os.getenv("PLATFORM_MCP_CLIENT_AGENT_URL", ""),
+    project_id=os.getenv("COMMON_GOOGLE_CLOUD_PROJECT", ""),
+    location=os.getenv("COMMON_GOOGLE_CLOUD_LOCATION", "")
 )

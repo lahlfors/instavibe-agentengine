@@ -1,8 +1,9 @@
+import os
 import asyncio
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from opentelemetry import trace
-from ..common.observability import setup_observability
+from common.observability import setup_observability
 import logging
 from google.generativeai import GenerativeModel # Added import
 from google.adk.agents.invocation_context import InvocationContext

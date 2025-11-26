@@ -17,7 +17,7 @@ from vertexai import agent_engines # For the new create method
 # import google.auth # For google.auth.exceptions, potentially still needed if vertexai.init() fails early
 from dotenv import load_dotenv # For loading .env file
 
-from agents.social.social_agent import SocialAgent
+from agents.social.agent import SocialLlmAgent as SocialAgent
 
 # Load environment variables from the root .env file
 # This ensures that any implicit environment variable reads by underlying

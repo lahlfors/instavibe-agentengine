@@ -146,7 +146,7 @@ if not mcp_address:
 
 root_agent = PlatformMCPClientAgent(
     name="platform_mcp_client_agent",
-    model="gemini-1.5-flash",
+    model="gemini-2.5-flash",
     tools=[], # Tools are loaded dynamically in set_up
     display_name="Platform MCP Client Agent",
     mcp_server_address=mcp_address,

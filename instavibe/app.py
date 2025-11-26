@@ -13,9 +13,6 @@ from ally_routes import ally_bp
 from agents.common.observability import setup_observability
 from opentelemetry import trace
 
-# Import the root_agent
-from agents.orchestrate.orchestrate_service_agent import root_agent
-
 tracer = trace.get_tracer(__name__)
 
 app = Flask(__name__)
@@ -48,13 +45,21 @@ def _get_agent_client_by_display_name(display_name: str):
     try:
         logger.info(f"Listing agents to find display name: '{display_name}'")
         existing_engines = agent_engines.list(project=PROJECT, location=LOCATION)
-        for engine in existing_engines:
-            if engine.display_name == display_name:
-                logger.info(f"Found agent '{display_name}' with resource name: {engine.resource_name}")
-                _agent_client_cache[display_name] = engine
-                return engine
-        logger.error(f"Agent with display name '{display_name}' not found in {PROJECT}/{LOCATION}.")
-        return None
+        
+        # Filter by matching display name
+        matching_engines = [e for e in existing_engines if e.display_name == display_name]
+        
+        if not matching_engines:
+            logger.error(f"Agent with display name '{display_name}' not found in {PROJECT}/{LOCATION}.")
+            return None
+        
+        # Sort by creation time (newest first) and return the latest
+        matching_engines.sort(key=lambda e: e.create_time, reverse=True)
+        newest_engine = matching_engines[0]
+        
+        logger.info(f"Found agent '{display_name}' (created {newest_engine.create_time}): {newest_engine.resource_name}")
+        _agent_client_cache[display_name] = newest_engine
+        return newest_engine
     except Exception as e:
         logger.error(f"Failed to list or get agent client for {display_name}: {e}", exc_info=True)
         return None
@@ -70,6 +75,12 @@ def get_social_agent():
 
 def get_platform_mcp_client_agent():
     return _get_agent_client_by_display_name("Platform MCP Client Agent")
+
+# Initialize the Orchestrate Agent for Introvert Ally feature
+from introvertally import init_agent_engine
+logger.info("Initializing Orchestrate Agent for Introvert Ally...")
+init_agent_engine(project_id=PROJECT, location=LOCATION)
+logger.info("Orchestrate Agent initialization complete.")
 
 
 # --- Spanner Configuration ---
@@ -1040,16 +1051,6 @@ def service_unavailable(e):
      print(f"Service Unavailable Error: {e}")
      return render_template('503.html'), 503 # You'll need to create 503.html
 
-
-
-@app.before_request
-def setup_agent():
-    if not hasattr(app, 'agent_setup_complete'):
-        print("--- Running ADK Agent setup ---")
-        # Assuming root_agent is globally accessible after import
-        root_agent.set_up(reasoning_engine_id="orchestrate_agent") # Pass a dummy ID for now
-        app.agent_setup_complete = True
-        print("--- Agent setup complete. Ready to serve requests. ---")
 
 
 if __name__ == '__main__':

@@ -11,7 +11,13 @@ from opentelemetry.trace import Status, StatusCode
 from google.generativeai import GenerativeModel
 from google.adk.tools.mcp_tool import mcp_toolset, StreamableHTTPConnectionParams
 from pydantic import PrivateAttr
-from common.observability import setup_observability # Now this import works
+try:
+    from agents.common.observability import setup_observability
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from agents.common.observability import setup_observability
 
 # Configure standard logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
@@ -26,7 +32,9 @@ def _build_platform_mcp_client_agent(state):
     """
     return PlatformMCPClientAgent(**state)
 
-class PlatformMCPClientAgent(Agent):
+from agents._dynamic_tool_agent import DynamicToolAgent
+
+class PlatformMCPClientAgent(DynamicToolAgent):
     """An agent that interacts with the MCP server by dynamically loading tools."""
     display_name: Optional[str] = None
     mcp_server_address: str
@@ -76,7 +84,7 @@ class PlatformMCPClientAgent(Agent):
         logger.info(f"Fetching API key from secret: {secret_name}")
         return os.getenv("MCP_API_KEY", "DUMMY_API_KEY")
 
-    async def __async_set_up(self, **kwargs):
+    async def _async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
 
@@ -107,6 +115,8 @@ class PlatformMCPClientAgent(Agent):
 
                 toolset = await mcp_toolset.MCPToolset.from_server(conn_params)
                 self._mcp_tools = list(toolset)
+                # Sync to base class list for ADK runtime
+                self._sync_tools()
 
                 tool_names = [t.name for t in self._mcp_tools]
                 logger.info(f"Successfully loaded {len(self._mcp_tools)} tools from MCP server: {tool_names}")
@@ -125,31 +135,48 @@ class PlatformMCPClientAgent(Agent):
         """A synchronous wrapper for the async setup."""
         logger.info(f"Sync set_up called for {self.__class__.__name__}")
         try:
-            asyncio.run(self._async_set_up(**kwargs))
+            import nest_asyncio
+            nest_asyncio.apply()
+            
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                logger.info("Using existing event loop (nested).")
+                loop.run_until_complete(self._async_set_up(**kwargs))
+            else:
+                logger.info("Creating new event loop.")
+                asyncio.run(self._async_set_up(**kwargs))
+                
             logger.info(f"set_up completed for {self.__class__.__name__}.")
         except Exception as e:
             logger.error(f"Error during set_up for {self.__class__.__name__}: {e}", exc_info=True)
             raise
         return self
 
-    @property
-    def tools(self) -> List[Any]:
-        """Exposes the dynamically loaded MCP tools to the ADK framework."""
-        return self._mcp_tools
+    # The DynamicToolAgent base class provides a `tools` property.
+    # After loading MCP tools we sync them to the base list.
+    def _sync_tools(self) -> None:
+        self._dynamic_tools = self._mcp_tools
 
     def query(self, **kwargs):
         """The entry point for the reasoning engine."""
         # The base Agent's entry point is __call__
         return self(**kwargs)
 
-mcp_address = os.getenv("MCP_SERVER_ADDRESS")
-if not mcp_address:
-    raise ValueError("MCP_SERVER_ADDRESS not set in .env file")
+# MCP address can be set via environment variable or passed during deployment
+# Using empty string as default allows the agent to be pickled/unpickled
+# The actual address will be set during deployment via the deployment script
+mcp_address = os.getenv("MCP_SERVER_ADDRESS", "")
+
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
 
 root_agent = PlatformMCPClientAgent(
     name="platform_mcp_client_agent",
-    model="gemini-1.5-flash",
+    model=gemini_model,
     tools=[], # Tools are loaded dynamically in set_up
     display_name="Platform MCP Client Agent",
-    mcp_server_address=mcp_address,
+    mcp_server_address=mcp_address or "",  # Ensure it's never None
 )

@@ -10,7 +10,13 @@ from google.adk.events import Event, EventActions
 from typing import AsyncGenerator
 import logging
 from opentelemetry import trace
-from common.observability import setup_observability
+try:
+    from agents.common.observability import setup_observability
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from agents.common.observability import setup_observability
 from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
 from typing import Optional, Any

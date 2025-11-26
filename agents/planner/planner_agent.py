@@ -23,9 +23,10 @@ class PlannerAgent(LlmAgent):
         setup_observability()
 
     def __init__(self, name: str = "planner_agent") -> None:
+        gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
         super().__init__(
             name=name,
-            model="gemini-2.0-flash-001",
+            model=gemini_model,
             description="Agent tasked with generating creative and fun event plan suggestions",
             instruction="""
 

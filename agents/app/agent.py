@@ -4,6 +4,7 @@ from google.adk.events import Event
 from google.adk.agents.invocation_context import InvocationContext
 from google.generativeai import GenerativeModel
 from typing import Any, AsyncIterator
+import os
 
 class AppAgent(BaseAgent):
     """
@@ -45,6 +46,7 @@ class AppAgent(BaseAgent):
         yield Event(author=self.name, content=response.candidates[0].content)
 
 # This is what the loader looks for
+gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
 root_agent = AppAgent(
-    model="gemini-2.5-flash"
+    model=gemini_model
 )

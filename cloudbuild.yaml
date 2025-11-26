@@ -10,8 +10,8 @@ steps:
     args:
       - '-c'
       - |
-        if [ -d "common" ]; then cp -r common "${_SERVICE_DIR}"; fi
-        if [ -d "agents" ]; then cp -r agents "${_SERVICE_DIR}"; fi
+        if [ -d "common" ] && [ "${_SERVICE_DIR}" != "." ]; then cp -r common "${_SERVICE_DIR}"; fi
+        if [ -d "agents" ] && [ "${_SERVICE_DIR}" != "." ]; then cp -r agents "${_SERVICE_DIR}"; fi
 
   # 2. Build the container image from the specified service directory.
   - name: 'gcr.io/cloud-builders/docker'

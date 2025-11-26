@@ -1,0 +1,57 @@
+steps:
+  # Copy shared dependencies (assuming build runs from repo root)
+  - name: 'ubuntu'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -d "agents" ]; then cp -r agents tools/instavibe; fi
+
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--tag', '${_IMAGE_PATH}', '${_SERVICE_DIR}']
+  
+  # Push the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE_PATH}']
+  
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_IMAGE_PATH}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--project'
+      - '${_GCP_PROJECT_ID}'
+      - '--service-account=${_SERVICE_ACCOUNT}'
+      - '--allow-unauthenticated'
+      # Set environment variables
+      - '--set-env-vars'
+      - 'COMMON_GOOGLE_CLOUD_PROJECT=${_GCP_PROJECT_ID}'
+      - '--set-env-vars'
+      - 'COMMON_SPANNER_INSTANCE_ID=${_SPANNER_INSTANCE_ID}'
+      - '--set-env-vars'
+      - 'COMMON_SPANNER_DATABASE_ID=${_SPANNER_DATABASE_ID}'
+      - '--set-env-vars'
+      - 'OTEL_COLLECTOR_ENDPOINT=${_OTEL_COLLECTOR_ENDPOINT}'
+
+substitutions:
+    _IMAGE_PATH: ''
+    _SERVICE_NAME: ''
+    _REGION: ''
+    _SERVICE_ACCOUNT: ''
+    _SERVICE_DIR: './tools/instavibe'
+    _GCP_PROJECT_ID: ''
+    _SPANNER_INSTANCE_ID: ''
+    _SPANNER_DATABASE_ID: ''
+    _OTEL_COLLECTOR_ENDPOINT: ''
+
+images:
+  - '${_IMAGE_PATH}'

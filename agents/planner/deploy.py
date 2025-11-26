@@ -19,7 +19,7 @@ from vertexai import agent_engines # For the new create method
 from dotenv import load_dotenv # For loading .env file
 import logging # Added
 
-from agents.planner.planner_agent import PlannerAgent
+from agents.planner.agent import PlannerAgent
 
 # Load environment variables from the root .env file
 # This ensures that any implicit environment variable reads by underlying
@@ -134,7 +134,7 @@ def deploy_planner_main_func(project_id: str, region: str, base_dir: str, dry_ru
     # project and location are also typically set by vertexai.init() but can be overridden.
     try:
         remote_agent = agent_engines.create(
-            local_agent_instance,
+            adk_app_to_deploy,  # Use the ADKApp wrapper, not the raw agent
             display_name=display_name,
             description=description,
             requirements=requirements_list, # Pass the processed list

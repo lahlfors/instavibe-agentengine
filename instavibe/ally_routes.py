@@ -134,7 +134,10 @@ def stream_introvert_ally_plan():
                 print(f"--- PY_SSE: Yielding to client: event='{event_type}', data_preview='{data_payload[:100]}...' ---")
                 yield message_to_send
 
-                if event_type == "plan_complete" or event_type == "error": # Note: 'error' here is a custom event from call_agent_for_plan
+                if event_type == "plan_complete" or event_type == "agent_message" or event_type == "error": 
+                    # agent_message: Planner asks clarifying questions (valid response)
+                    # plan_complete: Planner returns structured plan (valid response)
+                    # error: Something went wrong
                     session['ally_plan_details'] = data_to_send # Store original data, not json string
                     session.modified = True # Explicitly mark session as modified
                     print(f"--- PY_SSE: Plan generation finished with type: {event_type}. Stored in session. ---")

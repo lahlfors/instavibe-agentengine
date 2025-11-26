@@ -51,10 +51,13 @@ def deploy_platform_mcp_client_main_func(project_id: str, region: str, base_dir:
     # This secret name is a placeholder, adjust if a real secret is used.
     api_key_secret_name = os.environ.get("MCP_API_KEY_SECRET", "default-mcp-api-key-secret")
 
+    # Get model from environment variable
+    gemini_model = os.environ.get("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
+
     # Instantiate the agent directly, passing serializable config.
     local_agent_instance = PlatformMCPClientAgent(
         name="platform_mcp_client_agent",
-        model="gemini-2.5-flash",
+        model=gemini_model,
         mcp_server_address=mcp_server_url,
         api_key_secret=api_key_secret_name
     )

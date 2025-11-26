@@ -3,7 +3,13 @@ import asyncio
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from opentelemetry import trace
-from common.observability import setup_observability
+try:
+    from agents.common.observability import setup_observability
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from agents.common.observability import setup_observability
 import logging
 from google.generativeai import GenerativeModel # Added import
 from google.adk.agents.invocation_context import InvocationContext
@@ -35,7 +41,19 @@ class PlannerAgent(LlmAgent):
 
         # This reuses the single, shared client
         prompt_content = ctx.user_content
-        response = await self.model_client.generate_content_async(prompt_content)
+        
+        # Configure JSON mode to guarantee structured output
+        from google.genai.types import GenerateContentConfig
+        
+        generation_config = GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.7
+        )
+        
+        response = await self.model_client.generate_content_async(
+            prompt_content,
+            config=generation_config
+        )
 
         # Yield the full response event
         yield Event(author=self.name, content=response.candidates[0].content)
@@ -58,6 +76,10 @@ class PlannerAgent(LlmAgent):
         return self
 
     def query(self, **kwargs):
+        """
+        Synchronous wrapper for streaming.
+        SDK's inspect module detects 'def' + 'yield' and registers as mode='stream'.
+        """
         with tracer.start_as_current_span("a2a.planner.plan") as span:
             span.set_attribute("agent.name", self.name)
             span.set_attribute("user.prompt", kwargs.get("message", ""))
@@ -65,52 +87,120 @@ class PlannerAgent(LlmAgent):
             logger.info(f"Handling plan request: {kwargs}")
 
             try:
-                response = super().__call__(**kwargs)
-                span.set_attribute("agent.final_response", str(response))
-                span.set_attribute("response.data", str(response))
-                span.set_status(trace.StatusCode.OK)
-                return response
+                # Create event loop for bridging async to sync
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    # Create invocation context from kwargs
+                    # LlmAgent's __call__ creates this, we need to replicate it
+                    ctx = InvocationContext(
+                        user_content=types.Content(parts=[types.Part(text=kwargs.get("message", ""))]),
+                        session=None,
+                        metadata=kwargs
+                    )
+                    
+                    # Get the async generator from _run_async_impl
+                    async_gen = self._run_async_impl(ctx)
+                    
+                    # Bridge: synchronously iterate over async generator and yield events
+                    while True:
+                        try:
+                            event = loop.run_until_complete(async_gen.__anext__())
+                            # Yield the event for streaming
+                            yield event
+                        except StopAsyncIteration:
+                            break
+                    
+                    span.set_status(trace.StatusCode.OK)
+                    
+                finally:
+                    loop.close()
+                    
             except Exception as e:
                 span.record_exception(e)
                 span.set_status(trace.StatusCode.ERROR, str(e))
+                logger.error(f"Error in query: {e}", exc_info=True)
                 raise
 
 def create_agent(model: str):
     AGENT_NAME = "planner_agent"
     AGENT_INSTRUCTION = '''
+You are a specialized event planning agent that creates fun, personalized plans.
 
-            You are a specialized AI assistant tasked with generating creative and fun plan suggestions.
+**Input Format:**
+You receive structured requests in this format:
+```
+CREATE EVENT PLAN
 
-            **Request:**
-            For the upcoming weekend, specifically from **[START_DATE_YYYY-MM-DD]** to **[END_DATE_YYYY-MM-DD]**, in the location specified as **[TARGET_LOCATION_NAME_OR_CITY_STATE]** (if latitude/longitude are provided, use these: Lat: **[TARGET_LATITUDE]**, Lon: **[TARGET_LONGITUDE]**), please generate **[NUMBER_OF_PLANS_TO_GENERATE, e.g., 3]** distinct planning suggestions.
+USER_NAME: <name>
+FRIENDS: <comma-separated friend names>
+DATE: <YYYY-MM-DD>
+LOCATION: <city or preference>
+```
 
-            **Constraints and Guidelines for Suggestions:**
-            1.  **Creativity & Fun:** Plans should be engaging, memorable, and offer a good experience for a date.
-            2.  **Budget:** All generated plans should aim for a moderate budget (conceptually "$$"), meaning they should be affordable yet offer good value, without being overly cheap or extravagant. This budget level should be *reflected in the choice of activities and venues*, but **do not** explicitly state "Budget: $$" in the `plan_description`.
-            3.  **Interest Alignment:**
-                *   Consider the following user interests: **[COMMA_SEPARATED_LIST_OF_INTERESTS, e.g., outdoors, arts & culture, foodie, nightlife, unique local events, live music, active/sports]**. Tailor suggestions specifically to these where possible. The plan should *embody* these interests.
-                *   **Fallback:** If specific events or venues perfectly matching all listed user interests cannot be found for the specified weekend, you should create a creative and fun generic dating plan that is still appealing, suitable for the location, and adheres to the moderate budget. This plan should still sound exciting and fun, even if it's more general.
-            4.  **Current & Specific:** Prioritize finding specific, current events, festivals, pop-ups, or unique local venues operating or happening during the specified weekend dates. If exact current events cannot be found, suggest appealing evergreen options or implement the fallback generic plan.
-            5.  **Location Details:** For each place or event mentioned within a plan, you MUST provide its name, precise latitude, precise longitude, and a brief, helpful description.
+**Your Task:**
+Create a complete event plan as JSON. The JSON mode is enabled, so your response MUST be valid JSON.
 
-            **Output Format:**
-            Return your response *exclusively* as a single JSON object. This object should contain a top-level key, "fun_plans", which holds a plan objects. Each plan object in the list must strictly adhere to the following structure:
+**Required JSON Structure:**
+{
+  "event_name": "Catchy event title (e.g., 'Sarah's Seattle Adventure')",
+  "event_description": "2-3 enthusiastic sentences describing the plan",
+  "friends_name_list": ["Friend1", "Friend2", "Friend3"],
+  "locations_and_activities": [
+    {
+      "name": "Specific venue name",
+      "address": "Complete street address",
+      "latitude": 47.608013,
+      "longitude": -122.335167,
+      "description": "Why this venue fits the plan and what they'll do here"
+    }
+  ],
+  "post_to_go_out": "Casual, exciting 2-3 sentence invite message for the group"
+}
 
-            --json--
-            {
-              "plan_description": "A summary of the overall plan, consisting of **exactly three sentences**. Craft these sentences in a friendly, enthusiastic, and conversational tone, as if you're suggesting this awesome idea to a close friend. Make it sound exciting and personal, highlighting the positive aspects and appeal of the plan without explicitly mentioning budget or listing interest categories.",
-              "locations_and_activities": [
-                  {
-                  "name": "Name of the specific place or event",
-                  "latitude": 0.000000,  // Replace with actual latitude
-                  "longitude": 0.000000, // Replace with actual longitude
-                  "description": "A brief description of this place/event, why it's suitable for a date, and any specific details for the weekend (e.g., opening hours, event time)."
-                  }
-                  // Add more location/activity objects here if the plan involves multiple stops/parts
-              ]
-            }
+**Planning Guidelines:**
+1. **Make Assumptions**: Work with the info provided - don't ask questions
+2. **Moderate Budget**: Assume $$ range unless location suggests otherwise  
+3. **2-4 Venues**: Include dinner + activity/entertainment + optional nightcap
+4. **Real Places**: Use actual venues when possible, or realistic generic options
+5. **Accurate Coordinates**: Lat/long should be approximately correct for the area
+6. **Group-Friendly**: Suitable for friends hanging out together
+7. **Date-Aware**: Consider day of week, holidays, seasons
 
-        '''
+**Examples:**
+
+Input: "USER_NAME: Alice, FRIENDS: Bob, Charlie, DATE: 2025-12-05, LOCATION: Boston"
+Output JSON:
+{
+  "event_name": "Alice's Boston Night Out",
+  "event_description": "An amazing evening exploring Boston's North End food scene and live music! Start with authentic Italian at Giacomo's, then head to The Sinclair for local bands and craft cocktails.",
+  "friends_name_list": ["Bob", "Charlie"],
+  "locations_and_activities": [
+    {
+      "name": "Giacomo's Ristorante",
+      "address": "355 Hanover St, Boston, MA 02113",
+      "latitude": 42.365147,
+      "longitude": -71.054035,
+      "description": "Legendary North End Italian spot famous for seafood pasta - perfect for kicking off the night"
+    },
+    {
+      "name": "The Sinclair",
+      "address": "52 Church St, Cambridge, MA 02138",
+      "latitude": 42.374356,
+      "longitude": -71.119170,
+      "description": "Harvard Square music venue with great indie/rock shows and a full bar"
+    }
+  ],
+  "post_to_go_out": "Hey Bob and Charlie! Epic Boston night planned for Dec 5th - Italian feast at Giacomo's followed by live music at The Sinclair. Who's in?"
+}
+
+**Remember:**
+- JSON mode is ON - output MUST be valid JSON
+- Never ask clarifying questions - create a plan with what you have
+- Be enthusiastic and specific
+'''
+
 
     return PlannerAgent(
         name=AGENT_NAME,

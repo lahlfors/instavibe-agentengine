@@ -1,0 +1,43 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_IMAGE_PATH}', '${_SERVICE_DIR}']
+  
+  # Push the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE_PATH}']
+  
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_IMAGE_PATH}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--project'
+      - '${_GCP_PROJECT_ID}'
+      - '--service-account=${_SERVICE_ACCOUNT}'
+      - '--allow-unauthenticated'
+      # Set environment variables
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=${_GCP_PROJECT_ID}'
+      - '--set-env-vars'
+      - 'GCP_LOCATION=${_GCP_LOCATION}'
+
+substitutions:
+    _IMAGE_PATH: ''
+    _SERVICE_NAME: ''
+    _REGION: ''
+    _SERVICE_ACCOUNT: ''
+    _SERVICE_DIR: './otel-collector'
+    _GCP_PROJECT_ID: ''
+    _GCP_LOCATION: ''
+
+images:
+  - '${_IMAGE_PATH}'

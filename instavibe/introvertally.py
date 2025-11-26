@@ -7,6 +7,32 @@ from vertexai.generative_models import GenerativeModel
 from vertexai.preview.reasoning_engines import ReasoningEngine
 from opentelemetry import trace
 import opentelemetry.semconv._incubating.attributes.gen_ai_attributes as ai_semconv
+
+# Structured request template for reliable agent interaction
+PLANNING_REQUEST_TEMPLATE = """CREATE EVENT PLAN
+
+USER_NAME: {user_name}
+FRIENDS: {friends_list}
+DATE: {planned_date}
+LOCATION: {location}
+
+Generate a complete JSON event plan with this exact structure:
+{{
+  "event_name": "Brief catchy name",
+  "event_description": "2-3 sentence overview",
+  "friends_name_list": ["Friend1", "Friend2"],
+  "locations_and_activities": [
+    {{
+      "name": "Venue name",
+      "address": "Full address",
+      "latitude": 42.360082,
+      "longitude": -71.058880,
+      "description": "Description"
+    }}
+  ],
+  "post_to_go_out": "Casual invite message"
+}}
+"""
 from typing import Generator, Dict, Any
 
 # Initialize logger
@@ -17,7 +43,7 @@ tracer = trace.get_tracer(__name__)
 # This is the stable name you set in 'deploy_all.py'
 ORCHESTRATE_AGENT_DISPLAY_NAME = "Orchestrate Agent" 
 
-# Global variable for the ADK app instance
+# Global variable for the Reasoning Engine instance
 adk_app: ReasoningEngine | None = None
 
 def init_agent_engine(project_id, location):
@@ -50,8 +76,16 @@ def init_agent_engine(project_id, location):
             logger.error(f"FATAL: Could not find any Reasoning Engine with display_name: '{ORCHESTRATE_AGENT_DISPLAY_NAME}'")
             return
 
-        adk_app = engines[0]  # Get the first match
-        logger.info(f"Successfully connected to ReasoningEngine (ADK App) client: {adk_app.resource_name}")
+        # Sort by creation time (newest first) to ensure we get the latest deployment
+        engines = sorted(engines, key=lambda e: e.create_time, reverse=True)
+        found_engine = engines[0]  # Get the newest match
+        logger.info(f"Found ReasoningEngine resource (created {found_engine.create_time}): {found_engine.resource_name}")
+        
+        # CRITICAL FIX: The object returned by list() does NOT have dynamic methods (like query).
+        # We must re-instantiate it using the resource name to fetch the schema and bind methods.
+        adk_app = ReasoningEngine(found_engine.resource_name)
+        
+        logger.info(f"Reasoning Engine initialized successfully: {adk_app.resource_name}")
         
     except Exception as e:
         logger.error(f"Failed to get ReasoningEngine using display_name '{ORCHESTRATE_AGENT_DISPLAY_NAME}': {e}", exc_info=True)
@@ -109,15 +143,18 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
     selected_friend_names_str = ', '.join(selected_friend_names_list)
     friends_list_example_for_prompt = json.dumps(selected_friend_names_list)
 
-    prompt_message = f"""Plan a personalized night out for {user_name} with friends {selected_friend_names_str} on {planned_date}, with the location or preference being "{location_n_perference}".
-    ... (Your full planning prompt) ...
-    }}
-    """
+    # Use structured template for reliable parsing
+    prompt = PLANNING_REQUEST_TEMPLATE.format(
+        user_name=user_name,
+        friends_list=selected_friend_names_str,
+        planned_date=planned_date,
+        location=location_n_perference
+    )
     logger.info(f"--- Sending Prompt to ADK App for user {user_id} ---")
     yield {"type": "thought", "data": f"Sending detailed planning prompt to ADK App for {user_name}'s event."}
 
     with tracer.start_as_current_span("call_agent_for_plan") as span:
-        model_name = "gemini-1.5-flash-001" # Or get from env
+        model_name = "gemini-2.5-flash" # Or get from env
         span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
         span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, model_name)
         model = GenerativeModel(model_name)
@@ -125,69 +162,113 @@ def call_agent_for_plan(user_name, planned_date, location_n_perference, selected
         # ... (Token counting and span setup) ...
 
         try:
+            # Lazy initialization if adk_app is not ready
+            if not adk_app:
+                logger.info("ADK App not initialized. Attempting lazy initialization...")
+                project_id = os.getenv("COMMON_GOOGLE_CLOUD_PROJECT")
+                location = os.getenv("COMMON_GOOGLE_CLOUD_LOCATION")
+                if project_id and location:
+                    init_agent_engine(project_id, location)
+                else:
+                    logger.error("Cannot lazy initialize: Missing project_id or location env vars.")
+
             if not adk_app:
                 logger.error("ADK App is not initialized. Cannot query for plan.")
                 yield {"type": "error", "data": {"message": "ADK App not initialized. Cannot query for plan.", "raw_output": ""}}
                 return
 
-            # --- Session Creation ---
-            try:
-                logger.info(f"Creating session for user_id: {user_id}")
-                session = adk_app.create_session(user_id=user_id)
-                session_id = session['id']
-                yield {"type": "thought", "data": f"Session created: {session_id} for user {user_id}"}
-            except Exception as e:
-                logger.error(f"Error creating session for user {user_id}: {e}", exc_info=True)
-                yield {"type": "error", "data": {"message": f"Error creating session: {str(e)}", "raw_output": ""}}
-                return
-
-            yield {"type": "thought", "data": f"--- ADK App Response Stream Starting (session: {session_id}) ---"}
+            # Use direct query() method (VertexAdkProxy pattern)
+            logger.info(f"Querying Reasoning Engine: {adk_app.resource_name} with message: {prompt}")
             
-            stream_iterator = adk_app.stream_query(
-                user_id=user_id,
-                session_id=session_id,
-                message=prompt_message
-            )
+            # Call query method directly - returns iterator of events
+            response_stream = adk_app.query(message=prompt, user_id=user_id)
             
-            # --- Use the new helper ---
-            stream_generator = _handle_adk_stream(stream_iterator, user_id, session_id, logger_prefix="plan")
-            while True:
-                try:
-                    yield next(stream_generator)
-                except StopIteration as e:
-                    accumulated_json_str = e.value # Get the return value from helper
-                    break
+            # Collect streamed response
+            for chunk in response_stream:
+                # Inspect chunk type for debugging
+                logger.info(f"[DEBUG] Received chunk: {type(chunk).__name__} - {repr(chunk)[:200]}")
 
-            yield {"type": "thought", "data": f"--- End of ADK App Response Stream (session: {session_id}) ---"}
-            # ... (OpenTelemetry completion logging) ...
+                # 1. Handle "Thoughts" (Intermediate steps, tool calls, reasoning)
+                # Check for 'thought' attribute or specific event types if available
+                if hasattr(chunk, 'thought') and chunk.thought:
+                    yield {"type": "thought", "data": f"Agent Thought: {chunk.thought}"}
+                    continue # Thoughts are not part of the final JSON
+                
+                if hasattr(chunk, 'tool_call') and chunk.tool_call:
+                     yield {"type": "thought", "data": f"Agent Tool Call: {chunk.tool_call}"}
+                     continue
+
+                # 2. Handle "Content" (The actual response text)
+                text_chunk = ""
+                
+                # Try to extract text based on various possible chunk structures
+                if isinstance(chunk, dict):
+                    if 'response' in chunk:
+                        text_chunk = chunk['response']
+                    elif 'output' in chunk:
+                        text_chunk = str(chunk['output'])
+                    elif 'content' in chunk and 'parts' in chunk['content']:
+                        try:
+                            parts = chunk['content']['parts']
+                            if parts and isinstance(parts, list) and 'text' in parts[0]:
+                                text_chunk = parts[0]['text']
+                        except (KeyError, IndexError, TypeError):
+                            text_chunk = str(chunk)
+                else:
+                    # Object access
+                    if hasattr(chunk, 'text') and chunk.text:
+                         text_chunk = chunk.text
+                    elif hasattr(chunk, 'content') and chunk.content:
+                         # ADK Event object often has content.parts
+                         if hasattr(chunk.content, 'parts') and chunk.content.parts:
+                             try:
+                                 text_chunk = chunk.content.parts[0].text
+                             except:
+                                 pass
+                    elif hasattr(chunk, 'response') and chunk.response:
+                        text_chunk = chunk.response
+
+                if text_chunk:
+                    accumulated_json_str += text_chunk
+                    # Optionally stream the building JSON as a thought, or just wait. 
+                    # Streaming it might look messy if it's raw JSON, but shows progress.
+                    # Let's show it as a thought for now so the user sees something happening.
+                    yield {"type": "thought", "data": f"{text_chunk}"}
+            
+            logger.info(f"[plan] Received complete response from agent (length: {len(accumulated_json_str)})")
+            yield {"type": "thought", "data": f"Agent response complete ({len(accumulated_json_str)} chars)"}
+            yield {"type": "thought", "data": f"--- Query complete ---"}
 
         except Exception as e_outer:
-            logger.error(f"Error during ADK App interaction for user {user_id} (session: {session_id}): {e_outer}", exc_info=True)
-            yield {"type": "thought", "data": f"Critical error during ADK App stream_query: {str(e_outer)}"}
-            yield {"type": "error", "data": {"message": f"Error during ADK App interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
+            logger.error(f"Error during agent query for user {user_id}: {e_outer}", exc_info=True)
+            yield {"type": "thought", "data": f"Critical error during agent query: {str(e_outer)}"}
+            yield {"type": "error", "data": {"message": f"Error during agent interaction: {str(e_outer)}", "raw_output": accumulated_json_str}}
             return
-        finally:
-            # --- Session Deletion ---
-            if adk_app and session_id and user_id:
-                try:
-                    logger.info(f"Attempting to delete session {session_id} for user {user_id}.")
-                    adk_app.delete_session(user_id=user_id, session_id=session_id)
-                    yield {"type": "thought", "data": f"Session {session_id} deleted."}
-                except Exception as e_del:
-                    logger.error(f"Failed to delete session {session_id} for user {user_id}: {e_del}", exc_info=True)
 
     
     if "```json" in accumulated_json_str:
-        # ... (JSON extraction logic) ...
-        pass
+        try:
+            # Find the start of the JSON block
+            start_index = accumulated_json_str.find("```json") + 7
+            # Find the end of the JSON block
+            end_index = accumulated_json_str.rfind("```")
+            if start_index != -1 and end_index != -1 and end_index > start_index:
+                accumulated_json_str = accumulated_json_str[start_index:end_index].strip()
+                logger.info("Successfully stripped markdown code blocks from response.")
+        except Exception as e:
+            logger.warning(f"Failed to strip markdown: {e}")
+
 
     if accumulated_json_str:
+        logger.info(f"[DEBUG] Raw accumulated response: {accumulated_json_str}")
         try:
             final_result_json = json.loads(accumulated_json_str)
+            logger.info(f"[DEBUG] Parsed JSON: {final_result_json}")
             yield {"type": "plan_complete", "data": final_result_json}
         except json.JSONDecodeError as e:
-            # ... (Error handling) ...
-            yield {"type": "error", "data": {"message": f"JSON parsing error: {e}", "raw_output": accumulated_json_str}}
+            # If it's not JSON, it might be a conversational response (clarifying questions)
+            logger.info(f"Response is not JSON, treating as conversational text: {accumulated_json_str[:100]}...")
+            yield {"type": "agent_message", "data": {"message": accumulated_json_str}}
     else:
         # ... (Error handling) ...
         yield {"type": "error", "data": {"message": "ADK App returned no content.", "raw_output": ""}}
@@ -219,49 +300,55 @@ def post_plan_event(user_name, confirmed_plan, edited_invite_message, agent_sess
                 yield {"type": "error", "data": {"message": "ADK App not initialized.", "raw_output": ""}}
                 return
 
-            # --- Session Creation ---
+            logger.info(f"Querying agent for post_plan_event with user_id: {adk_user_id}")
+            yield {"type": "thought", "data": f"Querying agent for posting plan..."}
+            
             try:
-                logger.info(f"Creating session for user_id: {adk_user_id} (for posting)")
-                session = adk_app.create_session(user_id=adk_user_id)
-                session_id = session['id']
-                yield {"type": "thought", "data": f"Session created for posting: {session_id}"}
+                # Use direct query() method (VertexAdkProxy pattern)
+                logger.info(f"Posting event to Reasoning Engine: {adk_app.resource_name}")
+                
+                # Call query method directly - returns iterator of events
+                # Note: post_plan_event likely returns a simple string or JSON, but via stream
+                response_stream = adk_app.query(message=prompt_message, user_id=adk_user_id)
+                
+                # Collect streamed response
+                accumulated_response_text = ""
+                for chunk in response_stream:
+                    if isinstance(chunk, dict):
+                        if 'response' in chunk:
+                            accumulated_response_text += chunk['response']
+                        elif 'output' in chunk:
+                            accumulated_response_text += str(chunk['output'])
+                        elif 'content' in chunk and 'parts' in chunk['content']:
+                             try:
+                                parts = chunk['content']['parts']
+                                if parts and isinstance(parts, list) and 'text' in parts[0]:
+                                    accumulated_response_text += parts[0]['text']
+                             except:
+                                 accumulated_response_text += str(chunk)
+                        else:
+                            accumulated_response_text += str(chunk)
+                    else:
+                        if hasattr(chunk, 'text'):
+                             accumulated_response_text += chunk.text
+                        else:
+                             accumulated_response_text += str(chunk)
+                
+                logger.info(f"Event Response: {accumulated_response_text}")
+                
+                logger.info(f"[post] Received response from agent (length: {len(accumulated_response_text)})")
+                yield {"type": "thought", "data": f"Agent response received ({len(accumulated_response_text)} chars)"}
+                
             except Exception as e:
-                logger.error(f"Error creating session for user {adk_user_id} (posting): {e}", exc_info=True)
-                yield {"type": "error", "data": {"message": f"Error creating session for posting: {str(e)}", "raw_output": ""}}
+                logger.error(f"Error querying agent for posting (user {adk_user_id}): {e}", exc_info=True)
+                yield {"type": "error", "data": {"message": f"Error querying agent for posting: {str(e)}", "raw_output": ""}}
                 return
-
-            yield {"type": "thought", "data": f"--- ADK App Response Stream Starting for Posting ---"}
             
-            stream_iterator_post = adk_app.stream_query(
-                user_id=adk_user_id,
-                session_id=session_id,
-                message=prompt_message
-            )
-            
-            # --- Use the new helper ---
-            stream_generator = _handle_adk_stream(stream_iterator_post, adk_user_id, session_id, logger_prefix="post")
-            while True:
-                try:
-                    yield next(stream_generator)
-                except StopIteration as e:
-                    accumulated_response_text = e.value # Get the return value from helper
-                    break
-            
-            yield {"type": "thought", "data": f"--- End of ADK App Response Stream for Posting ---"}
-            # ... (OpenTelemetry completion logging) ...
+            yield {"type": "thought", "data": f"--- Query complete ---"}
 
         except Exception as e_outer_post:
-            logger.error(f"Error during ADK App interaction for posting: {e_outer_post}", exc_info=True)
-            yield {"type": "error", "data": {"message": f"Error during ADK App interaction for posting: {str(e_outer_post)}", "raw_output": accumulated_response_text}}
+            logger.error(f"Error during agent query for posting: {e_outer_post}", exc_info=True)
+            yield {"type": "error", "data": {"message": f"Error during agent interaction for posting: {str(e_outer_post)}", "raw_output": accumulated_response_text}}
             return
-        finally:
-            # --- Session Deletion ---
-            if adk_app and session_id and adk_user_id:
-                try:
-                    logger.info(f"Attempting to delete session {session_id} for user {adk_user_id} (posting).")
-                    adk_app.delete_session(user_id=adk_user_id, session_id=session_id)
-                    yield {"type": "thought", "data": f"Session {session_id} (posting) deleted."}
-                except Exception as e_del_post:
-                    logger.error(f"Failed to delete session {session_id} for user {adk_user_id} (posting): {e_del_post}", exc_info=True)
 
     yield {"type": "posting_finished", "data": {"success": True, "message": "ADK App has finished processing."}}

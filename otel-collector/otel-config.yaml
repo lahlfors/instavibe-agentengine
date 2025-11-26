@@ -49,4 +49,4 @@ service:
       exporters: [googlecloud, debug]
   telemetry:
     logs:
-      level: "debug"
+      level: "info"

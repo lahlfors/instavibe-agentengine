@@ -25,7 +25,7 @@ class PlannerAgent(LlmAgent):
     def __init__(self, name: str = "planner_agent") -> None:
         super().__init__(
             name=name,
-            model="gemini-2.0-flash-001",
+            model="gemini-2.0-flash",
             description="Agent tasked with generating creative and fun event plan suggestions",
             instruction="""
 

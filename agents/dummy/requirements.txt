@@ -1,0 +1,2 @@
+# Minimal requirements for dummy agent
+google-cloud-aiplatform>=1.124.0

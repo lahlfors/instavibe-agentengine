@@ -51,75 +51,60 @@ class TestDeployAllScript(unittest.TestCase):
         self.assertIn("_ANOTHER_KEY=ANOTHER_VALUE", substitutions_arg)
 
 
-    @patch('deploy_all.importlib.import_module')
-    @patch('deploy_all.deploy_adk_agent_engine')
+    @patch('deploy_all.get_project_number', return_value="123456789")
+    @patch.dict(os.environ, {'COMMON_GEMINI_MODEL': 'gemini-1.5-flash'})
+    @patch('deploy_all.deploy_phase_1_parallel')
+    @patch('deploy_all.deploy_phase_2_orchestrate')
+    @patch('deploy_all.deploy_phase_3_app')
     @patch('deploy_all.setup_environment', return_value={
         "project_id": "test-p-env", "region": "us-central1",
         "staging_bucket": "gs://test-bucket-env", "spanner_instance": "test-instance",
         "spanner_db": "test-db", "service_account": "test-sa@example.com"
     })
     @patch('deploy_all.setup_spanner')
-    @patch('deploy_all.build_and_deploy_cloud_run_service')
-    def test_main_deployment_calls(self, mock_build_and_deploy, mock_setup_spanner, mock_setup_env, mock_deploy_adk_agent_engine, mock_import_module):
+    @patch('deploy_all.install_dependencies')
+    @patch('deploy_all.setup_observability')
+    def test_main_deployment_calls(self, mock_setup_obs, mock_install_deps, mock_setup_spanner, 
+                                   mock_setup_env, mock_deploy_phase3, mock_deploy_phase2, 
+                                   mock_deploy_phase1, mock_get_project_number):
         """Test that main() calls deployment functions with the correct arguments."""
-        # Set up mock return values for build_and_deploy_cloud_run_service
-        def build_and_deploy_side_effect(project_id, region, service_name, source_path, env_vars=None, allow_unauthenticated=True, service_account=None):
-            if service_name == "mcp-tool-server":
-                return "https://mcp-tool-server-url.a.run.app"
-            return "https://some-other-url.a.run.app"
-        mock_build_and_deploy.side_effect = build_and_deploy_side_effect
-
-        # Mock the return value of the new deployment function
-        mock_remote_agent = MagicMock()
-        # The new logic passes the full resource_name to the env var
-        mock_remote_agent.resource_name = "projects/test-p-env/locations/us-central1/reasoningEngines/orchestrate_agent-123"
-        mock_deploy_adk_agent_engine.return_value = mock_remote_agent
-
-        # Mock the dynamic import
-        mock_module = MagicMock()
-        mock_import_module.return_value = mock_module
+        # Set up mock return values for deployment phases
+        mock_deploy_phase1.return_value = {
+            "planner_agent": "projects/test-p-env/locations/us-central1/reasoningEngines/planner-123",
+            "social_agent": "projects/test-p-env/locations/us-central1/reasoningEngines/social-123",
+            "platform_mcp_client_agent": "projects/test-p-env/locations/us-central1/reasoningEngines/platform-123"
+        }
+        mock_deploy_phase2.return_value = {
+            "orchestrate_agent": "projects/test-p-env/locations/us-central1/reasoningEngines/orchestrate-123"
+        }
 
         mock_args = argparse.Namespace(
             skip_agents=False,
             skip_gateway=False,
             skip_mcp_server=False,
             skip_app=False,
-            skip_spanner=False,
+            skip_spanner=True,
             skip_collector=True,
             deploy_orchestrate_only=False,
+            deploy_planner_only=False,
+            force_update=False
         )
-        # We don't need to mock open since install_dependencies is not being tested here
-        # and the agent deployment part mocks the import and class instantiation.
+        
         deploy_all.main(mock_args)
 
         # --- Assertions ---
         mock_setup_env.assert_called_once()
-        mock_setup_spanner.assert_called_once_with("test-p-env", "test-instance", "test-db", "us-central1")
-        self.assertEqual(mock_deploy_adk_agent_engine.call_count, 4)
-        # mcp-tool-server and instavibe-app
-        self.assertEqual(mock_build_and_deploy.call_count, 2)
-
-        # Assert correct arguments are passed for one of the agents (Orchestrate Agent)
-        orchestrate_call = next((c for c in mock_deploy_adk_agent_engine.call_args_list if c.kwargs['display_name'] == 'Orchestrate Agent'), None)
-        self.assertIsNotNone(orchestrate_call)
-        self.assertEqual(orchestrate_call.kwargs['project_id'], 'test-p-env')
-        self.assertEqual(orchestrate_call.kwargs['location'], 'us-central1')
-        self.assertIn('agent_class', orchestrate_call.kwargs)
-        # The gcp_agent_id is no longer passed, so we don't check for it.
-        self.assertNotIn('gcp_agent_id', orchestrate_call.kwargs)
-
-        # Assert correct arguments are passed for the app
-        instavibe_call = next((c for c in mock_build_and_deploy.call_args_list if c.args[2] == 'instavibe-app'), None)
-        self.assertIsNotNone(instavibe_call)
-        self.assertEqual(instavibe_call.kwargs['service_account'], 'test-sa@example.com')
-        self.assertIn("ORCHESTRATOR_AGENT_RESOURCE_NAME", instavibe_call.kwargs['env_vars'])
-        self.assertEqual(instavibe_call.kwargs['env_vars']["ORCHESTRATOR_AGENT_RESOURCE_NAME"], "projects/test-p-env/locations/us-central1/reasoningEngines/orchestrate_agent-123")
+        mock_setup_spanner.assert_not_called()  # We skip spanner in this test
+        mock_deploy_phase1.assert_called_once()
+        mock_deploy_phase2.assert_called_once()
+        mock_deploy_phase3.assert_called_once()
 
 
-    @patch.dict(os.environ, {}, clear=True)
-    @patch('sys.exit')
+    @patch('deploy_all.setup_environment', side_effect=ValueError("Missing critical environment variables"))
     @patch('deploy_all.install_dependencies')
-    def test_main_missing_env_vars(self, mock_install_deps, mock_exit):
+    @patch('deploy_all.setup_observability')
+    def test_main_missing_env_vars(self, mock_setup_obs, mock_install_deps, mock_setup_env):
+        """Test main() exits when required environment variables are missing."""
         mock_args = argparse.Namespace(
             skip_agents=True,
             skip_gateway=True,
@@ -128,9 +113,59 @@ class TestDeployAllScript(unittest.TestCase):
             skip_spanner=True,
             skip_collector=True,
             deploy_orchestrate_only=False,
+            deploy_planner_only=False,
+            force_update=False
         )
-        deploy_all.main(mock_args)
-        mock_exit.assert_called_once_with(1)
+        # The function should exit with code 1 when env vars are missing
+        with self.assertRaises(SystemExit) as cm:
+            deploy_all.main(mock_args)
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_get_agent_configurations(self):
+        """Test that get_agent_configurations returns the expected agent list."""
+        agents = deploy_all.get_agent_configurations()
+        self.assertEqual(len(agents), 4)
+        agent_names = [a["name"] for a in agents]
+        self.assertIn("planner_agent", agent_names)
+        self.assertIn("orchestrate_agent", agent_names)
+        self.assertIn("social_agent", agent_names)
+        self.assertIn("platform_mcp_client_agent", agent_names)
+
+    def test_filter_agents_by_args_deploy_orchestrate_only(self):
+        """Test that filter_agents_by_args correctly filters for orchestrate-only deployment."""
+        agents = deploy_all.get_agent_configurations()
+        mock_args = argparse.Namespace(deploy_orchestrate_only=True, deploy_planner_only=False)
+        filtered = deploy_all.filter_agents_by_args(agents, mock_args)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["name"], "orchestrate_agent")
+
+    def test_filter_agents_by_args_deploy_planner_only(self):
+        """Test that filter_agents_by_args correctly filters for planner-only deployment."""
+        agents = deploy_all.get_agent_configurations()
+        mock_args = argparse.Namespace(deploy_orchestrate_only=False, deploy_planner_only=True)
+        filtered = deploy_all.filter_agents_by_args(agents, mock_args)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["name"], "planner_agent")
+
+    def test_filter_agents_by_args_all_agents(self):
+        """Test that filter_agents_by_args returns all agents when no filter is applied."""
+        agents = deploy_all.get_agent_configurations()
+        mock_args = argparse.Namespace(deploy_orchestrate_only=False, deploy_planner_only=False)
+        filtered = deploy_all.filter_agents_by_args(agents, mock_args)
+        self.assertEqual(len(filtered), 4)
+
+    @patch.dict(os.environ, {'COMMON_GEMINI_MODEL': 'gemini-1.5-flash'})
+    def test_get_gemini_model_exists(self):
+        """Test that get_gemini_model returns the model when set."""
+        model = deploy_all.get_gemini_model()
+        self.assertEqual(model, 'gemini-1.5-flash')
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_get_gemini_model_missing(self):
+        """Test that get_gemini_model exits when model is not set."""
+        with self.assertRaises(SystemExit) as cm:
+            deploy_all.get_gemini_model()
+        self.assertEqual(cm.exception.code, 1)
 
 if __name__ == '__main__':
     unittest.main()

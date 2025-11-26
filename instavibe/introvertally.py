@@ -49,14 +49,11 @@ adk_app: ReasoningEngine | None = None
 def init_agent_engine(project_id, location):
     """
     Initializes the Vertex AI ADK Application client by finding the
-    agent by its stable display_name.
+    agent by its stable display_name. Always refreshes to get the latest agent.
     """
     global adk_app
-    if adk_app:
-        logger.info("ADK App client is already initialized.")
-        return
-
-    logger.info("Attempting to initialize ADK App client...")
+    # Always refresh to get the latest deployed agent
+    logger.info("Initializing/Refreshing ADK App client...")
 
     try:
         logger.info(f"Initializing Vertex AI with project: {project_id}, location: {location}")
@@ -77,9 +74,13 @@ def init_agent_engine(project_id, location):
             return
 
         # Sort by creation time (newest first) to ensure we get the latest deployment
+        logger.info(f"Found {len(engines)} engines. Sorting by create_time...")
+        for i, e in enumerate(engines):
+            logger.info(f"  - Engine {i}: {e.resource_name} (Created: {e.create_time})")
+            
         engines = sorted(engines, key=lambda e: e.create_time, reverse=True)
         found_engine = engines[0]  # Get the newest match
-        logger.info(f"Found ReasoningEngine resource (created {found_engine.create_time}): {found_engine.resource_name}")
+        logger.info(f"Selected newest engine: {found_engine.resource_name} (Created: {found_engine.create_time})")
         
         # CRITICAL FIX: The object returned by list() does NOT have dynamic methods (like query).
         # We must re-instantiate it using the resource name to fetch the schema and bind methods.

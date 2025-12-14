@@ -58,65 +58,22 @@ class DeploymentContext:
 
 # --- Helper Functions ---
 
-def fetch_phase_1_state(context: DeploymentContext) -> DeploymentContext:
-    """
-    Fetches existing state for Phase 1 services if they are skipped.
-    This ensures determinism by verifying resources exist instead of guessing.
-    """
-    logging.info("🔍 Fetching existing Phase 1 state (Spanner, OTEL, MCP, Specialist Agents)...")
-    
-    # 1. Fetch Cloud Run URLs (OTEL, MCP)
-    # We can re-calculate them deterministically or fetch from Cloud Run API
-    # Re-calculating is faster and safe if naming is consistent
-    otel_url = get_cloud_run_url("otel-collector", context.project_number, context.location)
-    mcp_url = get_cloud_run_url("mcp-tool-server", context.project_number, context.location)
-    
-    context.update_urls({
-        "otel": otel_url,
-        "mcp": mcp_url
-    })
-    logging.info(f"  📍 Found OTEL URL: {otel_url}")
-    logging.info(f"  📍 Found MCP URL: {mcp_url}")
-    
-    # 2. Fetch Specialist Agents
-    # We need to find the latest version of each specialist agent
-    specialist_agents = ["Planner Agent", "Social Agent", "Platform MCP Client Agent"]
-    found_agents = {}
-    
-    from vertexai.preview import reasoning_engines
-    
-    try:
-        # List all engines once to avoid multiple API calls
-        all_engines = reasoning_engines.ReasoningEngine.list(project=context.project_id, location=context.location)
-        
-        for agent_display_name in specialist_agents:
-            # Filter for this agent
-            matches = [e for e in all_engines if e.display_name == agent_display_name]
-            if not matches:
-                raise DeploymentError(f"Required agent '{agent_display_name}' not found. Cannot skip Phase 1.")
-            
-            # Sort by create time (newest first)
-            matches.sort(key=lambda e: e.create_time, reverse=True)
-            latest = matches[0]
-            
-            # Map display name to internal key
-            key_map = {
-                "Planner Agent": "planner_agent",
-                "Social Agent": "social_agent",
-                "Platform MCP Client Agent": "platform_mcp_client_agent"
-            }
-            internal_key = key_map.get(agent_display_name)
-            if internal_key:
-                found_agents[internal_key] = latest.resource_name
-                logging.info(f"  🤖 Found {agent_display_name}: {latest.resource_name}")
-                
-        context.update_agents(found_agents)
-        
-    except Exception as e:
-        logging.error(f"Failed to fetch existing agents: {e}")
-        raise DeploymentError("Failed to fetch existing Phase 1 state. Please run full deployment.")
-        
-    return context
+def fetch_existing_cloud_run_urls(project_id: str, project_number: str, region: str) -> Dict[str, str]:
+    """Fetches existing Cloud Run service URLs."""
+    urls = {}
+    service_names = [
+        "otel-collector", "mcp-tool-server", "instavibe-app",
+        "planner-agent", "social-agent", "platform-mcp-client-agent", "orchestrate-agent"
+    ]
+    for name in service_names:
+        try:
+            service_url = get_cloud_run_url(name, project_number, region)
+            urls[name.replace("-", "_")] = service_url
+            logger.info(f"  📍 Found existing {name} URL: {service_url}")
+        except Exception:
+            logger.warning(f"Could not find existing URL for {name}.")
+            urls[name.replace("-", "_")] = ""
+    return urls
 
 
 def install_dependencies():
@@ -131,126 +88,6 @@ def install_dependencies():
         logging.info("--- Dependencies are up to date. ---")
     except subprocess.CalledProcessError as e:
         raise DeploymentError("Failed to install dependencies from requirements.txt.") from e
-
-def run_command(command: List[str], check: bool = True, capture_output: bool = True, text: bool = True, timeout: Optional[int] = None, input_str: Optional[str] = None) -> subprocess.CompletedProcess:
-    """
-    Executes a shell command and logs its execution and output.
-    Raises CalledProcessError on failure if check is True.
-    """
-    cmd_str = ' '.join(command)
-    logging.info(f"Executing command: {cmd_str}")
-
-    try:
-        result = subprocess.run(command, check=check, capture_output=capture_output, text=text, timeout=timeout, input=input_str)
-        if result.returncode != 0 and not check:
-             logging.warning(f"Command failed with code {result.returncode}: {cmd_str}")
-             if capture_output:
-                 logging.warning(f"STDERR: {result.stderr.strip()}")
-                 logging.warning(f"STDOUT: {result.stdout.strip()}")
-        return result
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Command failed with exit code {e.returncode}: {' '.join(e.cmd)}")
-        if capture_output:
-            logging.error(f"STDERR: {e.stderr.strip()}")
-            logging.error(f"STDOUT: {e.stdout.strip()}")
-        if check:
-            raise
-        else:
-            return subprocess.CompletedProcess(e.args, e.returncode, e.stdout, e.stderr)
-    except FileNotFoundError:
-        logging.error(f"Command not found: {command[0]}. Ensure gcloud SDK is installed and in your PATH.")
-        raise
-    except subprocess.TimeoutExpired as e:
-        logging.error(f"Command timed out after {timeout} seconds: {cmd_str}")
-        if e.stdout: logging.error(f"STDOUT: {e.stdout}")
-        if e.stderr: logging.error(f"STDERR: {e.stderr}")
-        raise
-
-def sanitize_env_var(value: Optional[str]) -> str:
-    """Sanitizes an environment variable value."""
-    if value is None:
-        return ''
-    return value.split('#', 1)[0].strip().strip('"').strip("'")
-
-def get_project_number(project_id: str) -> str:
-    """Get GCP project number from project ID."""
-    # Temporarily hardcoded due to gcloud cffi issue
-    if project_id == "laah-genai":
-        return "735503743752"
-    
-    try:
-        result = run_command(
-            ['gcloud', 'projects', 'describe', project_id, '--format=value(projectNumber)'],
-            capture_output=True, text=True, check=True
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        raise DeploymentError(f"Failed to get project number for {project_id}: {e}")
-
-def get_cloud_run_url(service_name: str, project_number: str, region: str) -> str:
-    """Pre-calculate deterministic Cloud Run URL."""
-    return f"https://{service_name}-{project_number}.{region}.run.app"
-
-def deploy_agent_wrapper(agent_conf: Dict, env_config: Dict, gemini_model: str, agent_resource_names: Optional[Dict[str, str]] = None, force_update: bool = False) -> Dict:
-    """Thread-safe agent deployment wrapper for parallel execution."""
-    display_name = agent_conf["display_name"]
-    adk_agent_name = agent_conf["name"]
-    
-    try:
-        logging.info(f"[Parallel] Deploying agent: {display_name}")
-        
-        # Import and instantiate agent
-        module_path = agent_conf["module"]
-        agent_var = agent_conf["agent_variable"]
-        module = importlib.import_module(module_path)
-        agent_class = getattr(module, agent_var)
-        
-        kwargs = {
-            "name": adk_agent_name,
-            "model": gemini_model,
-            "tools": agent_conf.get("tools", []),
-            "display_name": display_name,
-            "otel_collector_endpoint": os.getenv("OTEL_COLLECTOR_ENDPOINT")
-        }
-        
-        # Special handling for different agent types
-        if agent_var == "PlatformMCPClientAgent":
-            kwargs["mcp_server_address"] = os.getenv("MCP_SERVER_ADDRESS", "")
-        
-        if agent_var == "SocialLoopAgent":
-            if "model" in kwargs: del kwargs["model"]
-            if "tools" in kwargs: del kwargs["tools"]
-        
-        # Special handling for Orchestrate Agent - pass agent resource names
-        if agent_var == "OrchestrateServiceAgent" and agent_resource_names:
-            kwargs["planner_agent_resource_name"] = agent_resource_names.get("planner_agent", "")
-            kwargs["social_agent_resource_name"] = agent_resource_names.get("social_agent", "")
-            kwargs["platform_mcp_client_agent_resource_name"] = agent_resource_names.get("platform_mcp_client_agent", "")
-            logging.info(f"Orchestrate Agent will connect to: planner={kwargs['planner_agent_resource_name']}, social={kwargs['social_agent_resource_name']}, platform={kwargs['platform_mcp_client_agent_resource_name']}")
-        
-        agent_to_deploy = agent_class(**kwargs)
-        
-        # Deploy agent
-        with open(agent_conf["requirements_file"], "r") as f:
-            requirements = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-        
-        remote_agent = deploy_adk_agent_engine(
-            agent_object=agent_to_deploy,
-            project=env_config["project_id"],
-            location=env_config["region"],
-            requirements=requirements,
-            extra_packages=agent_conf["extra_packages"],
-            display_name=display_name,
-            force_update=force_update,
-        )
-        
-        logging.info(f" [Parallel] ✅ {display_name}: {remote_agent.resource_name}")
-        return {"success": True, "name": adk_agent_name, "resource_name": remote_agent.resource_name}
-        
-    except Exception as e:
-        logging.error(f"[Parallel] ❌ {display_name}: {e}", exc_info=True)
-        return {"success": False, "name": adk_agent_name, "error": str(e)}
-
 
 def setup_environment() -> Dict[str, str]:
     """Loads and validates required environment variables."""
@@ -337,6 +174,107 @@ def setup_spanner(project_id: str, instance_id: str, db_id: str, region: str):
         os.chdir(original_cwd)
     logging.info("--- Spanner Setup Complete ---")
 
+def run_command(command: List[str], check: bool = True, capture_output: bool = True, text: bool = True, timeout: Optional[int] = None, input_str: Optional[str] = None) -> subprocess.CompletedProcess:
+    """
+    Executes a shell command and logs its execution and output.
+    Raises CalledProcessError on Producing a stacktrace if check is True.
+    """
+    cmd_str = ' '.join(command)
+    logging.info(f"Executing command: {cmd_str}")
+
+    try:
+        result = subprocess.run(command, check=check, capture_output=capture_output, text=text, timeout=timeout, input=input_str)
+        if result.returncode != 0 and not check:
+             logging.warning(f"Command failed with code {result.returncode}: {cmd_str}")
+             if capture_output:
+                 logging.warning(f"STDERR: {result.stderr.strip()}")
+                 logging.warning(f"STDOUT: {result.stdout.strip()}")
+        return result
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Command failed with exit code {e.returncode}: {' '.join(e.cmd)}")
+        if capture_output:
+            logging.error(f"STDERR: {e.stderr.strip()}")
+            logging.error(f"STDOUT: {e.stdout.strip()}")
+        if check:
+            raise
+        else:
+            return subprocess.CompletedProcess(e.args, e.returncode, e.stdout, e.stderr)
+    except FileNotFoundError:
+        logging.error(f"Command not found: {command[0]}. Ensure gcloud SDK is installed and in your PATH.")
+        raise
+    except subprocess.TimeoutExpired as e:
+        logging.error(f"Command timed out after {timeout} seconds: {cmd_str}")
+        if e.stdout: logging.error(f"STDOUT: {e.stdout}")
+        if e.stderr: logging.error(f"STDERR: {e.stderr}")
+        raise
+
+def sanitize_env_var(value: Optional[str]) -> str:
+    """Sanitizes an environment variable value."""
+    if value is None:
+        return ''
+    return value.split('#', 1)[0].strip().strip('"').strip("'")
+
+def get_project_number(project_id: str) -> str:
+    """Get GCP project number from project ID."""
+    # Temporarily hardcoded due to gcloud cffi issue
+    if project_id == "laah-genai": # Replace with your project ID
+        return "735503743752" # Replace with your project number
+    
+    try:
+        result = run_command(
+            ['gcloud', 'projects', 'describe', project_id, '--format=value(projectNumber)'],
+            capture_output=True, text=True, check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise DeploymentError(f"Failed to get project number for {project_id}: {e}")
+
+def get_cloud_run_url(service_name: str, project_number: str, region: str) -> str:
+    """Pre-calculate deterministic Cloud Run URL."""
+    return f"https://{service_name}-{project_number}.{region}.run.app"
+
+def deploy_adk_agent_cloud_run(agent_conf: Dict, env_config: Dict, gemini_model: str, context: DeploymentContext, force_update: bool = False) -> Dict:
+    """Deploys an ADK agent to Cloud Run using its cloudbuild.yaml."""
+    display_name = agent_conf["display_name"]
+    adk_agent_name = agent_conf["name"]
+    service_name = agent_conf["gcp_id"]
+
+    try:
+        logging.info(f"[Parallel] Deploying Cloud Run agent: {display_name}")
+
+        # Prepare environment variables for the Cloud Build and Cloud Run service
+        agent_env_vars = {
+            "GEMINI_MODEL": gemini_model,
+            "PLANNER_AGENT_URL": context.urls.get("planner_agent", ""),
+            "SOCIAL_AGENT_URL": context.urls.get("social_agent", ""),
+            "PLATFORM_MCP_CLIENT_AGENT_URL": context.urls.get("platform_mcp_client_agent", ""),
+            "ORCHESTRATE_AGENT_URL": context.urls.get("orchestrate_agent", ""),
+            "OTEL_COLLECTOR_ENDPOINT": f"{context.urls.get('otel', '')}" if context.urls.get("otel") else "",
+            "MCP_SERVER_ADDRESS": context.urls.get("mcp", ""),
+        }
+        
+        # Add project and region directly as substitutions
+        agent_env_vars["GOOGLE_CLOUD_PROJECT"] = env_config["project_id"]
+        agent_env_vars["CLOUD_RUN_REGION"] = env_config["region"]
+
+        service_url = build_and_deploy_cloud_run_service(
+            env_config["project_id"],
+            env_config["region"],
+            service_name,
+            agent_conf["source_path"],
+            env_vars=agent_env_vars, # Pass env_vars to build_and_deploy_cloud_run_service
+            allow_unauthenticated=True,
+            service_account=env_config.get("service_account"),
+            config_path=agent_conf["cloudbuild_file"],
+            staging_bucket=env_config.get("staging_bucket")
+        )
+        logging.info(f" [Parallel] ✅ {display_name}: {service_url}")
+        return {"success": True, "name": adk_agent_name, "url": service_url}
+    except Exception as e:
+        logging.error(f"[Parallel] ❌ {display_name}: {e}", exc_info=True)
+        return {"success": False, "name": adk_agent_name, "error": str(e)}
+
+
 def build_and_deploy_cloud_run_service(
     project_id: str,
     region: str,
@@ -345,24 +283,24 @@ def build_and_deploy_cloud_run_service(
     env_vars: Optional[Dict[str, str]] = None,
     allow_unauthenticated: bool = True,
     service_account: Optional[str] = None,
-    config_path: str = "cloudbuild.yaml"
+    config_path: str = "cloudbuild.yaml",
+    staging_bucket: Optional[str] = None
 ) -> Optional[str]:
     """
     Builds and deploys a Cloud Run service using a cloudbuild.yaml that
     accepts individual substitutions for each environment variable.
     """
     logging.info(f"--- Deploying Cloud Run Service: {service_name} from path {source_path} ---")
-    if not os.path.isdir(source_path):
+    if not os.path.isdir(source_path) and source_path != ".":
         raise DeploymentError(f"Source path not found: {source_path}")
 
     image_path = f"{region}-docker.pkg.dev/{project_id}/instavibe-images/{service_name}:latest"
 
+    # All environment variables passed to the Cloud Run service need to be prefixed with _ for substitution.
     substitutions = {
         "_IMAGE_PATH": image_path,
         "_SERVICE_NAME": service_name,
         "_REGION": region,
-        "_SERVICE_ACCOUNT": service_account or "",
-        "_SERVICE_DIR": source_path,
     }
 
     if env_vars:
@@ -373,11 +311,21 @@ def build_and_deploy_cloud_run_service(
     substitutions_string = ",".join([f"{k}={v}" for k, v in substitutions.items()])
 
     build_submit_cmd = [
-        "gcloud", "builds", "submit", ".",
-        "--config", config_path,
+        "gcloud", "builds", "submit",
+        ".",  # Build from the project root
+        "--config", os.path.join(source_path, config_path), # Use config path relative to source_path
         f"--substitutions={substitutions_string}",
         "--project", project_id,
     ]
+    
+    # Add GCS staging directory if bucket is provided
+    if staging_bucket:
+        # Sanitize bucket name (remove gs:// prefix if present)
+        bucket_name = staging_bucket.replace("gs://", "")
+        # Use service name as directory for isolation
+        staging_dir = f"gs://{bucket_name}/{service_name}/source"
+        build_submit_cmd.append(f"--gcs-source-staging-dir={staging_dir}")
+        logging.info(f"Using GCS staging directory: {staging_dir}")
 
     try:
         logging.info(f"Submitting build and deploy for {service_name}...")
@@ -413,7 +361,8 @@ def deploy_service_wrapper(service_name: str, source_path: str, env_config: Dict
             env_vars=env_vars,
             allow_unauthenticated=True, # Default to unauthenticated for internal services for now, or strictly controlled
             service_account=env_config.get("service_account"),
-            config_path=config_path
+            config_path=config_path,
+            staging_bucket=env_config.get("staging_bucket")
         )
         logging.info(f" [Parallel] ✅ {service_name}: {service_url}")
         return {"success": True, "name": service_name, "url": service_url}
@@ -432,7 +381,9 @@ def deploy_app_wrapper(env_config: Dict, app_env_vars: Dict) -> Dict:
             "./instavibe",
             env_vars=app_env_vars,
             allow_unauthenticated=True,
-            service_account=env_config.get("service_account")
+            service_account=env_config.get("service_account"),
+            config_path="cloudbuild.yaml",
+            staging_bucket=env_config.get("staging_bucket")
         )
         logging.info(f" [Parallel] ✅ InstaVibe App: {service_url}")
         return {"success": True, "name": "instavibe-app", "url": service_url}
@@ -449,39 +400,51 @@ def get_agent_configurations() -> List[Dict]:
             "name": "planner_agent",
             "gcp_id": "planner-agent",
             "display_name": "Planner Agent",
-            "module": "agents.planner.agent",
-            "agent_variable": "PlannerAgent",
+            "deployment_type": "cloud_run",
+            "source_path": "agents/planner",
+            "cloudbuild_file": "cloudbuild.yaml",
+            "module": "agents.planner.agent",  # Core agent (wrappers need inline mod)
+            "agent_variable": "root_agent",
             "requirements_file": "agents/planner/requirements.txt",
-            "extra_packages": ["./agents/app", "./agents/common", "./agents/planner"],
+            "extra_packages": ["agents/app", "agents/common", "agents/planner"],
             "tools": []
         },
         {
             "name": "orchestrate_agent",
             "gcp_id": "orchestrate-agent",
             "display_name": "Orchestrate Agent",
+            "deployment_type": "cloud_run",
+            "source_path": "agents/orchestrate",
+            "cloudbuild_file": "cloudbuild.yaml",
             "module": "agents.orchestrate.agent",
-            "agent_variable": "OrchestrateServiceAgent",
+            "agent_variable": "root_agent",
             "requirements_file": "agents/orchestrate/requirements.txt",
-            "extra_packages": ["./agents/app", "./agents/common", "./agents/orchestrate", "./agents/_dynamic_tool_agent.py", "./agents/_a2a_helpers.py"],
+            "extra_packages": ["agents/app", "agents/common", "agents/orchestrate", "agents/_dynamic_tool_agent.py", "agents/_a2a_helpers.py"],
             "tools": []
         },
         {
             "name": "social_agent",
             "gcp_id": "social-agent",
             "display_name": "Social Agent",
-            "module": "agents.social.agent",
-            "agent_variable": "SocialLoopAgent",
+            "deployment_type": "cloud_run",
+            "source_path": "agents/social",
+            "cloudbuild_file": "cloudbuild.yaml",
+            "module": "agents.social.agent",  # Core agent
+            "agent_variable": "root_agent",
             "requirements_file": "agents/social/requirements.txt",
-            "extra_packages": ["./agents/app", "./agents/common", "./agents/social", "./tools"],
+            "extra_packages": ["agents/app", "agents/common", "agents/social", "tools"],
         },
         {
             "name": "platform_mcp_client_agent",
             "gcp_id": "platform-mcp-client-agent",
             "display_name": "Platform MCP Client Agent",
-            "module": "agents.platform_mcp_client.agent",
-            "agent_variable": "PlatformMCPClientAgent",
+            "deployment_type": "cloud_run",
+            "source_path": "agents/platform_mcp_client",
+            "cloudbuild_file": "cloudbuild.yaml",
+            "module": "agents.platform_mcp_client.agent",  # Core agent
+            "agent_variable": "root_agent",
             "requirements_file": "agents/platform_mcp_client/requirements.txt",
-            "extra_packages": ["./agents/app", "./agents/common", "./agents/platform_mcp_client", "./agents/_dynamic_tool_agent.py"],
+            "extra_packages": ["agents/app", "agents/common", "agents/platform_mcp_client", "agents/_dynamic_tool_agent.py", "agents/social"],
         },
     ]
 
@@ -505,25 +468,38 @@ def filter_agents_by_args(agents_to_deploy: List[Dict], args) -> List[Dict]:
     
     return agents_to_deploy
 
-def setup_cloud_run_urls(env_config: Dict) -> tuple:
+def setup_cloud_run_urls(env_config: Dict, project_number: str) -> Dict[str, str]:
     """Pre-calculate deterministic Cloud Run URLs for parallel deployment."""
     logging.info("🔍 Pre-calculating Cloud Run URLs for parallel deployment...")
-    project_number = get_project_number(env_config["project_id"])
     region = env_config["region"]
     
-    otel_url = get_cloud_run_url("otel-collector", project_number, region)
-    mcp_url = get_cloud_run_url("mcp-tool-server", project_number, region)
-    app_url = get_cloud_run_url("instavibe-app", project_number, region)
-    
+    urls = {
+        "otel": get_cloud_run_url("otel-collector", project_number, region),
+        "mcp": get_cloud_run_url("mcp-tool-server", project_number, region),
+        "app": get_cloud_run_url("instavibe-app", project_number, region),
+        "planner_agent": get_cloud_run_url("planner-agent", project_number, region),
+        "social_agent": get_cloud_run_url("social-agent", project_number, region),
+        "platform_mcp_client_agent": get_cloud_run_url("platform-mcp-client-agent", project_number, region),
+        "orchestrate_agent": get_cloud_run_url("orchestrate-agent", project_number, region)
+    }
+
     # Set URLs in environment BEFORE deployment
-    os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{otel_url}:4317"
-    os.environ["MCP_SERVER_ADDRESS"] = mcp_url
+    os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{urls.get('otel', '')}" # Removed :4317 as we use standard 443->8080 mapping
+    os.environ["MCP_SERVER_ADDRESS"] = urls.get("mcp", "")
+    os.environ["PLANNER_AGENT_URL"] = urls.get("planner_agent", "")
+    os.environ["SOCIAL_AGENT_URL"] = urls.get("social_agent", "")
+    os.environ["PLATFORM_MCP_CLIENT_AGENT_URL"] = urls.get("platform_mcp_client_agent", "")
+    os.environ["ORCHESTRATE_AGENT_URL"] = urls.get("orchestrate_agent", "")
     
-    logging.info(f"  📍 OTEL Collector URL: {otel_url}")
-    logging.info(f"  📍 MCP Tool Server URL: {mcp_url}")
-    logging.info(f"  📍 InstaVibe App URL: {app_url}")
+    logging.info(f"  📍 OTEL Collector URL: {urls.get("otel")}")
+    logging.info(f"  📍 MCP Tool Server URL: {urls.get("mcp")}")
+    logging.info(f"  📍 InstaVibe App URL: {urls.get("app")}")
+    logging.info(f"  📍 Planner Agent URL: {urls.get("planner_agent")}")
+    logging.info(f"  📍 Social Agent URL: {urls.get("social_agent")}")
+    logging.info(f"  📍 Platform Agent URL: {urls.get("platform_mcp_client_agent")}")
+    logging.info(f"  📍 Orchestrate Agent URL: {urls.get("orchestrate_agent")}")
     
-    return project_number, {"otel": otel_url, "mcp": mcp_url, "app": app_url}
+    return urls
 
 def shutdown_observability():
     """Shutdown observability providers."""
@@ -547,141 +523,127 @@ def shutdown_observability():
 
 # --- Deployment Phase Functions ---
 
-
-
-def deploy_phase_1_parallel(args, env_config: Dict, specialist_agents: List[Dict], gemini_model: str, context: DeploymentContext) -> DeploymentContext:
-    """PHASE 1: Deploy specialist agents, OTEL, and MCP in parallel."""
-    logging.info(f"🚀 PHASE 1: Deploying Specialist Agents, OTEL, and MCP in PARALLEL...")
+def deploy_agents_and_services_parallel(args, env_config: Dict, all_agent_confs: List[Dict], gemini_model: str, context: DeploymentContext) -> DeploymentContext:
+    """PHASE 1: Deploy ALL agents, OTEL, and MCP in parallel."""
+    logging.info(f"🚀 PHASE 1: Deploying ALL Agents, OTEL, and MCP in PARALLEL...")
     
     project_id = env_config["project_id"]
     region = env_config["region"]
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(specialist_agents) + 2) as executor:
+    # Calculate max_workers based on all deployable items (agents + collector + mcp server)
+    # Each agent deployment is now a Cloud Run service via deploy_adk_agent_cloud_run
+    max_concurrent_tasks = len(all_agent_confs) # All agents
+    if not args.skip_collector: max_concurrent_tasks += 1 # OTEL Collector
+    if not args.skip_mcp_server: max_concurrent_tasks += 1 # MCP Tool Server
+
+    # Adjust max_workers to a reasonable minimum/maximum if needed
+    max_concurrent_tasks = max(1, min(max_concurrent_tasks, 10)) # Cap at 10 for safety/resource limits
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent_tasks) as executor:
         futures = {}
         
-        # 1. Specialist Agents
+        # 1. Agents (All Agents) - using deploy_adk_agent_cloud_run
         if not args.skip_agents:
-            for agent_conf in specialist_agents:
-                # Always force update as we assume code changes
-                futures[executor.submit(deploy_agent_wrapper, agent_conf, env_config, gemini_model, None, True)] = agent_conf["name"]
+            for agent_conf in all_agent_confs:
+                # This now calls the Cloud Run deployment for all agents
+                futures[executor.submit(
+                    deploy_adk_agent_cloud_run,
+                    agent_conf,
+                    env_config,
+                    gemini_model,
+                    context, # Pass context so it can get URLs if needed
+                    True # force_update
+                )] = agent_conf["name"]
 
         # 2. OTEL Collector
         if not args.skip_collector:
+            # Env vars for collector deployment
+            otel_env_vars = {
+                "GCP_PROJECT_ID": project_id,
+                "GCP_LOCATION": region
+            }
             futures[executor.submit(
                 deploy_service_wrapper, 
                 "otel-collector", 
                 "./otel-collector", 
                 env_config, 
-                {
-                    "GCP_PROJECT_ID": project_id,
-                    "GCP_LOCATION": region
-                },
-                config_path="otel-collector/cloudbuild.yaml"
+                otel_env_vars, # Pass env_vars here
+                config_path="cloudbuild.yaml"
             )] = "otel-collector"
 
         # 3. MCP Tool Server
         if not args.skip_mcp_server:
+            # Env vars for MCP server deployment
+            mcp_env_vars = {
+                "GCP_PROJECT_ID": project_id,
+                "SPANNER_INSTANCE_ID": env_config["spanner_instance"],
+                "SPANNER_DATABASE_ID": env_config["spanner_db"],
+                "OTEL_COLLECTOR_ENDPOINT": f"{context.urls.get('otel', '')}" # Removed :4317
+            }
             futures[executor.submit(
                 deploy_service_wrapper, 
                 "mcp-tool-server", 
                 "./tools/instavibe", 
                 env_config, 
-                {
-                    "GCP_PROJECT_ID": project_id,
-                    "SPANNER_INSTANCE_ID": env_config["spanner_instance"],
-                    "SPANNER_DATABASE_ID": env_config["spanner_db"],
-                    "OTEL_COLLECTOR_ENDPOINT": context.urls.get("otel", "") # Use context if available, though likely empty here if deploying
-                },
-                config_path="tools/instavibe/cloudbuild.yaml"
+                mcp_env_vars, # Pass env_vars here
+                config_path="cloudbuild.yaml"
             )] = "mcp-tool-server"
 
+        # 4. InstaVibe App (Parallelized)
+        if not args.skip_app and not args.deploy_orchestrate_only and not args.deploy_planner_only:
+             # Construct env vars from context
+            otel_endpoint = context.urls.get("otel", "")
+            # No need to append :4317 anymore
+                
+            app_env_vars = {
+                "COMMON_GOOGLE_CLOUD_PROJECT": env_config["project_id"],
+                "COMMON_GOOGLE_CLOUD_LOCATION": env_config["region"],
+                "COMMON_SPANNER_INSTANCE_ID": env_config["spanner_instance"],
+                "COMMON_SPANNER_DATABASE_ID": env_config["spanner_db"],
+                "AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL": context.urls.get("mcp", ""),
+                "OTEL_COLLECTOR_ENDPOINT": otel_endpoint,
+                "ORCHESTRATE_AGENT_URL": context.urls.get("orchestrate_agent", ""),
+                "ENABLE_TRACING": "True", # Always enable if we are deploying the app
+            }
+            
+            futures[executor.submit(
+                deploy_app_wrapper,
+                env_config,
+                app_env_vars
+            )] = "instavibe-app"
+
         # Collect results as they complete
-        new_urls = {}
-        new_agents = {}
-        
         for future in concurrent.futures.as_completed(futures):
             task_name = futures[future]
             result = future.result()
-            
-            if task_name == "otel-collector":
-                if result["success"]:
-                    new_urls["otel"] = result['url']
-                    # Update env var immediately for other threads if needed (though mostly for next phases)
-                    os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{result['url']}:4317"
-                    logging.info(f"✅ PHASE 1: OTEL Collector deployed: {result['url']}")
-                else:
-                    raise DeploymentError(f"OTEL Collector deployment failed: {result.get('error')}")
-            
-            elif task_name == "mcp-tool-server":
-                if result["success"]:
-                    new_urls["mcp"] = result['url']
-                    os.environ["MCP_SERVER_URL"] = result['url']
-                    logging.info(f"✅ PHASE 1: MCP Server deployed: {result['url']}")
-                else:
-                    raise DeploymentError(f"MCP Server deployment failed: {result.get('error')}")
-            
+
+            if not result["success"]:
+                raise DeploymentError(f"{task_name} deployment failed: {result.get('error')}")
+
+            if "url" in result:
+                # Update context with the new URL
+                context.urls[task_name.replace("-", "_")] = result['url']
+                # Update global environment variables as well for subsequent steps in the same script
+                if task_name == "otel-collector":
+                    os.environ["OTEL_COLLECTOR_ENDPOINT"] = f"{result['url']}" # Removed :4317
+                elif task_name == "mcp-tool-server":
+                    os.environ["MCP_SERVER_ADDRESS"] = result['url']
+                elif task_name == "planner-agent": # Ensure specific agent URLs are set
+                    os.environ["PLANNER_AGENT_URL"] = result['url']
+                elif task_name == "social-agent":
+                    os.environ["SOCIAL_AGENT_URL"] = result['url']
+                elif task_name == "platform-mcp-client-agent":
+                    os.environ["PLATFORM_MCP_CLIENT_AGENT_URL"] = result['url']
+                elif task_name == "orchestrate-agent":
+                    os.environ["ORCHESTRATE_AGENT_URL"] = result['url']
             else:
-                # Agent deployment result
-                if result["success"]:
-                    new_agents[result["name"]] = result["resource_name"]
-                else:
-                    logging.error(f"❌ PHASE 1 FAILED: {result['name']}: {result.get('error', 'Unknown error')}")
-                    raise DeploymentError(f"Phase 1 agent deployment failed: {result['name']}")
-        
-        # Update Context
-        context.update_urls(new_urls)
-        context.update_agents(new_agents)
+                context.agent_resource_names[result["name"]] = result["resource_name"]
         
         logging.info(f"✅ PHASE 1 COMPLETE: Parallel deployment finished")
     
     return context
 
-def deploy_phase_2_orchestrate(args, env_config: Dict, orchestrate_agent: List[Dict], gemini_model: str, context: DeploymentContext) -> DeploymentContext:
-    """PHASE 2: Deploy orchestrate agent (needs specialist agent resource names from context)."""
-    if not orchestrate_agent:
-        return context
-    
-    logging.info(f"🔗 PHASE 2: Deploying Orchestrate Agent (depends on Phase 1 agent resource names)...")
-    
-    # Use resource names from context
-    # Always force update
-    result = deploy_agent_wrapper(orchestrate_agent[0], env_config, gemini_model, context.agent_resource_names, True)
-    
-    if result["success"]:
-        logging.info(f"✅ PHASE 2 COMPLETE: Orchestrate Agent deployed")
-        context.update_agents({result["name"]: result["resource_name"]})
-        return context
-    else:
-        logging.error(f"❌ PHASE 2 FAILED: {result.get('error', 'Unknown error')}")
-        raise DeploymentError(f"Phase 2 orchestrate agent deployment failed")
 
-
-
-def deploy_phase_3_app(env_config: Dict, context: DeploymentContext):
-    """PHASE 3: Deploy InstaVibe App (after orchestrator so it finds the newest one)."""
-    logging.info(f"🌐 PHASE 3: Deploying InstaVibe App (after orchestrator deployment)...")
-    
-    # Construct env vars from context
-    otel_endpoint = context.urls.get("otel", "")
-    if otel_endpoint and not otel_endpoint.endswith(":4317"):
-        otel_endpoint = f"{otel_endpoint}:4317"
-        
-    app_env_vars = {
-        "COMMON_GOOGLE_CLOUD_PROJECT": env_config["project_id"],
-        "COMMON_GOOGLE_CLOUD_LOCATION": env_config["region"],
-        "COMMON_SPANNER_INSTANCE_ID": env_config["spanner_instance"],
-        "COMMON_SPANNER_DATABASE_ID": env_config["spanner_db"],
-        "AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL": context.urls.get("mcp", ""),
-        "OTEL_COLLECTOR_ENDPOINT": otel_endpoint,
-        "ENABLE_TRACING": "True", # Always enable if we are deploying the app
-    }
-    
-    result = deploy_app_wrapper(env_config, app_env_vars)
-    if result["success"]:
-        logging.info(f"✅ PHASE 3 COMPLETE: InstaVibe App deployed: {result['url']}")
-        context.update_urls({"app": result['url']})
-    else:
-        raise DeploymentError(f"InstaVibe App deployment failed: {result.get('error')}")
 
 # --- Main Function ---
 
@@ -703,65 +665,39 @@ def main(args):
             logging.info("Skipping Spanner setup.")
 
         # Initialize Context
+        project_number = get_project_number(env_config["project_id"])
+        initial_urls = setup_cloud_run_urls(env_config, project_number)
         context = DeploymentContext(
             project_id=env_config["project_id"],
             location=env_config["region"],
-            project_number=get_project_number(env_config["project_id"])
+            project_number=project_number,
+            urls=initial_urls
         )
 
         # Get configurations
         gemini_model = get_gemini_model()
         all_agents = get_agent_configurations()
         
-        # Filter agents based on args (e.g. deploy_planner_only)
-        # Note: filter_agents_by_args might need adjustment or we just use it as is
+        # Filter agents based on args
         agents_to_deploy = filter_agents_by_args(all_agents, args)
         
-        specialist_agents = [a for a in agents_to_deploy if a['name'] != 'orchestrate_agent']
-        orchestrate_agent = [a for a in agents_to_deploy if a['name'] == 'orchestrate_agent']
-
-        # --- PHASE 1: Foundation & Specialist Agents ---
-        # Determine if we should run Phase 1 deployment
+        # --- PHASE 1: Foundation & All Agents ---
         should_deploy_phase_1 = (
-            (not args.skip_agents and specialist_agents) or 
+            (not args.skip_agents and agents_to_deploy) or 
             not args.skip_collector or 
             not args.skip_mcp_server
         )
         
-        # Override for orchestrate-only (skip Phase 1 deployment)
-        if args.deploy_orchestrate_only:
-            should_deploy_phase_1 = False
-
         if should_deploy_phase_1:
-            context = deploy_phase_1_parallel(args, env_config, specialist_agents, gemini_model, context)
+            context = deploy_agents_and_services_parallel(args, env_config, agents_to_deploy, gemini_model, context)
         else:
-            # If skipping Phase 1, we MUST fetch state if we are proceeding to Phase 2 or 3
-            # (unless we are doing nothing else, which is unlikely)
-            if not args.deploy_planner_only: # If planner only, we stop after Phase 1 anyway
-                 context = fetch_phase_1_state(context)
+            fetched_urls = fetch_existing_cloud_run_urls(env_config["project_id"], project_number, env_config["region"])
+            # Update context with fetched URLs
+            context.update_urls(fetched_urls)
 
-        # --- PHASE 2: Orchestrate Agent ---
-        should_deploy_phase_2 = (
-            (not args.skip_agents and orchestrate_agent) or
-            args.deploy_orchestrate_only
-        )
-        
-        if args.deploy_planner_only:
-            should_deploy_phase_2 = False
-
-        if should_deploy_phase_2:
-            context = deploy_phase_2_orchestrate(args, env_config, orchestrate_agent, gemini_model, context)
-        
-        # --- PHASE 3: InstaVibe App ---
-        should_deploy_phase_3 = not args.skip_app
-        
-        if args.deploy_orchestrate_only or args.deploy_planner_only:
-            should_deploy_phase_3 = False
-            
-        if should_deploy_phase_3:
-            deploy_phase_3_app(env_config, context)
-        else:
-            logging.info("--- Skipping InstaVibe App deployment. ---")
+        # --- PHASE 3: InstaVibe App (Now Parallelized in Phase 1) ---
+        # Logic moved to deploy_agents_and_services_parallel
+        pass
 
         logging.info("--- Deployment script finished successfully! ---")
 

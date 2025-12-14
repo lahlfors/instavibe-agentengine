@@ -77,11 +77,14 @@ def setup_observability(service_name_suffix="service", disable_export=False, end
 
     # --- TRACES ---
     if not isinstance(trace.get_tracer_provider(), TracerProvider):
-        tracer_provider = TracerProvider(resource=resource)
-        trace.set_tracer_provider(tracer_provider)
-        otlp_span_exporter = OTLPSpanExporter(endpoint=OTEL_COLLECTOR_ENDPOINT, insecure=True)
-        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_span_exporter))
-        log.info("Configured new TracerProvider.")
+        try:
+            tracer_provider = TracerProvider(resource=resource)
+            trace.set_tracer_provider(tracer_provider)
+            otlp_span_exporter = OTLPSpanExporter(endpoint=OTEL_COLLECTOR_ENDPOINT, insecure=True)
+            tracer_provider.add_span_processor(BatchSpanProcessor(otlp_span_exporter))
+            log.info("Configured new TracerProvider.")
+        except Exception as e:
+            log.error(f"Failed to configure TracerProvider: {e}")
     else:
         log.info("TracerProvider already configured.")
 

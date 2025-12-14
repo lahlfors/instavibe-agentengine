@@ -1,7 +1,7 @@
 steps:
   # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', '${_IMAGE_PATH}', '${_SERVICE_DIR}']
+    args: ['build', '-t', '${_IMAGE_PATH}', './otel-collector']
   
   # Push the container image
   - name: 'gcr.io/cloud-builders/docker'
@@ -24,18 +24,16 @@ steps:
       - '${_GCP_PROJECT_ID}'
       - '--service-account=${_SERVICE_ACCOUNT}'
       - '--allow-unauthenticated'
+      - '--use-http2'
       # Set environment variables
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=${_GCP_PROJECT_ID}'
-      - '--set-env-vars'
-      - 'GCP_LOCATION=${_GCP_LOCATION}'
+      - 'GCP_PROJECT_ID=${_GCP_PROJECT_ID},GCP_LOCATION=${_GCP_LOCATION}'
 
 substitutions:
     _IMAGE_PATH: ''
     _SERVICE_NAME: ''
     _REGION: ''
     _SERVICE_ACCOUNT: ''
-    _SERVICE_DIR: './otel-collector'
     _GCP_PROJECT_ID: ''
     _GCP_LOCATION: ''
 

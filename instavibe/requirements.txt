@@ -13,3 +13,6 @@ opentelemetry-exporter-otlp-proto-grpc
 google-cloud-logging
 google-cloud-storage
 google-cloud-aiplatform>=1.63.0
+google-api-python-client
+nest_asyncio
+google-adk[a2a]>=1.17.0

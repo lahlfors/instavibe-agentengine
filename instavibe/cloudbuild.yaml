@@ -1,0 +1,70 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_IMAGE_PATH}'
+      - '-f'
+      - 'instavibe/Dockerfile' # Correct path to the Dockerfile
+      - '.'
+    id: 'build-image'
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_IMAGE_PATH}'
+    id: 'push-image'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_IMAGE_PATH}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '300'
+      - '--concurrency'
+      - '80'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--service-account'
+      - '${_SERVICE_ACCOUNT}'
+      - '--set-env-vars'
+      - '^,^COMMON_GOOGLE_CLOUD_PROJECT=${_COMMON_GOOGLE_CLOUD_PROJECT},COMMON_GOOGLE_CLOUD_LOCATION=${_COMMON_GOOGLE_CLOUD_LOCATION},COMMON_SPANNER_INSTANCE_ID=${_COMMON_SPANNER_INSTANCE_ID},COMMON_SPANNER_DATABASE_ID=${_COMMON_SPANNER_DATABASE_ID},AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL=${_AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL},OTEL_COLLECTOR_ENDPOINT=${_OTEL_COLLECTOR_ENDPOINT},ORCHESTRATE_AGENT_URL=${_ORCHESTRATE_AGENT_URL},ENABLE_TRACING=${_ENABLE_TRACING}'
+    id: 'deploy-cloudrun'
+
+substitutions:
+  _SERVICE_NAME: 'instavibe-app'
+  _REGION: 'us-central1'
+  _IMAGE_PATH: 'us-central1-docker.pkg.dev/${PROJECT_ID}/instavibe-images/instavibe-app:latest'
+  _SERVICE_ACCOUNT: ''
+  _COMMON_GOOGLE_CLOUD_PROJECT: ''
+  _COMMON_GOOGLE_CLOUD_LOCATION: ''
+  _COMMON_SPANNER_INSTANCE_ID: ''
+  _COMMON_SPANNER_DATABASE_ID: ''
+  _AGENTS_PLATFORM_MCP_CLIENT_MCP_SERVER_URL: ''
+  _OTEL_COLLECTOR_ENDPOINT: ''
+  _ORCHESTRATE_AGENT_URL: ''
+  _ENABLE_TRACING: 'False'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+timeout: 1200s

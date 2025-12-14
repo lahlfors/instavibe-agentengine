@@ -11,8 +11,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from google.genai.types import GenerationConfig
-from google.generativeai import GenerativeModel
+from google import genai
+from google.genai import types
 
 # Import the UserIntent enum defined in ``agents.orchestrate.agent``
 # Using a relative import to avoid circular dependencies at runtime.
@@ -20,6 +20,7 @@ from enum import Enum
 
 class UserIntent(str, Enum):
     PLAN = "PLAN"
+    POST_PLAN_EVENT = "POST_PLAN_EVENT"
     SOCIAL = "SOCIAL"
     PLATFORM = "PLATFORM"
     UNKNOWN = "UNKNOWN"
@@ -32,15 +33,17 @@ class IntentClassifier:
 
     Parameters
     ----------
-    model_client: GenerativeModel
-        An instantiated ``GenerativeModel`` (e.g. Gemini‑2.5‑flash) that the
-        orchestrator already creates in its ``__post_init__``.  The classifier
-        re‑uses this client so that model configuration (temperature, etc.) stays
-        consistent across the codebase.
+    Parameters
+    ----------
+    model_client: genai.Client
+        An instantiated ``google.genai.Client`` configured for Vertex AI.
+    model_name: str
+        The name of the model to use (e.g. "gemini-2.5-flash").
     """
 
-    def __init__(self, model_client: Any):
+    def __init__(self, model_client: Any, model_name: str):
         self._model_client = model_client
+        self._model_name = model_name
         if not self._model_client:
             logger.warning("IntentClassifier initialized without a model client.")
 
@@ -59,28 +62,36 @@ class IntentClassifier:
         if "CREATE EVENT PLAN" in stripped_input:
             logger.info("IntentClassifier: Fast-path matched 'CREATE EVENT PLAN' -> PLAN")
             return UserIntent.PLAN
+        if "POST PLAN EVENT" in stripped_input:
+            logger.info("IntentClassifier: Fast-path matched 'POST PLAN EVENT' -> POST_PLAN_EVENT")
+            return UserIntent.POST_PLAN_EVENT
             
         logger.info("IntentClassifier: No fast-path match, delegating to LLM...")
         
         prompt = f"""
         Classify the following user request into exactly one category:
         1. PLAN: Requests to plan an event, night out, party, itinerary, or suggestions for activities.
-        2. SOCIAL: Requests to check social media, friends' posts, or what friends are doing.
-        3. PLATFORM: Requests to post to the platform, create events, invite friends, or share plans.
+        2. POST_PLAN_EVENT: Requests to post an event that has already been planned.
+        3. SOCIAL: Requests to check social media, friends' posts, or what friends are doing.
+        4. PLATFORM: Requests to post to the platform, create events, invite friends, or share plans.
         
         User Request: "{user_input}"
         
-        Output ONLY the category name (PLAN, SOCIAL, or PLATFORM). If it doesn't fit, output UNKNOWN.
+        Output ONLY the category name (PLAN, POST_PLAN_EVENT, SOCIAL, or PLATFORM). If it doesn't fit, output UNKNOWN.
         """
         try:
-            generation_config = GenerationConfig(
-                response_mime_type="text/plain",
-                temperature=0.0,  # deterministic output
-            )
-            response = await self._model_client.generate_content_async(
-                prompt, generation_config=generation_config
+            # Use google.genai.Client
+            response = await self._model_client.models.generate_content(
+                model=self._model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="text/plain",
+                    temperature=0.0,
+                )
             )
             text = response.text.strip().upper()
+            if "POST_PLAN_EVENT" in text:
+                return UserIntent.POST_PLAN_EVENT
             if "PLAN" in text:
                 return UserIntent.PLAN
             if "SOCIAL" in text:

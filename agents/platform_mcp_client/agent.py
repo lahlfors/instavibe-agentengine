@@ -1,11 +1,17 @@
 import os
 import asyncio
+import uuid
 from google.adk.agents import Agent
 import sys
 import logging
 from typing import Any, Dict, List, Tuple, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
+
+# Agent Card support for A2A discovery
+# Removed inline Agent Card support - now handled by A2aAgent deployment
+create_platform_agent_card = None
+serve_agent_card_as_query_response = None
 
 # 2. FIX: Import GenerativeModel for the resource leak fix
 from google.generativeai import GenerativeModel
@@ -91,6 +97,11 @@ class PlatformMCPClientAgent(DynamicToolAgent):
         # This import is now at the top of the file
         setup_observability(endpoint_override=self.otel_collector_endpoint)
 
+        # Initialize model_client if missing (critical for unpickled agents)
+        if not self.model_client and self.model:
+             logger.info(f"Initializing model_client for {self.model}")
+             self.model_client = GenerativeModel(self.model)
+
         if self._mcp_tools:
             logger.info("MCP Tools already loaded.")
             return
@@ -156,15 +167,45 @@ class PlatformMCPClientAgent(DynamicToolAgent):
             raise
         return self
 
-    # The DynamicToolAgent base class provides a `tools` property.
-    # After loading MCP tools we sync them to the base list.
     def _sync_tools(self) -> None:
         self._dynamic_tools = self._mcp_tools
 
-    def query(self, **kwargs):
-        """The entry point for the reasoning engine."""
-        # The base Agent's entry point is __call__
-        return self(**kwargs)
+    def query(self, input: str, **kwargs):
+        """
+        Synchronous wrapper for streaming tool execution.
+        The 'input' argument is explicitly named so Vertex AI adds it to the API schema.
+        """
+        # Removed inline Agent Card handling - now served by A2aAgent at .well-known endpoint
+        # Normal query processing
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Create invocation context with invocation_id
+            ctx = InvocationContext(
+                user_content=types.Content(parts=[types.Part(text=message_text)]),
+                session=None,
+                invocation_id=str(uuid.uuid4()),
+                metadata=kwargs
+            )
+            
+            # Get the async generator from _run_async_impl
+            async_gen = self._run_async_impl(ctx)
+            
+            # Bridge: synchronously iterate over async generator and collect events
+            response_events = []
+            while True:
+                try:
+                    event = loop.run_until_complete(async_gen.__anext__())
+                    response_events.append(event)
+                except StopAsyncIteration:
+                    break
+            
+            return response_events
+            
+        finally:
+            loop.close()
 
 # MCP address can be set via environment variable or passed during deployment
 # Using empty string as default allows the agent to be pickled/unpickled

@@ -2,13 +2,10 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: 0.0.0.0:8080
       http:
         endpoint: 0.0.0.0:4318
 
-extensions:
-  health_check:
-    endpoint: "0.0.0.0:${PORT}"
 
 processors:
   batch:
@@ -29,11 +26,13 @@ exporters:
       endpoint: "dns:///cloudtrace.googleapis.com:443"
     metric:
       service_resource_labels: false
+    log:
+      default_log_name: "instavibe-logs"
   debug:
     verbosity: detailed
 
 service:
-  extensions: [health_check]
+  extensions: []
   pipelines:
     traces:
       receivers: [otlp]

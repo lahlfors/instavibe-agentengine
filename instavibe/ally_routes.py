@@ -3,7 +3,7 @@ import json
 import traceback 
 import logging # Added for logging
 from opentelemetry import trace
-from introvertally import call_agent_for_plan, post_plan_event
+from .introvertally import call_agent_for_plan, post_plan_event
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def get_all_people_for_ally_page():
     """
     # Import here to avoid circular dependencies at module load time
     # and ensure app.py's db and run_query are initialized.
-    from app import db as main_app_db, run_query as main_app_run_query
+    from .app import db as main_app_db, run_query as main_app_run_query
 
     if not main_app_db:
         print("Error in ally_routes.get_all_people_for_ally_page: main_app_db is not available from app.py.")

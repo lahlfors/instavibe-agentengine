@@ -1,0 +1,72 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_IMAGE_PATH}'
+      - '-f'
+      - 'agents/platform_mcp_client/Dockerfile'
+      - '.'
+    id: 'build-image'
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_IMAGE_PATH}'
+    id: 'push-image'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_IMAGE_PATH}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '300'
+      - '--concurrency'
+      - '80'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--service-account'
+      - '${_SERVICE_ACCOUNT}'
+      - '--set-env-vars'
+      - 'GOOGLE_CLOUD_PROJECT=${_GOOGLE_CLOUD_PROJECT},CLOUD_RUN_REGION=${_CLOUD_RUN_REGION},COMMON_GEMINI_MODEL=${_GEMINI_MODEL},PLANNER_AGENT_URL=${_PLANNER_AGENT_URL},SOCIAL_AGENT_URL=${_SOCIAL_AGENT_URL},PLATFORM_MCP_CLIENT_AGENT_URL=${_PLATFORM_MCP_CLIENT_AGENT_URL},ORCHESTRATE_AGENT_URL=${_ORCHESTRATE_AGENT_URL},OTEL_COLLECTOR_ENDPOINT=${_OTEL_COLLECTOR_ENDPOINT},MCP_SERVER_ADDRESS=${_MCP_SERVER_ADDRESS},SERVICE_URL=${_PLATFORM_MCP_CLIENT_AGENT_URL}'
+      - '--verbosity=debug'
+    id: 'deploy-cloudrun'
+
+substitutions:
+  _SERVICE_NAME: 'platform-mcp-client-agent'
+  _REGION: 'us-central1'
+  _IMAGE_PATH: 'us-central1-docker.pkg.dev/${PROJECT_ID}/instavibe-images/platform-mcp-client-agent:latest'
+  _GEMINI_MODEL: 'gemini-2.0-flash-exp'
+  _SERVICE_ACCOUNT: ''
+  _PLANNER_AGENT_URL: ''
+  _SOCIAL_AGENT_URL: ''
+  _PLATFORM_MCP_CLIENT_AGENT_URL: ''
+  _ORCHESTRATE_AGENT_URL: ''
+  _OTEL_COLLECTOR_ENDPOINT: ''
+  _MCP_SERVER_ADDRESS: ''
+  _GOOGLE_CLOUD_PROJECT: ''
+  _CLOUD_RUN_REGION: ''
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+timeout: 1200s

@@ -28,7 +28,7 @@ class VertexAdkProxy:
     this proxy defers ALL initialization until the first query on the server.
     """
 
-    def __init__(self, agent: AdkAgentType):
+    def __init__(self, agent: AdkAgentType, env_vars: Optional[Dict[str, str]] = None):
         """
         LIGHTWEIGHT initialization for pickleability.
         
@@ -37,12 +37,44 @@ class VertexAdkProxy:
         
         Args:
             agent: The ADK agent to wrap
+            env_vars: Environment variables to set on the server-side runtime
         """
         # Create the real AdkApp internally (lightweight, picklable)
         self._internal_app = AdkApp(agent=agent)
+        self._env_vars = env_vars or {}
         
         # Track initialization state
         self._is_initialized = False
+        
+        # CRITICAL FIX: Apply environment variables IMMEDIATELY if we're on the server
+        # Detect server environment by checking for Reasoning Engine-specific env vars
+        import os
+        if os.getenv("K_SERVICE") or os.getenv("REASONING_ENGINE_ID"):
+            # We're on the server! Apply env vars NOW
+            if self._env_vars:
+                logger.info(f"🔥🔥🔥 __init__: Detected server environment, applying {len(self._env_vars)} environment variables...")
+                for key, value in self._env_vars.items():
+                    os.environ[key] = value
+                    logger.info(f"  🔥 Set {key}={value[:50]}...")
+                logger.info("🔥🔥🔥 __init__: Environment variables applied successfully!")
+    
+    def __setstate__(self, state):
+        """Called when unpickling on the server. Apply env vars IMMEDIATELY."""
+        # Restore the object's state
+        self.__dict__.update(state)
+        
+        # CRITICAL: Apply environment variables IMMEDIATELY upon unpickling
+        # This runs on the server BEFORE any other methods are called
+        if hasattr(self, '_env_vars') and self._env_vars:
+            import os
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"🔥 __setstate__: Applying {len(self._env_vars)} environment variables during unpickling...")
+            for key, value in self._env_vars.items():
+                os.environ[key] = value
+                logger.info(f"  🔥 Set {key}={value[:50]}...")
+            logger.info("🔥 __setstate__: Environment variables applied successfully!")
+
 
     def _ensure_app_ready(self):
         """
@@ -53,37 +85,52 @@ class VertexAdkProxy:
         created during client-side initialization.
         """
         if not self._is_initialized:
-            logger.info("Lazily initializing AdkApp on the server...")
+            logger.info("🚀 Lazily initializing AdkApp on the server...")
+            logger.info(f"🔍 DEBUG: _env_vars keys: {list(self._env_vars.keys()) if self._env_vars else 'None'}")
+            
+            # Apply environment variables if provided
+            if self._env_vars:
+                import os
+                logger.info(f"🔧 Applying {len(self._env_vars)} environment variables...")
+                for key, value in self._env_vars.items():
+                    os.environ[key] = value
+                    logger.info(f"  ✓ Set {key}={value[:50]}...")
+            else:
+                logger.warning("⚠️ No environment variables to apply!")
+            
+            # Call set_up() on the underlying agent if it has one
+            # This is critical for agents like OrchestrateServiceAgent that need
+            # to initialize connections after environment variables are set
+            logger.info(f"🔍 DEBUG: _internal_app type: {type(self._internal_app)}")
+            logger.info(f"🔍 DEBUG: hasattr(_internal_app, 'agent'): {hasattr(self._internal_app, 'agent')}")
+            
+            if hasattr(self._internal_app, 'agent'):
+                logger.info(f"🔍 DEBUG: _internal_app.agent type: {type(self._internal_app.agent)}")
+                logger.info(f"🔍 DEBUG: hasattr(_internal_app.agent, 'set_up'): {hasattr(self._internal_app.agent, 'set_up')}")
+                
+                if hasattr(self._internal_app.agent, 'set_up'):
+                    logger.info(f"📞 Calling set_up() on underlying agent: {self._internal_app.agent.__class__.__name__}")
+                    self._internal_app.agent.set_up()
+                else:
+                    logger.warning(f"⚠️ Agent {self._internal_app.agent.__class__.__name__} has no set_up() method")
+            else:
+                logger.warning("⚠️ _internal_app has no 'agent' attribute!")
+            
+            logger.info("📞 Calling _internal_app.set_up()...")
             self._internal_app.set_up()
             self._is_initialized = True
-            logger.info("AdkApp initialized.")
-
-    def _ensure_app_ready(self):
-        """
-        Lazy initialization hook for the Picklable A2A Protocol.
+            logger.info("✅ AdkApp initialized.")
+        else:
+            logger.info("ℹ️ AdkApp already initialized, skipping...")
         
-        This method hydrates the internal app (creating runners, locks, 
-        session services, and A2A client connections) ONLY when running 
-        inside the remote container, NOT during pickle/upload.
-        
-        This is critical for multi-agent workflows where a supervisor agent
-        needs to connect to worker agents. If we initialized connections in
-        __init__, the supervisor couldn't be pickled.
-        
-        Returns:
-            The initialized internal AdkApp instance
-        """
-        if not self._is_initialized:
-            # NOW we can safely create thread locks, gRPC channels, etc.
-            # because we're running on the server, not in the deployment script
-            self._internal_app.set_up()
-            self._is_initialized = True
         return self._internal_app
+
 
     def query(
         self,
         *,
-        message: Union[str, Dict[str, Any]] = "",
+        input: Union[str, Dict[str, Any], None] = None,
+        message: Union[str, Dict[str, Any], None] = None,
         user_id: str = "default-user",
         session_id: Optional[str] = None,
         run_config: Optional[Dict[str, Any]] = None,
@@ -101,7 +148,8 @@ class VertexAdkProxy:
         3. Bridges async implementation to sync interface
         
         Args:
-            message: The query message (str or dict)
+            input: The input string (preferred, standard Vertex AI parameter name)
+            message: Alternative parameter name for backward compatibility
             user_id: User identifier (default: "default-user")
             session_id: Optional session ID
             run_config: Optional run configuration
@@ -110,9 +158,25 @@ class VertexAdkProxy:
         Yields:
             Events from the agent's async stream
         """
+        # Normalize input/message - prefer 'input' if provided
+        # Vertex AI passes the Struct as a dict to the 'input' parameter
+        # If we received {"input": "prompt"}, then input variable is {"input": "prompt"}
+        # We need to extract the inner string.
+        raw_input = input if input is not None else message
+        
+        actual_message = ""
+        if isinstance(raw_input, dict) and 'input' in raw_input:
+            actual_message = raw_input['input']
+        elif raw_input is not None:
+            actual_message = raw_input
+        else:
+            actual_message = ""
+        
         # 1. Warm up the app (Connect to sub-agents/databases NOW)
         app = self._ensure_app_ready()
         
+        logger.info(f"VertexAdkProxy: invoking app.async_stream_query with message='{actual_message}'")
+
         # 2. Handle Event Loop (Robustly)
         import nest_asyncio
         nest_asyncio.apply()
@@ -126,11 +190,17 @@ class VertexAdkProxy:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
+        # Filter out 'stream' argument if present, as it's a client-side SDK flag
+        # and not accepted by the underlying Runner.run_async
+        kwargs.pop('stream', None)
+
         # 3. Call the internal async method
+        # Note: session_id and user_id are only relevant for stateful agents (like Orchestrate)
+        # Specialist agents should not use sessions, so we pass None if not provided
         async_gen = app.async_stream_query(
-            message=message,
-            user_id=user_id,
-            session_id=session_id,
+            message=actual_message,
+            user_id=user_id,  # Always pass the user_id (defaults to "default-user")
+            session_id=None,  # Always None for specialist agents to avoid "Invalid Session" errors
             run_config=run_config,
             **kwargs
         )
@@ -154,6 +224,7 @@ class VertexAdkProxy:
                         author=agent_name,
                         content=chunk.content if hasattr(chunk, 'content') else None,
                         actions=chunk.actions if hasattr(chunk, 'actions') else None,
+                        invocation_id=chunk.invocation_id if hasattr(chunk, 'invocation_id') else None,
                     )
                 
                 yield chunk
@@ -225,46 +296,95 @@ def deploy_adk_agent_engine(
     requirements: List[str],
     extra_packages: List[str],
     force_update: bool = False,
+    env_vars: Optional[Dict[str, str]] = None,
+    gcs_dir_name: Optional[str] = None,
 ) -> Optional[ReasoningEngine]:
-    """ Deploys or updates a Reasoning Engine. If force_update is True, deletes existing engine first. """
+    """ 
+    Deploys a Reasoning Engine. 
+    If force_update is True (default for this script), it deletes ALL existing engines 
+    with the same display name first to ensure a clean state.
+    """
 
     vertexai.init(project=project, location=location)
 
     logger.info(f"Wrapping ADK agent '{agent_object.name}' in VertexAdkProxy for deployment.")
     try:
-        app = VertexAdkProxy(agent=agent_object)
+        app = VertexAdkProxy(agent=agent_object, env_vars=env_vars)
     except Exception as e:
         logger.error(f"Failed to create VertexAdkProxy: {e}", exc_info=True)
         raise
 
-    logger.info(f"Checking for existing Reasoning Engine: '{display_name}'")
-    existing_agent = find_existing_reasoning_engine(
-        display_name=display_name, project=project, location=location
-    )
-
-    if existing_agent:
-        if force_update:
-            logger.info(f"Force update requested. Deleting existing engine: {existing_agent.resource_name}")
-            try:
-                existing_agent.delete()
-                logger.info("Existing engine deleted successfully.")
-                existing_agent = None # Clear it so we create a new one
-            except Exception as e:
-                logger.error(f"Failed to delete existing engine: {e}")
-                # We might want to raise here, or try to create anyway (which might fail if name conflict, but RE names are IDs)
-                # Usually REs are identified by ID, but we look up by display name.
-                # If delete fails, we probably shouldn't proceed, but let's try.
-        else:
-            logger.info(f"Found existing engine: {existing_agent.resource_name}. Reusing it.")
-            return existing_agent
+    if force_update:
+        logger.info(f"Force update requested. Checking for existing Reasoning Engines: '{display_name}'")
+        
+        try:
+            # List all engines
+            filters = f'display_name="{display_name}"'
+            existing_agents = ReasoningEngine.list(filter=filters, project=project, location=location)
+            
+            if existing_agents:
+                logger.info(f"Found {len(existing_agents)} existing agents to delete.")
+                
+                # Get access token for REST API calls
+                import subprocess
+                import requests
+                
+                token_result = subprocess.run(
+                    ["gcloud", "auth", "print-access-token"],
+                    capture_output=True,
+                    text=True
+                )
+                access_token = token_result.stdout.strip()
+                
+                for agent in existing_agents:
+                    logger.info(f"Deleting existing engine: {agent.resource_name}...")
+                    try:
+                        # Extract ID from resource name
+                        # projects/{project}/locations/{location}/reasoningEngines/{id}
+                        parts = agent.resource_name.split('/')
+                        engine_id = parts[5]
+                        
+                        # Use REST API with force=true to delete child resources
+                        url = f"https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/reasoningEngines/{engine_id}"
+                        headers = {"Authorization": f"Bearer {access_token}"}
+                        params = {"force": "true"}
+                        
+                        response = requests.delete(url, headers=headers, params=params)
+                        
+                        if response.status_code == 200:
+                            logger.info(f"✅ Deleted {agent.resource_name} successfully")
+                        else:
+                            logger.warning(f"⚠️ Failed to delete {agent.resource_name}: {response.status_code} - {response.text}")
+                            
+                        # Rate limit: 10 writes/min = 1 per 6 seconds
+                        # We sleep briefly to be safe, though usually we don't have that many to delete if this runs regularly
+                        time.sleep(6)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to delete existing engine {agent.resource_name}: {e}")
+            else:
+                logger.info("No existing agents found. Proceeding with creation.")
+                
+        except Exception as e:
+            logger.error(f"Error during cleanup of existing agents: {e}", exc_info=True)
+            # Proceed anyway, creation might still work or fail if quota exceeded
 
     logger.info(f"Creating new Reasoning Engine for {display_name}...")
     try:
+        # Prepare kwargs for create()
+        create_kwargs = {
+            "requirements": requirements,
+            "extra_packages": extra_packages,
+            "display_name": display_name,
+        }
+        # Only add gcs_dir_name if supported (check SDK version or just try)
+        # Assuming it is supported as per user request
+        if gcs_dir_name:
+             create_kwargs["gcs_dir_name"] = gcs_dir_name
+
         remote_agent = ReasoningEngine.create(
             app,
-            requirements=requirements,
-            extra_packages=extra_packages,
-            display_name=display_name,
+            **create_kwargs
         )
         
         logger.info(f"Successfully created: {remote_agent.resource_name}")

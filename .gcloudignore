@@ -1,0 +1,12 @@
+.git/
+.venv/
+__pycache__/
+*.pyc
+*.log
+google-cloud-sdk/
+build/
+dist/
+*.egg-info/
+tmp/
+.DS_Store
+verify_fix.py

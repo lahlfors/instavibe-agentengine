@@ -9,7 +9,7 @@ import humanize
 import uuid
 import traceback
 from dateutil import parser
-from ally_routes import ally_bp
+from .ally_routes import ally_bp
 from agents.common.observability import setup_observability
 from opentelemetry import trace
 
@@ -76,11 +76,7 @@ def get_social_agent():
 def get_platform_mcp_client_agent():
     return _get_agent_client_by_display_name("Platform MCP Client Agent")
 
-# Initialize the Orchestrate Agent for Introvert Ally feature
-from introvertally import init_agent_engine
-logger.info("Initializing Orchestrate Agent for Introvert Ally...")
-init_agent_engine(project_id=PROJECT, location=LOCATION)
-logger.info("Orchestrate Agent initialization complete.")
+
 
 
 # --- Spanner Configuration ---

@@ -5,7 +5,7 @@ import httpx
 from typing import Optional, Dict, Any, AsyncGenerator
 from google.auth import default
 from google.auth.transport.requests import Request
-from google.adk.agents import Agent, InvocationContext
+from google.adk.agents import Agent as AdkAgent, InvocationContext
 from google.genai.types import Content, Part
 from google.adk.events import Event
 
@@ -34,25 +34,19 @@ class AgentCard:
 async def fetch_agent_card(resource_name: str) -> AgentCard:
     """
     Fetches and adapts the Agent Card from a Vertex AI Reasoning Engine resource.
-    
-    Since Vertex AI RE doesn't serve /.well-known/agent.json, we:
-    1. Fetch the resource definition via Vertex AI API
-    2. Adapt it into an Agent Card structure
     """
     logger.info(f"Fetching Agent Card for: {resource_name}")
     
     # 1. Parse Resource Name
-    # projects/{project}/locations/{location}/reasoningEngines/{id}
     try:
         parts = resource_name.split('/')
-        project_id = parts[1]
+        # projects/{project}/locations/{location}/reasoningEngines/{id}
+        # 0        1         2          3          4                5
         location = parts[3]
-        resource_id = parts[5]
     except IndexError:
         raise ValueError(f"Invalid resource name format: {resource_name}")
 
     # 2. Fetch Resource Definition via Vertex AI API
-    # We use Google Auth to make an authenticated request
     credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
     if not credentials.valid:
         credentials.refresh(Request())
@@ -72,7 +66,6 @@ async def fetch_agent_card(resource_name: str) -> AgentCard:
         re_data = response.json()
         
     # 3. Adapt to Agent Card
-    # We synthesize an Agent Card based on the RE metadata
     card_data = {
         "name": re_data.get("displayName", resource_name),
         "description": re_data.get("description", "Vertex AI Reasoning Engine"),
@@ -94,7 +87,7 @@ async def fetch_agent_card(resource_name: str) -> AgentCard:
     logger.info(f"Synthesized Agent Card for {resource_name}")
     return AgentCard(card_data)
 
-def validate_agent_card(card: AgentCard, expected_project: Optional[str] = None):
+def validate_agent_card(card: AgentCard):
     """
     Implements Zero Trust validation logic.
     """
@@ -113,8 +106,6 @@ def validate_agent_card(card: AgentCard, expected_project: Optional[str] = None)
         
     logger.info("Agent Card validation passed.")
 
-from google.adk.agents import Agent as AdkAgent
-
 class GovernedReasoningEngineAgent(AdkAgent):
     """
     A client for Vertex AI Reasoning Engines that implements the Governed A2A flow.
@@ -126,7 +117,6 @@ class GovernedReasoningEngineAgent(AdkAgent):
     _client: Optional[httpx.AsyncClient] = None
     
     def __init__(self, resource_name: str, name: str, **kwargs):
-        # Initialize Pydantic model
         super().__init__(resource_name=resource_name, name=name, **kwargs)
         self._client = None
         
@@ -157,81 +147,105 @@ class GovernedReasoningEngineAgent(AdkAgent):
 
     async def run_async(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """
-        Executes the task using the governed flow.
+        Executes the task using the governed flow with robust stream handling.
         """
         if not self.agent_card:
             await self.initialize()
-            
+
         # 3. Authorization (Acquire Token)
         credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
         if not credentials.valid:
             credentials.refresh(Request())
-            
+
         headers = {
             "Authorization": f"Bearer {credentials.token}",
             "Content-Type": "application/json"
         }
-        
+
         # 4. Task Execution (Vertex AI :query)
         endpoint = self.agent_card.endpoint_url
-        
+
         # Extract user prompt from context
         user_prompt = ""
         if ctx.user_content and ctx.user_content.parts:
             user_prompt = ctx.user_content.parts[0].text
-            
+
+        # Prepare Payload (Standard input schema)
+        # REMOVED: "config" key that caused the unexpected keyword argument error
         payload = {
-            "message": user_prompt
-            # We could pass session_id etc if needed
+            "input": {
+                "input": user_prompt
+            }
         }
-        
-        logger.info(f"Sending governed request to {self.name} at {endpoint}")
-        
+
+        logger.info(f"Streaming request to {self.name} at {endpoint}")
+
         try:
-            response = await self._client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            
-            # 5. Response Processing
-            # Vertex AI returns a list of events/chunks
-            # We need to stream them back as ADK Events
-            
-            # Note: The :query endpoint might return a single JSON response or stream
-            # For simplicity, we assume standard JSON response for now (non-streaming HTTP)
-            # If we need streaming, we'd use stream=True and parse SSE/JSON-stream
-            
-            data = response.json()
-            
-            # The response from :query is typically a list of events/objects
-            # We iterate and yield them
-            if isinstance(data, list):
-                for item in data:
-                    # Convert to ADK Event if possible, or wrap text
-                    if isinstance(item, dict):
-                        # Try to extract text
-                        text = None
-                        if 'content' in item and 'parts' in item['content']:
-                             text = item['content']['parts'][0].get('text')
-                        elif 'output' in item:
-                             text = str(item['output'])
-                             
-                        if text:
+            # 1. Open the stream context
+            async with self._client.stream("POST", endpoint, headers=headers, json=payload, timeout=90.0) as response:
+                
+                # 2. Check for Errors FIRST (The Unhappy Path)
+                if response.status_code != 200:
+                    # Explicitly read the error body from the stream
+                    error_body = await response.aread()
+                    error_text = error_body.decode()
+                    
+                    logger.error(f"Vertex AI Error {response.status_code}: {error_text}")
+                    yield Event(
+                        invocation_id=ctx.invocation_id,
+                        author=self.name,
+                        content=Content(parts=[Part(text=f"Error {response.status_code}: {error_text}")])
+                    )
+                    return  # Stop processing
+
+                # 3. Process Success (The Happy Path)
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue  # Skip keep-alive newlines
+
+                    try:
+                        # Vertex AI often returns "data: {...}" for SSE
+                        clean_line = line.removeprefix("data: ").strip()
+
+                        if clean_line == "[DONE]":
+                            break
+
+                        data = json.loads(clean_line)
+
+                        # Extract text based on standard schemas
+                        text_chunk = None
+
+                        # Check for ADK Event format
+                        if 'content' in data:
                             yield Event(
                                 invocation_id=ctx.invocation_id,
                                 author=self.name,
-                                content=Content(parts=[Part(text=text)])
+                                content=Content(**data.get('content', {}))
                             )
-            else:
-                # Single object
-                yield Event(
-                    invocation_id=ctx.invocation_id,
-                    author=self.name,
-                    content=Content(parts=[Part(text=str(data))])
-                )
-                
+                            continue
+
+                        # Check for standard Reasoning Engine format
+                        elif 'output' in data:
+                            text_chunk = str(data['output'])
+
+                        # Fallback
+                        else:
+                            text_chunk = str(data)
+
+                        if text_chunk:
+                            yield Event(
+                                invocation_id=ctx.invocation_id,
+                                author=self.name,
+                                content=Content(parts=[Part(text=text_chunk)])
+                            )
+
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse stream line: {line}")
+
         except Exception as e:
-            logger.error(f"Task Execution Failure: {e}")
+            logger.error(f"Stream Connection Failure: {e}", exc_info=True)
             yield Event(
                 invocation_id=ctx.invocation_id,
                 author=self.name,
-                content=Content(parts=[Part(text=f"Error: {e}")])
+                content=Content(parts=[Part(text=f"Connection Error: {e}")])
             )

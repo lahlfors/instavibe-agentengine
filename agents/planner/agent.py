@@ -1,8 +1,23 @@
 import os
 import asyncio
+import uuid
+import logging
+from typing import Optional, Any, AsyncGenerator
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
+from google.genai import types
+import vertexai
+from vertexai.generative_models import GenerativeModel, GenerationConfig
 from opentelemetry import trace
+
+# Agent Card support for A2A discovery
+# Removed inline Agent Card support - now handled by A2aAgent deployment
+# from agents.common.secure_a2a import create_planner_agent_card, serve_agent_card_as_query_response
+create_planner_agent_card = None
+serve_agent_card_as_query_response = None
+
 try:
     from agents.common.observability import setup_observability
 except ImportError:
@@ -10,16 +25,9 @@ except ImportError:
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from agents.common.observability import setup_observability
-import logging
-from google.generativeai import GenerativeModel # Added import
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event
-from typing import AsyncGenerator
-from google.genai import types
+
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
-
-from typing import Optional, Any
 
 class PlannerAgent(LlmAgent):
     display_name: Optional[str] = None
@@ -29,39 +37,99 @@ class PlannerAgent(LlmAgent):
     def __post_init__(self):
         super().__post_init__()
         if self.model:
+            # Initialize Vertex AI
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "laah-genai")
+            location = os.getenv("CLOUD_RUN_REGION", "us-central1")
+            vertexai.init(project=project_id, location=location)
             self.model_client = GenerativeModel(self.model)
         else:
             print("WARNING: PlannerAgent initialized without a model name.")
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """This is the main, streaming entry point for the agent."""
+        logger.info(f"Entering _run_async_impl for {self.name}")
+        
+        # Debug logging for tools state
+        try:
+            logger.info(f"Type of self.tools: {type(self.tools)}")
+            logger.info(f"Value of self.tools: {self.tools}")
+            if hasattr(self, '_tools'):
+                logger.info(f"Type of self._tools: {type(self._tools)}")
+                logger.info(f"Value of self._tools: {self._tools}")
+            else:
+                logger.info("self._tools does not exist")
+        except Exception as e:
+            logger.error(f"Error inspecting tools: {e}", exc_info=True)
+        
+        # Extract invocation_id from context
+        invocation_id = ctx.invocation_id
+        
         if not self.model_client:
-            yield Event(author=self.name, content=types.Content(parts=[types.Part(text="Model client not initialized")]))
+            yield Event(
+                invocation_id=invocation_id,
+                author=self.name, 
+                content=types.Content(parts=[types.Part(text="Model client not initialized")])
+            )
             return
 
         # This reuses the single, shared client
-        prompt_content = ctx.user_content
+        # Extract text from ctx.user_content (google.genai.types) for compatibility 
+        # with self.model_client (google.generativeai)
+        prompt_text = ""
+        if ctx.user_content and ctx.user_content.parts:
+            for part in ctx.user_content.parts:
+                if hasattr(part, 'text') and part.text:
+                    prompt_text += part.text + "\n"
         
         # Configure JSON mode to guarantee structured output
-        from google.genai.types import GenerateContentConfig
-        
-        generation_config = GenerateContentConfig(
+        generation_config = GenerationConfig(
             response_mime_type="application/json",
             temperature=0.7
         )
         
         response = await self.model_client.generate_content_async(
-            prompt_content,
-            config=generation_config
+            [prompt_text],  # Vertex AI expects a list
+            generation_config=generation_config
         )
 
-        # Yield the full response event
-        yield Event(author=self.name, content=response.candidates[0].content)
+        # Debugging logging for TypeError
+        try:
+            content_obj = response.candidates[0].content
+            logger.info(f"Content object type: {type(content_obj)}")
+            if hasattr(content_obj, 'parts'):
+                logger.info(f"Content parts type: {type(content_obj.parts)}")
+                try:
+                    logger.info(f"Length of content parts: {len(content_obj.parts)}")
+                except TypeError as te:
+                    logger.error(f"Error getting len of content.parts: {te}", exc_info=True)
+                    logger.info(f"content_obj.parts is: {content_obj.parts}")
+                    logger.info(f"dir(content_obj): {dir(content_obj)}")
+            else:
+                logger.warning("Content object has no 'parts' attribute")
 
-    async def __async_set_up(self, **kwargs):
+            # Yield the full response event with invocation_id
+            yield Event(
+                invocation_id=invocation_id,
+                author=self.name, 
+                content=content_obj
+            )
+        except Exception as e:
+            logger.error(f"Error inspecting response content: {e}", exc_info=True)
+            raise
+
+    async def _async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
         os.environ["OTEL_SERVICE_NAME"] = self.name
         setup_observability(endpoint_override=self.otel_collector_endpoint)
+        
+        # Initialize model_client if missing (critical for unpickled agents)
+        if not self.model_client and self.model:
+             logger.info(f"Initializing model_client for {self.model}")
+             project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "laah-genai")
+             location = os.getenv("CLOUD_RUN_REGION", "us-central1")
+             vertexai.init(project=project_id, location=location)
+             self.model_client = GenerativeModel(self.model)
+              
         logger.info(f"{self.__class__.__name__} async setup complete.")
 
     def set_up(self, **kwargs):
@@ -75,47 +143,55 @@ class PlannerAgent(LlmAgent):
             raise
         return self
 
-    def query(self, **kwargs):
+    def query(self, input: str, **kwargs):
         """
         Synchronous wrapper for streaming.
         SDK's inspect module detects 'def' + 'yield' and registers as mode='stream'.
+        The 'input' argument is explicitly named so Vertex AI adds it to the API schema.
         """
+        # Removed inline Agent Card handling - now served by A2aAgent at .well-known endpoint
+        # The A2aAgent deployment automatically exposes the Agent Card
+        
+        # Normal query processing
+        yield f"Planning event: {input}"
+        
         with tracer.start_as_current_span("a2a.planner.plan") as span:
+            # Simplified: input is now directly a string from the client
+            message_text = input
+
             span.set_attribute("agent.name", self.name)
-            span.set_attribute("user.prompt", kwargs.get("message", ""))
+            span.set_attribute("user.prompt", message_text)
             span.set_attribute("request.data", str(kwargs))
-            logger.info(f"Handling plan request: {kwargs}")
+            logger.info(f"Handling plan request: input={message_text} kwargs={kwargs}")
 
             try:
-                # Create event loop for bridging async to sync
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # Use asyncio.run() to bridge sync to async safely
+                # This handles loop creation/cleanup automatically and is safer in threaded contexts
                 
-                try:
-                    # Create invocation context from kwargs
-                    # LlmAgent's __call__ creates this, we need to replicate it
-                    ctx = InvocationContext(
-                        user_content=types.Content(parts=[types.Part(text=kwargs.get("message", ""))]),
-                        session=None,
-                        metadata=kwargs
-                    )
-                    
-                    # Get the async generator from _run_async_impl
-                    async_gen = self._run_async_impl(ctx)
-                    
-                    # Bridge: synchronously iterate over async generator and yield events
-                    while True:
-                        try:
-                            event = loop.run_until_complete(async_gen.__anext__())
-                            # Yield the event for streaming
-                            yield event
-                        except StopAsyncIteration:
-                            break
-                    
-                    span.set_status(trace.StatusCode.OK)
-                    
-                finally:
-                    loop.close()
+                # Create invocation context from kwargs
+                ctx = InvocationContext(
+                    user_content=types.Content(parts=[types.Part(text=message_text)]),
+                    session=None,
+                    invocation_id=str(uuid.uuid4()),
+                    metadata=kwargs
+                )
+                
+                async def run_and_collect():
+                    events = []
+                    async for event in self._run_async_impl(ctx):
+                        events.append(event)
+                    return events
+
+                # Run the async generator and collect all events
+                # Note: This collects all events in memory before yielding. 
+                # For true streaming in sync context, we'd need a different approach, 
+                # but asyncio.run is blocking anyway.
+                events = asyncio.run(run_and_collect())
+                
+                for event in events:
+                    yield event
+                
+                span.set_status(trace.StatusCode.OK)
                     
             except Exception as e:
                 span.record_exception(e)
@@ -124,6 +200,8 @@ class PlannerAgent(LlmAgent):
                 raise
 
 def create_agent(model: str):
+    logger.info(f"[PLANNER] create_agent called with model={model}")
+    print(f"[PLANNER DEBUG] create_agent called with model={model}")
     AGENT_NAME = "planner_agent"
     AGENT_INSTRUCTION = '''
 You are a specialized event planning agent that creates fun, personalized plans.
@@ -211,4 +289,6 @@ Output JSON:
     )
 
 gemini_model = os.getenv("COMMON_GEMINI_MODEL", "gemini-2.5-flash")
+print(f"[PLANNER MODULE] Creating root_agent with model={gemini_model}")
+logger.info(f"[PLANNER MODULE] Creating root_agent with model={gemini_model}")
 root_agent = create_agent(model=gemini_model)

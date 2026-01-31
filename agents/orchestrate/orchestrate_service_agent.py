@@ -17,11 +17,13 @@ from typing import Optional
 from agents.app.utils.communication import call_agent_capability
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.tools import preload_memory_tool
-from common.observability import setup_observability
+from pydantic import PrivateAttr
+import sys
+sys.path.append('.')
+from common.agent_gateway import AgentGateway
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 
 class OrchestrateServiceAgent(Agent):
     """
@@ -34,6 +36,15 @@ class OrchestrateServiceAgent(Agent):
     orchestrator_agent: Optional[Agent] = None
     memory_service: Optional[VertexAiMemoryBankService] = None
     otel_collector_endpoint: Optional[str] = None
+    _gateway: Optional[AgentGateway] = PrivateAttr(default=None)
+
+    @property
+    def gateway(self):
+        return self._gateway
+
+    @gateway.setter
+    def gateway(self, value):
+        self._gateway = value
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -46,8 +57,8 @@ class OrchestrateServiceAgent(Agent):
 
     async def _async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
-        os.environ["OTEL_SERVICE_NAME"] = self.name
-        setup_observability(endpoint_override=self.otel_collector_endpoint)
+
+        self.gateway = AgentGateway(service_name=self.name, otel_endpoint_override=self.otel_collector_endpoint)
 
         if self.orchestrator_agent:
             return
@@ -145,7 +156,8 @@ class OrchestrateServiceAgent(Agent):
         """
         Finds a remote agent and invokes one of its capabilities.
         """
-        with tracer.start_as_current_span(f"{agent_name}.{action}") as span:
+        async def _send_task_impl():
+            span = trace.get_current_span()
             span.set_attribute("agent.name", self.name)
             span.set_attribute(ai_semconv.GEN_AI_OPERATION_NAME, "send_task")
             span.set_attribute(ai_semconv.GEN_AI_TOOL_NAME, "send_task")
@@ -166,10 +178,16 @@ class OrchestrateServiceAgent(Agent):
                 return response_data
             except Exception as e:
                 span.set_attribute(ai_semconv.OUTPUT_VALUE, json.dumps({"error": str(e)}))
+                # Re-raise to let gateway handle logging/exception recording if needed,
+                # OR return error dict as per original logic.
+                # Original logic returned dict.
                 return {"error": f"An error occurred while sending task to '{agent_name}': {e}"}
 
+        return await self.gateway.execute_async(f"{agent_name}.{action}", _send_task_impl)
+
     def query(self, input_text: str) -> str:
-        with tracer.start_as_current_span("orchestrate_agent.query") as span:
+        def _query_impl():
+            span = trace.get_current_span()
             span.set_attribute("agent.name", self.name)
             span.set_attribute(ai_semconv.GEN_AI_SYSTEM, "google_vertexai")
             span.set_attribute(ai_semconv.GEN_AI_REQUEST_MODEL, self.orchestrator_agent.model)
@@ -211,6 +229,8 @@ class OrchestrateServiceAgent(Agent):
                 span.set_attribute(ai_semconv.GEN_AI_USAGE_OUTPUT_TOKENS, len(response_text) // 4)
 
             return response_text
+
+        return self.gateway.execute_sync("orchestrate_agent.query", _query_impl)
 
 OrchestrateServiceAgent.model_rebuild()
 

@@ -10,6 +10,7 @@ import sys
 sys.path.append('.')
 from google.adk.tools.mcp_tool import mcp_toolset, StreamableHTTPConnectionParams
 from pydantic import PrivateAttr
+from common.agent_gateway import AgentGateway
 
 # Load environment variables from the root .env file
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
@@ -34,6 +35,11 @@ class PlatformMCPClientAgent(Agent):
     api_key_secret: Optional[str] = None
     otel_collector_endpoint: Optional[str] = None
     _mcp_tools: List[Any] = PrivateAttr(default_factory=list)
+    _gateway: Optional[AgentGateway] = PrivateAttr(default=None)
+
+    @property
+    def gateway(self):
+        return self._gateway
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -52,6 +58,7 @@ class PlatformMCPClientAgent(Agent):
     def __setstate__(self, state):
         self.__dict__.update(state)
         self._mcp_tools = []
+        self._gateway = None # Re-init gateway in set_up
 
     def __reduce__(self):
         """
@@ -65,47 +72,47 @@ class PlatformMCPClientAgent(Agent):
 
     async def _async_set_up(self, **kwargs):
         logger.info(f"--- Running _async_set_up for {self.__class__.__name__} ---")
-        os.environ["OTEL_SERVICE_NAME"] = self.name
-        from common.observability import setup_observability
-        setup_observability(endpoint_override=self.otel_collector_endpoint)
+
+        self._gateway = AgentGateway(service_name=self.name, otel_endpoint_override=self.otel_collector_endpoint)
 
         if self._mcp_tools:
             logger.info("MCP Tools already loaded.")
             return
 
-        with tracer.start_as_current_span("PlatformMCPClientAgent.set_up") as main_span:
+        async def _setup_impl():
+            span = trace.get_current_span()
             logger.info(f"Starting set_up - Fetching tools from MCP server at {self.mcp_server_address}")
-            main_span.add_event("Fetching MCP tools")
-            try:
-                api_key = None
-                if self.api_key_secret:
-                    api_key = self._get_api_key(self.api_key_secret)
+            span.add_event("Fetching MCP tools")
 
-                headers = {"Accept": "application/json"}
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
+            api_key = None
+            if self.api_key_secret:
+                api_key = self._get_api_key(self.api_key_secret)
 
-                conn_params = StreamableHTTPConnectionParams(
-                    url=self.mcp_server_address,
-                    headers=headers,
-                )
-                logger.info(f"Connecting to MCP server with params: {conn_params}")
+            headers = {"Accept": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
 
-                toolset = await mcp_toolset.MCPToolset.from_server(conn_params)
-                self._mcp_tools = list(toolset)
+            conn_params = StreamableHTTPConnectionParams(
+                url=self.mcp_server_address,
+                headers=headers,
+            )
+            logger.info(f"Connecting to MCP server with params: {conn_params}")
 
-                tool_names = [t.name for t in self._mcp_tools]
-                logger.info(f"Successfully loaded {len(self._mcp_tools)} tools from MCP server: {tool_names}")
-                main_span.set_attribute("mcp.tool_count", len(self._mcp_tools))
-                main_span.set_attribute("mcp.tool_names", ",".join(tool_names))
-                main_span.set_status(Status(StatusCode.OK))
+            toolset = await mcp_toolset.MCPToolset.from_server(conn_params)
+            self._mcp_tools = list(toolset)
 
-            except Exception as e:
-                logger.error(f"Error fetching tools from MCP server in set_up: {e}", exc_info=True)
-                main_span.record_exception(e)
-                main_span.set_status(Status(StatusCode.ERROR, str(e)))
-                self._mcp_tools = []
-                logger.warning("MCP Tools initialization failed, agent will have no tools from this source.")
+            tool_names = [t.name for t in self._mcp_tools]
+            logger.info(f"Successfully loaded {len(self._mcp_tools)} tools from MCP server: {tool_names}")
+            span.set_attribute("mcp.tool_count", len(self._mcp_tools))
+            span.set_attribute("mcp.tool_names", ",".join(tool_names))
+
+        try:
+            await self.gateway.execute_async("PlatformMCPClientAgent.set_up", _setup_impl)
+        except Exception as e:
+            # Error logging and tracing exception is handled by gateway.
+            # We just need to handle the fallback.
+            self._mcp_tools = []
+            logger.warning("MCP Tools initialization failed, agent will have no tools from this source.")
 
     def set_up(self, **kwargs):
         """A synchronous wrapper for the async setup."""

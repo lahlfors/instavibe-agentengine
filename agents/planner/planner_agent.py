@@ -6,23 +6,28 @@ from typing import Any, Dict, Optional, AsyncGenerator
 from google.adk.agents import LlmAgent, InvocationContext
 from google.adk.events import Event
 from google.adk.tools import google_search
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
+from pydantic import PrivateAttr
 import sys
 sys.path.append('.')
-from common.observability import setup_observability
+from common.agent_gateway import AgentGateway
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-tracer = trace.get_tracer(__name__)
 
 class PlannerAgent(LlmAgent):
     """An agent that helps users plan a night out."""
+    _gateway: Optional[AgentGateway] = PrivateAttr(default=None)
 
     def set_up(self):
         """Initializes the agent and sets up observability."""
-        setup_observability()
+        # Observability is now set up by AgentGateway in __init__
+        pass
+
+    @property
+    def gateway(self):
+        return self._gateway
 
     def __init__(self, name: str = "planner_agent") -> None:
+        self._gateway = AgentGateway(service_name=name)
         super().__init__(
             name=name,
             model="gemini-2.0-flash-001",
@@ -65,28 +70,5 @@ class PlannerAgent(LlmAgent):
         )
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        with tracer.start_as_current_span("PlannerAgent.run") as span:
-            try:
-                async for event in super()._run_async_impl(ctx):
-                    if event.is_final_response():
-                        if event.content and event.content.parts:
-                            final_output = event.content.parts[0].text
-                            span.set_attribute("gen_ai.assistant.message", final_output)
-                        if event.usage_metadata:
-                            prompt_tokens = event.usage_metadata.prompt_token_count
-                            completion_tokens = event.usage_metadata.candidates_token_count
-                            total_tokens = event.usage_metadata.total_token_count
-                            input_cost = float(os.getenv("GEMINI_2_0_FLASH_INPUT_COST", "0.10"))
-                            output_cost = float(os.getenv("GEMINI_2_0_FLASH_OUTPUT_COST", "0.30"))
-                            cost = (prompt_tokens * input_cost / 1000000) + (completion_tokens * output_cost / 1000000)
-                            span.set_attribute("gen_ai.usage.prompt_tokens", prompt_tokens)
-                            span.set_attribute("gen_ai.usage.completion_tokens", completion_tokens)
-                            span.set_attribute("gen_ai.usage.total_tokens", total_tokens)
-                            span.set_attribute("gen_ai.usage.cost", cost)
-                    yield event
-                span.set_status(Status(StatusCode.OK))
-            except Exception as e:
-                logging.error(f"Error during PlannerAgent execution: {e}", exc_info=True)
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                span.record_exception(e)
-                raise
+        async for event in self.gateway.execute_async_generator("PlannerAgent.run", super()._run_async_impl, ctx):
+            yield event
